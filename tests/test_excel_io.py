@@ -8,31 +8,64 @@ from app.excel_io import (
     ESTIMATE_SHEET_NAME,
     NUMBER_FORMAT,
     QUANTITY_SHEET_NAME,
-    calc_qty_formula,
+    ROW_HEIGHT,
+    concat_formula,
+    decided_qty_formula,
     gongryang_formula,
-    gongryang_sum_formula,
     read_unit_price_table,
     save_result_workbook,
+    source_qty_formula,
 )
-from app.estimate_parse import is_section_row, lookup_key
-from app.pumsam import PUMSAM_SHEET_NAME
+from app.estimate_parse import first_data_row_number, is_section_row, load_estimate_sheet, lookup_key
+from app.pumsam import PUMSAM_SHEET_NAME, import_pumsam_file
 
 
 def _write_estimate(path: Path, *, with_merge: bool = False) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "BHU기존내역서"
-    sheet.append(["BHU 기존내역서"])
-    sheet.append([None, None, None, None, "재료비", None, "노무비"])
-    sheet.append(["명칭", "규격", "단위", "수량", "단가", "금액", "단가"])
-    sheet.append(["1. 옥외전기공사", None, None, None, None, None, None])
-    sheet.append(["경질비닐전선관_지중", "HI 16 mm", "M", 10, 0, 0, 0])
-    sheet.append([None if with_merge else "경질비닐전선관_지중", "HI 22 mm", "M", 8, 0, 0, 0])
-    sheet.append(["경질비닐전선관_노출", "HI 16 mm", "M", 4, 0, 0, 0])
+    sheet.title = "내역서"
+    sheet["A1"] = "[내역서 ]"
+    sheet["A2"] = "명칭"
+    sheet["B2"] = "규격"
+    sheet["C2"] = "단위"
+    sheet["D2"] = "수량"
+    sheet["E2"] = "재료비"
+    sheet["G2"] = "노무비"
+    sheet["E3"] = "단가"
+    sheet["F3"] = "금액"
+    sheet["G3"] = "단가"
+    sheet["H3"] = "금액"
+    sheet.merge_cells("A2:A3")
+    sheet.merge_cells("B2:B3")
+    sheet.merge_cells("C2:C3")
+    sheet.merge_cells("D2:D3")
+    sheet.merge_cells("E2:F2")
+    sheet.merge_cells("G2:H2")
+    sheet["A4"] = "1. 옥외전기공사"
+    sheet["A5"] = "경질비닐전선관_지중"
+    sheet["B5"] = "HI 16 mm"
+    sheet["C5"] = "M"
+    sheet["D5"] = 10
+    sheet["E5"] = 200
+    sheet["F5"] = "=D5*E5"
+    sheet["A6"] = None if with_merge else "경질비닐전선관_지중"
+    sheet["B6"] = "HI 22 mm"
+    sheet["C6"] = "M"
+    sheet["D6"] = 8
+    sheet["A7"] = "경질비닐전선관_노출"
+    sheet["B7"] = "HI 16 mm"
+    sheet["C7"] = "M"
+    sheet["D7"] = 4
     if with_merge:
-        sheet.merged_cells.add("A5:A6")
+        sheet.merge_cells("A5:A6")
     workbook.save(path)
     workbook.close()
+
+
+def _fill_rgb(cell) -> str:
+    color = cell.fill.fgColor
+    rgb = getattr(color, "rgb", None)
+    return str(rgb).upper() if rgb is not None else ""
 
 
 def test_section_row_detection() -> None:
@@ -47,8 +80,8 @@ def test_read_only_skips_title_keeps_items(tmp_path: Path) -> None:
     rows = read_unit_price_table(source)
     assert source.read_bytes() == before
     assert rows[0][0] == "명칭"
-    assert rows[1][0] == "1. 옥외전기공사"
-    assert rows[2][0] == "경질비닐전선관_지중"
+    assert rows[2][0] == "1. 옥외전기공사"
+    assert rows[3][0] == "경질비닐전선관_지중"
 
 
 def test_merged_name_fills_without_rewriting_source(tmp_path: Path) -> None:
@@ -57,47 +90,108 @@ def test_merged_name_fills_without_rewriting_source(tmp_path: Path) -> None:
     before = source.read_bytes()
     rows = read_unit_price_table(source)
     assert source.read_bytes() == before
-    assert rows[2][0] == "경질비닐전선관_지중"
     assert rows[3][0] == "경질비닐전선관_지중"
+    assert rows[4][0] == "경질비닐전선관_지중"
 
 
-def test_three_sheets_formulas_and_pumsam_lookup(tmp_path: Path) -> None:
+def test_full_grid_keeps_original_row_numbers(tmp_path: Path) -> None:
+    source = tmp_path / "내역서.xlsx"
+    _write_estimate(source)
+    estimate = load_estimate_sheet(source)
+    assert estimate.filled[0][0] == "[내역서 ]"
+    assert first_data_row_number(estimate.filled) == 4
+    assert estimate.filled[4][0] == "경질비닐전선관_지중"
+    assert estimate.filled[4][3] == 10
+
+
+def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> None:
     source = tmp_path / "내역서.xlsx"
     _write_estimate(source)
     dest_dir = tmp_path / "결과"
     dest = save_result_workbook(source, dest_dir=dest_dir)
 
     assert dest.name.startswith("공량산출_결과_")
-    assert source.read_bytes()  # still exists
+    assert dest.parent == dest_dir
 
     result = load_workbook(dest, data_only=False)
     try:
         assert result.sheetnames == [ESTIMATE_SHEET_NAME, PUMSAM_SHEET_NAME, QUANTITY_SHEET_NAME]
         estimate = result[ESTIMATE_SHEET_NAME]
-        assert estimate["A1"].value == "명칭"
-        assert estimate["D3"].value == 10
+        assert estimate["A1"].value == "[내역서 ]"
+        assert estimate["A2"].value == "명칭"
+        assert estimate["D5"].value == 10
+        assert estimate["F5"].value == "=D5*E5"
+        assert estimate.row_dimensions[5].height == ROW_HEIGHT
+        assert estimate["A5"].alignment.wrap_text is not True
+        assert "FFFFFF" in _fill_rgb(estimate["A2"])
+        assert str(estimate.sheet_properties.tabColor.rgb).upper().endswith("FFFFFF")
 
         pumsam = result[PUMSAM_SHEET_NAME]
-        assert pumsam["A1"].value == "검색키"
-        assert pumsam["B2"].value == "경질비닐전선관_지중"
-        assert str(pumsam["A2"].value).startswith("=SUBSTITUTE")
+        assert pumsam["A1"].value == "품목"
+        assert pumsam["E2"].value == "명칭"
+        assert pumsam["B3"].value == "경질비닐전선관_지중"
+        assert str(pumsam["A3"].value).startswith("=CONCATENATE")
+        assert pumsam.row_dimensions[3].height == ROW_HEIGHT
+        assert "FFFFFF" in _fill_rgb(pumsam["A1"])
 
         qty = result[QUANTITY_SHEET_NAME]
-        assert [qty.cell(4, c).value for c in range(1, 13)][4] == "결정수량"
+        assert qty["A1"].value is None
+        assert qty["B2"].value == "명칭"
+        assert qty["E3"].value == "결정수량"
+        assert qty["B4"].value == "1. 옥외전기공사"
         assert qty["B5"].value == "경질비닐전선관_지중"
         assert qty["C5"].value == "HI 16 mm"
-        assert qty["E5"].value == "='내역서'!D3"
+        assert qty["A5"].value == concat_formula(5)
+        assert qty["E5"].value == decided_qty_formula(5)
         assert qty["F5"].value == 0
-        assert qty["G5"].value == calc_qty_formula(5)
+        assert qty["G5"].value == source_qty_formula("D", 5)
+        assert qty["G5"].value == "='내역서'!D5"
         assert "품셈표" in str(qty["H5"].value)
         assert "VLOOKUP" in str(qty["I5"].value)
         assert qty["K5"].value == gongryang_formula(5)
-        assert qty["E5"].number_format == NUMBER_FORMAT
-        assert qty["K8"].value == gongryang_sum_formula(7)
-        assert qty["A8"].value == "합계"
-        # 공종 제목 행은 공량산출서에 안 들어간다.
-        names = [qty.cell(r, 2).value for r in range(5, 8)]
-        assert "1. 옥외전기공사" not in names
+        assert qty["K5"].number_format == NUMBER_FORMAT
+        assert qty.row_dimensions[5].height == ROW_HEIGHT
+        assert qty["B5"].alignment.wrap_text is not True
+        assert "원본" not in str(qty["A2"].value or "")
+        assert "FFFFFF" in _fill_rgb(qty["B2"])
+        names = [qty.cell(r, 2).value for r in range(4, 8)]
+        assert "1. 옥외전기공사" in names
         assert lookup_key("경질비닐전선관_지중", "HI 16 mm") == "경질비닐전선관_지중HI16mm"
     finally:
         result.close()
+
+
+def test_merged_source_does_not_error(tmp_path: Path) -> None:
+    source = tmp_path / "내역서_병합.xlsx"
+    _write_estimate(source, with_merge=True)
+    dest = save_result_workbook(source, dest_dir=tmp_path / "out")
+    result = load_workbook(dest, data_only=False)
+    try:
+        qty = result[QUANTITY_SHEET_NAME]
+        assert qty["B5"].value == "경질비닐전선관_지중"
+        assert qty["B6"].value == "경질비닐전선관_지중"
+        assert qty["G6"].value == "='내역서'!D6"
+        estimate = result[ESTIMATE_SHEET_NAME]
+        assert estimate["A5"].value == "경질비닐전선관_지중"
+    finally:
+        result.close()
+
+
+def test_custom_dest_directory(tmp_path: Path) -> None:
+    source = tmp_path / "내역서.xlsx"
+    _write_estimate(source)
+    chosen = tmp_path / "내가지정한폴더"
+    dest = save_result_workbook(source, dest_dir=chosen)
+    assert dest.parent == chosen
+    assert dest.exists()
+
+
+def test_import_two_row_pumsam_sample() -> None:
+    sample = Path("/home/ubuntu/.cursor/projects/workspace/uploads/_______bfba.xlsx")
+    if not sample.exists():
+        return
+    rows = import_pumsam_file(sample)
+    names = {str(row.get("명칭")) for row in rows}
+    assert "경질비닐전선관_지중" in names
+    assert "경질비닐전선관_노출" in names
+    assert len(rows) >= 20

@@ -4,6 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QApplication
 
 from app.main_window import MainWindow
@@ -11,20 +12,29 @@ from app.paths import display_result_directory
 
 
 def test_run_button_requires_file_and_confirm(tmp_path) -> None:
+    QSettings("전기공사공량산출", "GongryangCalc").clear()
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     try:
         assert window.run_button.isEnabled() is False
         assert window.dest_edit.text() == display_result_directory()
+        assert window.dest_edit.isReadOnly() is False
+        assert window.browse_button.text() == "폴더 찾기"
+        assert window.source_edit.minimumHeight() >= 40
+        assert window.dest_edit.minimumHeight() >= 40
+        assert window.minimumWidth() >= 980
 
-        source = tmp_path / "단가대비표.xlsx"
+        source = tmp_path / "내역서.xlsx"
         source.write_bytes(b"unused")
         window._on_file_dropped(str(source))
         assert window.run_button.isEnabled() is False
         assert window.source_edit.text() == str(source)
 
+        chosen = tmp_path / "저장위치"
+        window.dest_edit.setText(str(chosen))
         window.confirm_box.setChecked(True)
         assert window.run_button.isEnabled() is True
+        assert window._chosen_dest_dir() == chosen
     finally:
         window.close()
         if app is not None:

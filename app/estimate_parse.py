@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,27 @@ HEADER_ALIASES = {
 
 HEADER_HINTS = ("명칭", "품명", "규격", "단위", "수량", "단가")
 SECTION_NAME = re.compile(r"^\s*\d+\s*[\.．]")
+SUBHEADER_TOKENS = {"단가", "금액", "할증", "할증%", "품셈", "공량", "산출수량", "결정수량"}
+MergeRange = tuple[int, int, int, int]
+
+
+@dataclass
+class EstimateSheet:
+    """원본 행 번호를 유지한 내역서. 병합은 메모리에서만 채운다."""
+
+    filled: SheetRows
+    raw: SheetRows
+    merges: list[MergeRange] = field(default_factory=list)
+
+    @property
+    def max_row(self) -> int:
+        return len(self.filled)
+
+    @property
+    def max_col(self) -> int:
+        if not self.filled:
+            return 0
+        return max(len(row) for row in self.filled)
 
 
 def normalize_header(value: Any) -> str:
@@ -55,6 +77,22 @@ def find_header_row(rows: SheetRows) -> int:
     return 0
 
 
+def header_row_span(rows: SheetRows, header_idx: int) -> int:
+    """2단 헤더(명칭 행 + 단가/금액·품셈 행)이면 2, 아니면 1."""
+    if header_idx + 1 >= len(rows):
+        return 1
+    next_tokens = [normalize_header(c) for c in rows[header_idx + 1]]
+    if any(token in SUBHEADER_TOKENS for token in next_tokens):
+        return 2
+    return 1
+
+
+def first_data_row_number(rows: SheetRows) -> int:
+    """데이터가 시작되는 엑셀 행 번호(1부터)."""
+    header_idx = find_header_row(rows)
+    return header_idx + header_row_span(rows, header_idx) + 1
+
+
 def is_section_row(name: Any, spec: Any, unit: Any) -> bool:
     """'1. 옥외전기공사' 같은 공종 제목 행."""
     name_text = str(name).strip() if name is not None else ""
@@ -74,31 +112,124 @@ def lookup_key(name: Any, spec: Any) -> str:
     return "".join(ch for ch in f"{left}{right}" if not ch.isspace())
 
 
-def read_workbook_first_sheet(source_path: Path) -> SheetRows:
+def concat_key(name: Any, spec: Any) -> str:
+    """엑셀 CONCATENATE(B,C) 와 같은 키. 가운데 공백은 유지한다."""
+    left = "" if name is None else str(name)
+    right = "" if spec is None else str(spec)
+    return f"{left}{right}"
+
+
+def collect_merge_ranges(sheet: Any) -> list[MergeRange]:
+    ranges: list[MergeRange] = []
+    try:
+        merged = getattr(sheet, "merged_cells", None)
+        if merged is None:
+            return ranges
+        for item in list(merged.ranges):
+            ranges.append((int(item.min_row), int(item.min_col), int(item.max_row), int(item.max_col)))
+    except Exception:
+        return ranges
+    return ranges
+
+
+def is_merge_top_left(row: int, col: int, merges: list[MergeRange]) -> bool:
+    for min_row, min_col, max_row, max_col in merges:
+        if min_row <= row <= max_row and min_col <= col <= max_col:
+            return row == min_row and col == min_col
+    return True
+
+
+def _raw_grid_from_sheet(sheet: Any) -> SheetRows:
+    max_row = sheet.max_row or 0
+    max_col = sheet.max_column or 0
+    if max_row <= 0 or max_col <= 0:
+        return []
+    grid: SheetRows = [[None] * max_col for _ in range(max_row)]
+    for row in sheet.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
+        for cell in row:
+            grid[cell.row - 1][cell.column - 1] = cell.value
+    return grid
+
+
+def _pick_estimate_sheet(workbook: Any) -> Any:
+    if not workbook.worksheets:
+        raise ValueError("엑셀에 시트가 없습니다.")
+    sheet = workbook.worksheets[0]
+    for candidate in workbook.worksheets:
+        title = str(candidate.title)
+        if "내역" in title:
+            return candidate
+    for candidate in workbook.worksheets:
+        title = str(candidate.title)
+        if "단가" in title:
+            return candidate
+    return sheet
+
+
+def _trim_trailing(grid: SheetRows) -> SheetRows:
+    """앞 빈 행은 남겨 행 번호를 유지하고, 뒤 빈 행·열만 자른다."""
+    if not grid:
+        return []
+    last_row = -1
+    last_col = 0
+    for r_idx, row in enumerate(grid):
+        for c_idx, value in enumerate(row, start=1):
+            if value is None:
+                continue
+            if isinstance(value, str) and not str(value).strip():
+                continue
+            last_row = r_idx
+            last_col = max(last_col, c_idx)
+    if last_row < 0:
+        return []
+    clipped = [list(row[:last_col]) for row in grid[: last_row + 1]]
+    return clipped
+
+
+def _open_workbook(source_path: Path):
+    from openpyxl import load_workbook
+
     path = Path(source_path)
     if not path.exists():
         raise FileNotFoundError(f"원본 파일을 찾을 수 없습니다: {path}")
     if not is_allowed_excel(path):
         raise ValueError("xlsx 또는 xlsm 파일만 읽을 수 있습니다.")
-
-    from openpyxl import load_workbook
-
     with path.open("rb") as handle:
-        workbook = load_workbook(filename=handle, data_only=True, keep_vba=False)
-        try:
-            if not workbook.worksheets:
-                raise ValueError("엑셀에 시트가 없습니다.")
-            sheet = workbook.worksheets[0]
-            for candidate in workbook.worksheets:
-                title = str(candidate.title)
-                if "내역" in title or "단가" in title:
-                    sheet = candidate
-                    break
-            grid = fill_merged_values(sheet)
-        finally:
-            workbook.close()
+        return load_workbook(filename=handle, data_only=False, keep_vba=False)
 
-    cleaned = trim_grid(grid)
+
+def load_estimate_sheet(source_path: Path) -> EstimateSheet:
+    """병합을 채운 전체 격자. 제목 행을 버리지 않아 원본 행 번호를 유지한다."""
+    workbook = _open_workbook(source_path)
+    try:
+        sheet = _pick_estimate_sheet(workbook)
+        merges = collect_merge_ranges(sheet)
+        raw = _trim_trailing(_raw_grid_from_sheet(sheet))
+        filled = _trim_trailing(fill_merged_values(sheet))
+    finally:
+        workbook.close()
+    if not filled:
+        raise ValueError("내역서에 읽을 수 있는 데이터가 없습니다.")
+    width = max(len(row) for row in filled)
+    raw_width = max((len(row) for row in raw), default=width)
+    width = max(width, raw_width)
+    filled = [list(row) + [None] * (width - len(row)) for row in filled]
+    raw = [list(row) + [None] * (width - len(row)) for row in raw]
+    while len(raw) < len(filled):
+        raw.append([None] * width)
+    while len(filled) < len(raw):
+        filled.append([None] * width)
+    return EstimateSheet(filled=filled, raw=raw, merges=merges)
+
+
+def read_full_grid(source_path: Path) -> SheetRows:
+    return load_estimate_sheet(source_path).filled
+
+
+def read_workbook_first_sheet(source_path: Path) -> SheetRows:
+    """헤더부터의 표. 테스트·품셈 추출용. 원본은 저장하지 않는다."""
+    filled = read_full_grid(source_path)
+    cleaned = trim_grid(filled)
     if not cleaned:
         raise ValueError("내역서에 읽을 수 있는 데이터가 없습니다.")
     header_idx = find_header_row(cleaned)

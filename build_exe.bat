@@ -61,7 +61,7 @@ if errorlevel 1 goto :fail
 echo.
 echo 완료: %CD%\dist\GongryangCalc.exe
 echo 이 파일을 파이썬이 없는 사무용 PC에 복사해 실행하면 됩니다.
-echo 결과는 C:\전기공사_공량산출_결과 에 저장됩니다.
+echo 결과는 창에서 고른 폴더에 저장됩니다. 기본 후보는 C:\전기공사_공량산출_결과 입니다.
 pause
 exit /b 0
 

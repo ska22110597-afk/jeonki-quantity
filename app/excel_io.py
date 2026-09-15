@@ -11,16 +11,19 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.estimate_parse import (
-    SheetRows,
+    EstimateSheet,
     find_column_index,
+    find_header_row,
     find_quantity_column,
+    first_data_row_number,
+    is_merge_top_left,
     is_section_row,
+    load_estimate_sheet,
     read_named_sheet_rows,
     read_workbook_first_sheet,
 )
 from app.paths import assert_safe_save, build_result_path
 from app.pumsam import (
-    PUMSAM_HEADERS,
     PUMSAM_SHEET_NAME,
     PumsamRow,
     import_pumsam_file,
@@ -32,170 +35,235 @@ from app.pumsam import (
 
 ESTIMATE_SHEET_NAME = "내역서"
 QUANTITY_SHEET_NAME = "공량산출서"
-UNIT_PRICE_SHEET_NAME = ESTIMATE_SHEET_NAME  # 이전 테스트 이름 호환
+UNIT_PRICE_SHEET_NAME = ESTIMATE_SHEET_NAME
 
-QTY_TITLE_ROW = 1
-QTY_INFO_ROW = 2
-QTY_NOTE_ROW = 3
-QTY_HEADER_ROW = 4
-QTY_DATA_START_ROW = 5
+ROW_HEIGHT = 20
+PUMSAM_DATA_START = 3
+QTY_HEADER_ROW = 2
+QTY_SUBHEADER_ROW = 3
 
-QUANTITY_HEADERS = [
-    "번호",
-    "명칭",
-    "규격",
-    "단위",
-    "결정수량",
-    "수량할증 %",
-    "산출수량",
-    "노무 명칭",
-    "품셈",
-    "노무 할증 %",
-    "공량",
-    "품셈근거",
-]
+WHITE = PatternFill("solid", fgColor="FFFFFF")
+HEADER_FONT = Font(name="맑은 고딕", size=11, bold=False, color="000000")
+BODY_FONT = Font(name="맑은 고딕", size=10, bold=False, color="000000")
+SECTION_FONT = Font(name="맑은 고딕", size=10, bold=True, color="000000")
+THIN = Border(
+    left=Side(style="thin", color="000000"),
+    right=Side(style="thin", color="000000"),
+    top=Side(style="thin", color="000000"),
+    bottom=Side(style="thin", color="000000"),
+)
+CENTER = Alignment(horizontal="center", vertical="center", wrap_text=False)
+LEFT = Alignment(horizontal="left", vertical="center", wrap_text=False)
+RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=False)
 
 NUMBER_FORMAT = "#,##0.000"
-SURCHARGE_FORMAT = "0.00"
-PERCENT_FORMAT = "0"
+QTY_FORMAT = "#,##0"
+MONEY_FORMAT = "#,##0"
+PERCENT_FORMAT = "0%"
+RATE_FORMAT = "0"
+PUMSAM_FORMAT = "0.000"
 
-HEADER_FILL_BLUE = PatternFill("solid", fgColor="BDD7EE")
-HEADER_FILL_GRAY = PatternFill("solid", fgColor="D9E2F3")
-HEADER_FILL_GREEN = PatternFill("solid", fgColor="C6EFCE")
-TITLE_FILL = PatternFill("solid", fgColor="D6EAF8")
-SUM_FILL = PatternFill("solid", fgColor="FFF2CC")
-ALT_FILL = PatternFill("solid", fgColor="F7F9FB")
-SECTION_FILL = PatternFill("solid", fgColor="9BC2E6")
-
-HEADER_FONT = Font(name="맑은 고딕", bold=True, color="1F4E79", size=11)
-TITLE_FONT = Font(name="맑은 고딕", bold=True, color="1F4E79", size=16)
-BODY_FONT = Font(name="맑은 고딕", size=10)
-SUM_FONT = Font(name="맑은 고딕", bold=True, size=11)
-THIN = Border(
-    left=Side(style="thin", color="7F8C8D"),
-    right=Side(style="thin", color="7F8C8D"),
-    top=Side(style="thin", color="7F8C8D"),
-    bottom=Side(style="thin", color="7F8C8D"),
-)
-CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-LEFT = Alignment(horizontal="left", vertical="center", wrap_text=True)
-RIGHT = Alignment(horizontal="right", vertical="center")
-
-KEY_FORMULA = '=SUBSTITUTE(SUBSTITUTE(B{row}&C{row}," ",""),"　","")'
-VLOOKUP = (
-    '=IFERROR(VLOOKUP(SUBSTITUTE(SUBSTITUTE($B{row}&$C{row}," ",""),"　",""),'
-    f"'{PUMSAM_SHEET_NAME}'!$A:$H,{{col}},FALSE),\"\")"
-)
+QTY_LAST_COL = 12
 
 
-def calc_qty_formula(row: int) -> str:
-    return f"=E{row}*(1+F{row}/100)"
+def concat_formula(row: int) -> str:
+    return f"=CONCATENATE(B{row},C{row})"
+
+
+def decided_qty_formula(row: int) -> str:
+    """결정수량 = TRUNC(산출수량 × (1+할증), 0). 샘플 E열."""
+    return f"=TRUNC(F{row}*G{row}+G{row},0)"
+
+
+def source_qty_formula(source_col_letter: str, row: int) -> str:
+    """산출수량 = 같은 행의 내역서 수량. 샘플 G열."""
+    return f"='{ESTIMATE_SHEET_NAME}'!{source_col_letter}{row}"
 
 
 def gongryang_formula(row: int) -> str:
-    return f'=IF(OR(G{row}="",I{row}="",G{row}*I{row}=0),"",G{row}*I{row}*(IF(J{row}="",100,J{row})/100))'
+    """공량 = 내역서 수량 × 품셈 × (할증%/100). 샘플 K열."""
+    return f'=IF(G{row}*I{row}=0,"",G{row}*I{row}*(J{row}/100))'
+
+
+def pumsam_vlookup(row: int, col: int, last_row: int) -> str:
+    return (
+        f'=IFERROR(VLOOKUP($A{row},'
+        f"'{PUMSAM_SHEET_NAME}'!$A${PUMSAM_DATA_START}:$H${last_row},{col},FALSE),\"\")"
+    )
+
+
+def labor_formula(row: int, last_row: int) -> str:
+    return pumsam_vlookup(row, 5, last_row)
+
+
+def pumsam_formula(row: int, last_row: int) -> str:
+    return pumsam_vlookup(row, 6, last_row)
+
+
+def labor_rate_formula(row: int, last_row: int) -> str:
+    return pumsam_vlookup(row, 7, last_row)
+
+
+def ref_formula(row: int, last_row: int) -> str:
+    return pumsam_vlookup(row, 8, last_row)
+
+
+# 이전 이름 호환
+def calc_qty_formula(row: int) -> str:
+    return decided_qty_formula(row)
 
 
 def gongryang_sum_formula(end_row: int) -> str:
-    return f"=SUM(K{QTY_DATA_START_ROW}:K{end_row})"
+    return f"=SUM(K{max(first_qty_data_row_fallback(), 4)}:K{end_row})"
 
 
-def decided_qty_formula(source_col_letter: str, source_row: int) -> str:
-    return f"='{ESTIMATE_SHEET_NAME}'!{source_col_letter}{source_row}"
+def first_qty_data_row_fallback() -> int:
+    return 4
 
 
-def labor_formula(row: int) -> str:
-    return VLOOKUP.format(row=row, col=5)
+def _apply_sheet_look(sheet: Worksheet, max_row: int, max_col: int) -> None:
+    sheet.sheet_properties.tabColor = "FFFFFF"
+    sheet.sheet_format.defaultRowHeight = ROW_HEIGHT
+    sheet.sheet_format.customHeight = True
+    for r in range(1, max(max_row, 1) + 1):
+        sheet.row_dimensions[r].height = ROW_HEIGHT
+        for c in range(1, max(max_col, 1) + 1):
+            cell = sheet.cell(row=r, column=c)
+            cell.fill = WHITE
+            align = cell.alignment
+            cell.alignment = Alignment(
+                horizontal=align.horizontal,
+                vertical="center",
+                wrap_text=False,
+            )
 
 
-def pumsam_formula(row: int) -> str:
-    return VLOOKUP.format(row=row, col=6)
+def _set_cell(
+    sheet: Worksheet,
+    row: int,
+    col: int,
+    value: Any,
+    *,
+    font: Font | None = None,
+    align: Alignment | None = None,
+    number_format: str | None = None,
+    border: bool = True,
+) -> None:
+    cell = sheet.cell(row=row, column=col, value=value)
+    cell.font = font or BODY_FONT
+    cell.fill = WHITE
+    cell.alignment = align or LEFT
+    if border:
+        cell.border = THIN
+    if number_format:
+        cell.number_format = number_format
 
 
-def labor_rate_formula(row: int) -> str:
-    return VLOOKUP.format(row=row, col=7)
+def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
+    filled = estimate.filled
+    raw = estimate.raw
+    merges = estimate.merges
+    max_row = estimate.max_row
+    max_col = min(max(estimate.max_col, 13), 20)
+    header_idx = find_header_row(filled)
+    name_idx = find_column_index(filled[header_idx], "명칭") if filled else None
+    spec_idx = find_column_index(filled[header_idx], "규격") if filled else None
+    unit_idx = find_column_index(filled[header_idx], "단위") if filled else None
+    data_start = first_data_row_number(filled) if filled else 2
 
+    for r_idx in range(1, max_row + 1):
+        source = raw[r_idx - 1] if r_idx - 1 < len(raw) else []
+        filled_row = filled[r_idx - 1] if r_idx - 1 < len(filled) else []
+        name = filled_row[name_idx] if name_idx is not None and name_idx < len(filled_row) else None
+        spec = filled_row[spec_idx] if spec_idx is not None and spec_idx < len(filled_row) else None
+        unit = filled_row[unit_idx] if unit_idx is not None and unit_idx < len(filled_row) else None
+        section = r_idx >= data_start and is_section_row(name, spec, unit) and name is not None
+        is_header = r_idx <= data_start - 1
 
-def ref_formula(row: int) -> str:
-    return VLOOKUP.format(row=row, col=8)
-
-
-def _display_width(text: str) -> int:
-    width = 0
-    for char in text:
-        width += 2 if ord(char) > 127 else 1
-    return width
-
-
-def _autosize_columns(sheet: Worksheet, min_width: float = 10, max_width: float = 28) -> None:
-    max_col = sheet.max_column or 1
-    max_row = sheet.max_row or 1
-    for col_idx in range(1, max_col + 1):
-        longest = min_width
-        for row_idx in range(1, max_row + 1):
-            value = sheet.cell(row=row_idx, column=col_idx).value
-            if value is None:
+        for c_idx in range(1, max_col + 1):
+            if not is_merge_top_left(r_idx, c_idx, merges):
+                cell = sheet.cell(row=r_idx, column=c_idx)
+                cell.fill = WHITE
+                cell.border = THIN
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
+                cell.font = HEADER_FONT if is_header else BODY_FONT
                 continue
-            text = str(value)
-            if text.startswith("="):
-                continue
-            longest = max(longest, min(_display_width(text) + 3, max_width))
-        sheet.column_dimensions[get_column_letter(col_idx)].width = longest
+            value = source[c_idx - 1] if c_idx - 1 < len(source) else None
+            font = HEADER_FONT if is_header else (SECTION_FONT if section and c_idx == 1 else BODY_FONT)
+            align = CENTER if is_header or c_idx in (3, 4) else LEFT
+            number_format = None
+            if r_idx >= data_start and isinstance(value, (int, float)):
+                number_format = MONEY_FORMAT
+                align = RIGHT
+            elif isinstance(value, str) and value.startswith("=") and c_idx >= 4:
+                number_format = MONEY_FORMAT
+                align = RIGHT
+            _set_cell(
+                sheet,
+                r_idx,
+                c_idx,
+                value,
+                font=font,
+                align=align,
+                number_format=number_format,
+            )
 
+    for min_row, min_col, max_r, max_c in merges:
+        if max_r > max_row or max_c > max_col:
+            continue
+        if min_row < 1 or min_col < 1:
+            continue
+        if min_row == max_r and min_col == max_c:
+            continue
+        try:
+            sheet.merge_cells(
+                start_row=min_row,
+                start_column=min_col,
+                end_row=min(max_r, max_row),
+                end_column=min(max_c, max_col),
+            )
+        except ValueError:
+            continue
 
-def _apply_thin_range(sheet: Worksheet, min_row: int, max_row: int, min_col: int, max_col: int) -> None:
-    for r in range(min_row, max_row + 1):
-        for c in range(min_col, max_col + 1):
-            sheet.cell(row=r, column=c).border = THIN
-
-
-def _write_estimate_sheet(sheet: Worksheet, rows: SheetRows) -> None:
-    header = rows[0] if rows else []
-    name_idx = find_column_index(header, "명칭")
-    spec_idx = find_column_index(header, "규격")
-    unit_idx = find_column_index(header, "단위")
-
-    for r_idx, row in enumerate(rows, start=1):
-        section = False
-        if r_idx > 1:
-            name = row[name_idx] if name_idx is not None and name_idx < len(row) else None
-            spec = row[spec_idx] if spec_idx is not None and spec_idx < len(row) else None
-            unit = row[unit_idx] if unit_idx is not None and unit_idx < len(row) else None
-            section = is_section_row(name, spec, unit)
-        for c_idx, value in enumerate(row, start=1):
-            cell = sheet.cell(row=r_idx, column=c_idx, value=value)
-            cell.border = THIN
-            cell.font = HEADER_FONT if r_idx == 1 else BODY_FONT
-            cell.alignment = CENTER if r_idx == 1 else LEFT
-            if r_idx == 1:
-                cell.fill = HEADER_FILL_BLUE
-            elif section:
-                cell.fill = SECTION_FILL
-            elif r_idx % 2 == 0:
-                cell.fill = ALT_FILL
-            if r_idx > 1 and isinstance(value, (int, float)):
-                cell.number_format = NUMBER_FORMAT
-                cell.alignment = RIGHT
-
-    if rows:
-        sheet.freeze_panes = "A2"
-        sheet.auto_filter.ref = sheet.dimensions
-        sheet.row_dimensions[1].height = 22
-    sheet.sheet_properties.tabColor = "5B9BD5"
-    _autosize_columns(sheet)
+    _apply_sheet_look(sheet, max_row, max_col)
+    sheet.column_dimensions["A"].width = 32
+    sheet.column_dimensions["B"].width = 18
+    sheet.column_dimensions["C"].width = 8
+    sheet.column_dimensions["D"].width = 10
+    for col in range(5, max_col + 1):
+        sheet.column_dimensions[get_column_letter(col)].width = 12
 
 
 def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
-    for c_idx, header_name in enumerate(PUMSAM_HEADERS, start=1):
-        cell = sheet.cell(row=1, column=c_idx, value=header_name)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL_GREEN
-        cell.alignment = CENTER
-        cell.border = THIN
+    last_col = 9
+    _set_cell(sheet, 1, 1, "품목", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 1, 2, "명칭", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 1, 3, "규격", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 1, 4, "단위", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 1, 5, "공량산출", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 1, 9, "비고", font=HEADER_FONT, align=CENTER)
+    for col in (6, 7, 8):
+        _set_cell(sheet, 1, col, None, font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 2, 5, "명칭", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 2, 6, "품셈", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 2, 7, "할증%", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, 2, 8, "품셈근거", font=HEADER_FONT, align=CENTER)
+    for col in (1, 2, 3, 4, 9):
+        _set_cell(sheet, 2, col, None, font=HEADER_FONT, align=CENTER)
+
+    sheet.merge_cells("A1:A2")
+    sheet.merge_cells("B1:B2")
+    sheet.merge_cells("C1:C2")
+    sheet.merge_cells("D1:D2")
+    sheet.merge_cells("E1:H1")
+    sheet.merge_cells("I1:I2")
+
+    last_data = PUMSAM_DATA_START - 1
     for offset, row in enumerate(rows):
-        excel_row = offset + 2
+        excel_row = PUMSAM_DATA_START + offset
+        last_data = excel_row
         values = [
-            KEY_FORMULA.format(row=excel_row),
+            concat_formula(excel_row),
             row.get("명칭"),
             row.get("규격"),
             row.get("단위"),
@@ -203,169 +271,190 @@ def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
             row.get("품셈"),
             row.get("할증%"),
             row.get("품셈근거"),
+            None,
         ]
         for c_idx, value in enumerate(values, start=1):
-            cell = sheet.cell(row=excel_row, column=c_idx, value=value)
-            cell.font = BODY_FONT
-            cell.border = THIN
-            cell.alignment = CENTER if c_idx in (3, 4, 7) else LEFT
-            if excel_row % 2 == 0:
-                cell.fill = ALT_FILL
+            align = CENTER if c_idx in (3, 4, 7) else LEFT
+            number_format = None
             if c_idx == 6:
-                cell.number_format = NUMBER_FORMAT
-                cell.alignment = RIGHT
+                number_format = PUMSAM_FORMAT
+                align = RIGHT
             elif c_idx == 7:
-                cell.number_format = PERCENT_FORMAT
-                cell.alignment = RIGHT
-    sheet.freeze_panes = "A2"
-    if rows:
-        sheet.auto_filter.ref = f"A1:H{len(rows) + 1}"
-    sheet.sheet_properties.tabColor = "548235"
-    _autosize_columns(sheet, min_width=12, max_width=24)
+                number_format = RATE_FORMAT
+                align = RIGHT
+            _set_cell(
+                sheet,
+                excel_row,
+                c_idx,
+                value,
+                font=BODY_FONT,
+                align=align,
+                number_format=number_format,
+            )
+
+    max_row = max(last_data, 2)
+    _apply_sheet_look(sheet, max_row, last_col)
+    sheet.column_dimensions["A"].width = 34
     sheet.column_dimensions["B"].width = 24
-    note = sheet.cell(
-        row=len(rows) + 3,
-        column=1,
-        value="행을 추가해 품셈을 계속 쌓으면 됩니다. 검색키(A열) 수식은 위 행을 복사하세요. 명칭+규격이 내역서와 같아야 공량산출서에 붙습니다.",
-    )
-    note.font = BODY_FONT
+    sheet.column_dimensions["C"].width = 16
+    sheet.column_dimensions["D"].width = 8
+    sheet.column_dimensions["E"].width = 12
+    sheet.column_dimensions["F"].width = 10
+    sheet.column_dimensions["G"].width = 10
+    sheet.column_dimensions["H"].width = 12
+    sheet.column_dimensions["I"].width = 10
+
+
+def _pick(row: list[Any], index: int | None) -> Any:
+    if index is None or index >= len(row):
+        return None
+    return row[index]
+
+
+def _write_quantity_header(sheet: Worksheet) -> None:
+    headers_row2 = {
+        2: "명칭",
+        3: "규격",
+        4: "단위",
+        5: "수량",
+        8: "공량산출",
+        12: "품셈근거",
+    }
+    for col in range(1, QTY_LAST_COL + 1):
+        _set_cell(sheet, QTY_HEADER_ROW, col, headers_row2.get(col), font=HEADER_FONT, align=CENTER)
+        _set_cell(sheet, QTY_SUBHEADER_ROW, col, None, font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 5, "결정수량", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 6, "할증", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 7, "산출수량", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 8, "명칭", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 9, "품셈", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 10, "할증%", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, QTY_SUBHEADER_ROW, 11, "공량", font=HEADER_FONT, align=CENTER)
+    sheet.merge_cells("B2:B3")
+    sheet.merge_cells("C2:C3")
+    sheet.merge_cells("D2:D3")
+    sheet.merge_cells("E2:G2")
+    sheet.merge_cells("H2:K2")
+    sheet.merge_cells("L2:L3")
 
 
 def _write_quantity_sheet(
     sheet: Worksheet,
-    estimate_rows: SheetRows,
-    source_name: str = "",
+    estimate: EstimateSheet,
+    pumsam_last_row: int,
 ) -> None:
-    header = estimate_rows[0] if estimate_rows else []
+    filled = estimate.filled
+    header_idx = find_header_row(filled) if filled else 0
+    header = filled[header_idx] if filled else []
     name_idx = find_column_index(header, "명칭")
     spec_idx = find_column_index(header, "규격")
     unit_idx = find_column_index(header, "단위")
     qty_idx = find_quantity_column(header)
-    qty_letter = get_column_letter(qty_idx + 1) if qty_idx is not None else None
+    qty_letter = get_column_letter(qty_idx + 1) if qty_idx is not None else "D"
+    data_start = first_data_row_number(filled) if filled else 4
 
-    last_col = len(QUANTITY_HEADERS)
-    sheet.merge_cells(start_row=QTY_TITLE_ROW, start_column=1, end_row=QTY_TITLE_ROW, end_column=last_col)
-    title = sheet.cell(row=QTY_TITLE_ROW, column=1, value="공량산출서")
-    title.font = TITLE_FONT
-    title.fill = TITLE_FILL
-    title.alignment = CENTER
-
-    sheet.merge_cells(start_row=QTY_INFO_ROW, start_column=1, end_row=QTY_INFO_ROW, end_column=last_col)
-    info = sheet.cell(
-        row=QTY_INFO_ROW,
-        column=1,
-        value=f"원본: {source_name}  |  E열=내역서 수량  |  H/I/J/L열=품셈표 VLOOKUP  |  공량=산출수량×품셈×(노무할증/100)",
-    )
-    info.font = BODY_FONT
-    info.alignment = LEFT
-
-    sheet.merge_cells(start_row=QTY_NOTE_ROW, start_column=1, end_row=QTY_NOTE_ROW, end_column=last_col)
-    note = sheet.cell(
-        row=QTY_NOTE_ROW,
-        column=1,
-        value="F열 수량할증은 % 숫자입니다. 예: 0 또는 5 (5%). 산출수량 = 결정수량×(1+수량할증/100)",
-    )
-    note.font = BODY_FONT
-    note.alignment = LEFT
-
-    for c_idx, header_name in enumerate(QUANTITY_HEADERS, start=1):
-        cell = sheet.cell(row=QTY_HEADER_ROW, column=c_idx, value=header_name)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL_GRAY
-        cell.alignment = CENTER
-        cell.border = THIN
-    sheet.row_dimensions[QTY_HEADER_ROW].height = 22
-
-    def pick(row: list[Any], index: int | None) -> Any:
-        if index is None or index >= len(row):
-            return None
-        return row[index]
-
-    dest_row = QTY_DATA_START_ROW
-    serial = 1
-    data_rows = estimate_rows[1:] if len(estimate_rows) > 1 else []
-    for source_row_number, source in enumerate(data_rows, start=2):
-        name = pick(source, name_idx)
-        spec = pick(source, spec_idx)
-        unit = pick(source, unit_idx)
-        if is_section_row(name, spec, unit):
-            continue
-        if name is None and spec is None:
-            continue
-
-        values = {
-            1: serial,
-            2: name,
-            3: spec,
-            4: unit,
-            5: decided_qty_formula(qty_letter, source_row_number) if qty_letter else None,
-            6: 0,
-            7: calc_qty_formula(dest_row),
-            8: labor_formula(dest_row),
-            9: pumsam_formula(dest_row),
-            10: labor_rate_formula(dest_row),
-            11: gongryang_formula(dest_row),
-            12: ref_formula(dest_row),
-        }
-        for col, value in values.items():
-            cell = sheet.cell(row=dest_row, column=col, value=value)
-            cell.font = BODY_FONT
-            cell.border = THIN
-            cell.alignment = CENTER if col in (1, 4) else LEFT
-            if dest_row % 2 == 0:
-                cell.fill = ALT_FILL
-            if col in (5, 7, 9, 11):
-                cell.number_format = NUMBER_FORMAT
-                cell.alignment = RIGHT
-            elif col == 6:
-                cell.number_format = SURCHARGE_FORMAT
-                cell.alignment = RIGHT
-            elif col == 10:
-                cell.number_format = PERCENT_FORMAT
-                cell.alignment = RIGHT
-        serial += 1
-        dest_row += 1
-
-    if dest_row == QTY_DATA_START_ROW:
-        for col in range(1, last_col + 1):
-            cell = sheet.cell(row=QTY_DATA_START_ROW, column=col, value=None)
-            cell.border = THIN
-            if col in (5, 7, 9, 11):
-                cell.number_format = NUMBER_FORMAT
-        last_data_row = QTY_DATA_START_ROW
+    _set_cell(sheet, 1, 1, None, border=False)
+    if data_start >= 4:
+        _write_quantity_header(sheet)
+        for col in range(1, QTY_LAST_COL + 1):
+            _set_cell(sheet, 1, col, None, border=False)
     else:
-        last_data_row = dest_row - 1
+        labels = ["", "명칭", "규격", "단위", "결정수량", "할증", "산출수량", "명칭", "품셈", "할증%", "공량", "품셈근거"]
+        for col, label in enumerate(labels, start=1):
+            _set_cell(sheet, 1, col, label or None, font=HEADER_FONT, align=CENTER)
 
-    sum_row = last_data_row + 1
-    for col in range(1, last_col + 1):
-        cell = sheet.cell(row=sum_row, column=col, value=None)
-        cell.border = THIN
-        cell.fill = SUM_FILL
-        cell.font = SUM_FONT
-    sheet.cell(row=sum_row, column=1, value="합계")
-    sum_cell = sheet.cell(row=sum_row, column=11, value=gongryang_sum_formula(last_data_row))
-    sum_cell.number_format = NUMBER_FORMAT
-    sum_cell.alignment = RIGHT
-    sum_cell.font = SUM_FONT
-    sum_cell.fill = SUM_FILL
+    last_row = max(data_start, len(filled), 3)
+    for excel_row in range(data_start, len(filled) + 1):
+        source = filled[excel_row - 1]
+        name = _pick(source, name_idx)
+        spec = _pick(source, spec_idx)
+        unit = _pick(source, unit_idx)
+        last_row = excel_row
+        if name is None and spec is None:
+            for col in range(1, QTY_LAST_COL + 1):
+                _set_cell(sheet, excel_row, col, None)
+            continue
 
-    _apply_thin_range(sheet, QTY_TITLE_ROW, QTY_HEADER_ROW, 1, last_col)
-    sheet.freeze_panes = "A5"
-    sheet.auto_filter.ref = f"A{QTY_HEADER_ROW}:{get_column_letter(last_col)}{last_data_row}"
-    sheet.sheet_properties.tabColor = "C45911"
-    _autosize_columns(sheet, min_width=12, max_width=22)
-    sheet.column_dimensions["B"].width = 24
-    sheet.column_dimensions["C"].width = 16
-    sheet.column_dimensions["H"].width = 14
-    sheet.column_dimensions["K"].width = 14
+        section = is_section_row(name, spec, unit)
+        _set_cell(sheet, excel_row, 1, concat_formula(excel_row), font=SECTION_FONT if section else BODY_FONT)
+        _set_cell(
+            sheet,
+            excel_row,
+            2,
+            name,
+            font=SECTION_FONT if section else BODY_FONT,
+            align=LEFT,
+        )
+        _set_cell(sheet, excel_row, 3, None if section else spec, font=BODY_FONT, align=LEFT)
+        _set_cell(sheet, excel_row, 4, None if section else unit, font=BODY_FONT, align=CENTER)
+
+        if section:
+            for col in range(5, QTY_LAST_COL + 1):
+                _set_cell(sheet, excel_row, col, None)
+            continue
+
+        _set_cell(
+            sheet,
+            excel_row,
+            5,
+            decided_qty_formula(excel_row),
+            align=RIGHT,
+            number_format=QTY_FORMAT,
+        )
+        _set_cell(sheet, excel_row, 6, 0, align=RIGHT, number_format=PERCENT_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            7,
+            source_qty_formula(qty_letter, excel_row),
+            align=RIGHT,
+            number_format=QTY_FORMAT,
+        )
+        lookup_last = max(pumsam_last_row, PUMSAM_DATA_START)
+        _set_cell(sheet, excel_row, 8, labor_formula(excel_row, lookup_last), align=LEFT)
+        _set_cell(
+            sheet,
+            excel_row,
+            9,
+            pumsam_formula(excel_row, lookup_last),
+            align=RIGHT,
+            number_format=PUMSAM_FORMAT,
+        )
+        _set_cell(
+            sheet,
+            excel_row,
+            10,
+            labor_rate_formula(excel_row, lookup_last),
+            align=RIGHT,
+            number_format=RATE_FORMAT,
+        )
+        _set_cell(
+            sheet,
+            excel_row,
+            11,
+            gongryang_formula(excel_row),
+            align=RIGHT,
+            number_format=NUMBER_FORMAT,
+        )
+        _set_cell(sheet, excel_row, 12, ref_formula(excel_row, lookup_last), align=LEFT)
+
+    _apply_sheet_look(sheet, last_row, QTY_LAST_COL)
+    sheet.column_dimensions["A"].width = 22
+    sheet.column_dimensions["B"].width = 32
+    sheet.column_dimensions["C"].width = 18
+    sheet.column_dimensions["D"].width = 8
+    for col, width in enumerate([12, 10, 12, 12, 10, 10, 12, 12], start=5):
+        sheet.column_dimensions[get_column_letter(col)].width = width
 
 
 def collect_pumsam_rows(
     source_path: Path | None,
     dest_dir: Path | None,
     extra_pumsam_path: Path | None = None,
+    db_dir: Path | None = None,
 ) -> list[PumsamRow]:
-    groups = [load_pumsam_database(dest_dir)]
+    database_dir = db_dir if db_dir is not None else dest_dir
+    groups = [load_pumsam_database(database_dir)]
     if source_path is not None:
         embedded = read_named_sheet_rows(source_path, "품셈")
         if embedded:
@@ -373,42 +462,51 @@ def collect_pumsam_rows(
     if extra_pumsam_path is not None:
         groups.append(import_pumsam_file(extra_pumsam_path))
     merged = merge_pumsam_rows(*groups)
-    save_pumsam_database(merged, dest_dir)
+    save_pumsam_database(merged, database_dir)
     return merged
 
 
 def create_result_workbook(
-    estimate_rows: SheetRows,
+    estimate: EstimateSheet | list[list[Any]],
     pumsam_rows: list[PumsamRow] | None = None,
-    source_name: str = "",
+    source_name: str = "",  # noqa: ARG001 — 이전 호출 호환
 ) -> Workbook:
+    if isinstance(estimate, list):
+        estimate = EstimateSheet(filled=estimate, raw=estimate, merges=[])
+    rows = pumsam_rows or []
+    pumsam_last = PUMSAM_DATA_START + len(rows) - 1 if rows else PUMSAM_DATA_START
+
     workbook = Workbook()
     sheet1 = workbook.active
     sheet1.title = ESTIMATE_SHEET_NAME
-    _write_estimate_sheet(sheet1, estimate_rows)
+    _write_estimate_sheet(sheet1, estimate)
 
     sheet2 = workbook.create_sheet(PUMSAM_SHEET_NAME)
-    _write_pumsam_sheet(sheet2, pumsam_rows or [])
+    _write_pumsam_sheet(sheet2, rows)
 
     sheet3 = workbook.create_sheet(QUANTITY_SHEET_NAME)
-    _write_quantity_sheet(sheet3, estimate_rows, source_name=source_name)
+    _write_quantity_sheet(sheet3, estimate, pumsam_last)
     return workbook
 
 
 def save_result_workbook(
     source_path: Path,
     dest_dir: Path | None = None,
-    estimate_rows: SheetRows | None = None,
+    estimate_rows: list[list[Any]] | None = None,
     extra_pumsam_path: Path | None = None,
+    db_dir: Path | None = None,
 ) -> Path:
     """원본 내역서는 읽기만 하고, 3시트 결과 파일만 새로 저장한다."""
     source = Path(source_path)
-    rows = estimate_rows if estimate_rows is not None else read_workbook_first_sheet(source)
-    pumsam_rows = collect_pumsam_rows(source, dest_dir, extra_pumsam_path)
+    if estimate_rows is not None:
+        estimate = EstimateSheet(filled=estimate_rows, raw=estimate_rows, merges=[])
+    else:
+        estimate = load_estimate_sheet(source)
+    pumsam_rows = collect_pumsam_rows(source, dest_dir, extra_pumsam_path, db_dir=db_dir)
     dest = build_result_path(dest_dir)
     assert_safe_save(source, dest)
 
-    workbook = create_result_workbook(rows, pumsam_rows=pumsam_rows, source_name=source.name)
+    workbook = create_result_workbook(estimate, pumsam_rows=pumsam_rows, source_name=source.name)
     try:
         workbook.save(dest)
     finally:

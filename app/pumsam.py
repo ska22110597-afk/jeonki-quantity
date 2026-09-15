@@ -7,7 +7,13 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
-from app.estimate_parse import find_column_index, find_header_row, lookup_key, normalize_header
+from app.estimate_parse import (
+    find_column_index,
+    find_header_row,
+    header_row_span,
+    lookup_key,
+    normalize_header,
+)
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.paths import ensure_result_directory, get_result_directory, is_allowed_excel
 
@@ -104,14 +110,41 @@ def _row_to_dict(values: list[Any]) -> PumsamRow | None:
     }
 
 
+_HEADER_LIKE_NAMES = {"명칭", "품명", "품목", "검색키", "품목명"}
+_GROUP_TITLES = {"공량산출", "품목", "비고"}
+
+
+def _combined_header(table: SheetRows) -> tuple[list[Any], int]:
+    """1~2단 헤더를 한 줄로 합치고, 데이터 시작 인덱스를 반환한다."""
+    if not table:
+        return [], 0
+    header_idx = find_header_row(table)
+    span = header_row_span(table, header_idx)
+    row1 = table[header_idx]
+    row2 = table[header_idx + 1] if span == 2 and header_idx + 1 < len(table) else []
+    width = max(len(row1), len(row2))
+    combined: list[Any] = []
+    for col in range(width):
+        top = row1[col] if col < len(row1) else None
+        bottom = row2[col] if col < len(row2) else None
+        bottom_token = normalize_header(bottom)
+        top_token = normalize_header(top)
+        if bottom_token and bottom_token not in _GROUP_TITLES:
+            combined.append(bottom)
+        elif top_token and top_token not in _GROUP_TITLES:
+            combined.append(top)
+        else:
+            combined.append(bottom if bottom is not None else top)
+    return combined, header_idx + span
+
+
 def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
     if not table:
         return []
-    header = table[0]
-    # 품셈표는 명칭이 두 번(품목 / 노무) 나올 수 있다.
-    name_idx = find_column_index(header, "명칭")
+    header, data_start = _combined_header(table)
     spec_idx = find_column_index(header, "규격")
     unit_idx = find_column_index(header, "단위")
+    name_idx = None
     labor_idx = None
     pumsam_idx = None
     rate_idx = None
@@ -119,7 +152,7 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
     seen_name = False
     for i, cell in enumerate(header):
         token = normalize_header(cell)
-        if token in {"명칭", "품명", "품목"}:
+        if token in {"명칭", "품명"}:
             if not seen_name:
                 name_idx = i
                 seen_name = True
@@ -133,9 +166,11 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
             rate_idx = i
         elif token in {"품셈근거", "근거"}:
             ref_idx = i
+    if name_idx is None:
+        name_idx = find_column_index(header, "명칭")
 
     parsed: list[PumsamRow] = []
-    for source in table[1:]:
+    for source in table[data_start:]:
         def pick(index: int | None) -> Any:
             if index is None or index >= len(source):
                 return None
@@ -144,6 +179,10 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
         name = pick(name_idx)
         spec = pick(spec_idx)
         if name is None and spec is None:
+            continue
+        if normalize_header(name) in _HEADER_LIKE_NAMES:
+            continue
+        if normalize_header(pick(pumsam_idx)) == "품셈":
             continue
         parsed.append(
             {
