@@ -6,6 +6,7 @@ venv/
 *.xlsx
 !tests/fixtures/*.xlsx
 !data/*.xlsx
+!samples/*.xlsx
 dist/
 build/
 *.spec
