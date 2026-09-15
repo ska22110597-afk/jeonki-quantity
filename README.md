@@ -89,16 +89,31 @@ python -m pip install -r requirements.txt
 
 ### 2) 콘솔 창 없는 단일 파일 빌드
 
-프로젝트 폴더(`main.py`가 있는 위치)에서:
+**반드시 `main.py`가 있는 프로젝트 폴더에서** 실행하세요.  
+`C:\Users\ADMIN>` 같은 홈 폴더에서 실행하면 안 됩니다.
+
+Windows에서는 `pyinstaller` 명령이 PATH에 없는 경우가 많습니다.  
+그래서 **`python -m PyInstaller`** 또는 **`py -m PyInstaller`** 를 씁니다.
 
 ```bat
-pyinstaller --noconsole --onefile --clean --name "전기공사_공량산출" --collect-all PyQt6 --hidden-import openpyxl --hidden-import pandas --hidden-import app --hidden-import app.excel_io --hidden-import app.paths --hidden-import app.merge_parse --hidden-import app.main_window --hidden-import app.drop_zone main.py
+cd /d 프로젝트폴더경로
+python -m pip install pyinstaller pyqt6 pandas openpyxl
+python -m PyInstaller --noconsole --onefile --clean --name "전기공사_공량산출" --collect-all PyQt6 --hidden-import openpyxl --hidden-import pandas --hidden-import app --hidden-import app.excel_io --hidden-import app.paths --hidden-import app.merge_parse --hidden-import app.main_window --hidden-import app.drop_zone main.py
 ```
 
-같은 명령을 `build_exe.bat` 더블클릭으로 실행할 수도 있습니다.
+`python` 이 인식되지 않으면 `python` 대신 `py -3` 을 쓰세요.
+
+```bat
+py -3 -m pip install pyinstaller pyqt6 pandas openpyxl
+py -3 -m PyInstaller --noconsole --onefile --clean --name "전기공사_공량산출" --collect-all PyQt6 --hidden-import openpyxl --hidden-import pandas --hidden-import app --hidden-import app.excel_io --hidden-import app.paths --hidden-import app.merge_parse --hidden-import app.main_window --hidden-import app.drop_zone main.py
+```
+
+또는 프로젝트 폴더의 `build_exe.bat` 을 더블클릭하세요. 이 파일이 Python을 찾고 `python -m PyInstaller`로 빌드합니다.
 
 - `--noconsole` : 검은 CMD 창 없이 GUI만 실행
 - `--onefile` : `dist\전기공사_공량산출.exe` 한 개로 묶음
+
+`'pyinstaller'은(는) 내부 또는 외부 명령...` 이 나오면 `pyinstaller` 단독 명령 대신 위처럼 `python -m PyInstaller` 를 쓰면 됩니다.
 
 빌드가 끝나면 `dist\전기공사_공량산출.exe` 를 USB 등으로 복사해 사용합니다. 대상 PC에 파이썬을 설치할 필요는 없습니다.
 
