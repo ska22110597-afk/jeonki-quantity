@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 
 from app.drop_zone import DropZone
 from app.excel_io import QUANTITY_SHEET_NAME, UNIT_PRICE_SHEET_NAME, save_result_workbook
-from app.paths import WINDOWS_RESULT_DIR, display_result_directory, is_windows
+from app.paths import ResultDirectoryError, WINDOWS_RESULT_DIR, display_result_directory, is_windows
 
 APP_STYLESHEET = """
 QMainWindow, QWidget#root {
@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         hero_layout.setContentsMargins(28, 20, 28, 20)
         title = QLabel("전기공사 견적 · 공량 산출")
         title.setObjectName("appTitle")
-        subtitle = QLabel("단가대비표를 읽기 전용으로 불러와 C드라이브 로컬 폴더에 새 결과 파일만 생성합니다.")
+        subtitle = QLabel("단가대비표를 읽기 전용으로 불러와 병합 셀을 채우고, 공량산출표 수식을 C드라이브 새 파일로 저장합니다.")
         subtitle.setObjectName("appSubtitle")
         hero_layout.addWidget(title)
         hero_layout.addWidget(subtitle)
@@ -239,9 +239,12 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         status.showMessage("대기 — 단가대비표를 드롭한 뒤 C드라이브 저장 경로를 확인하세요.")
         self.setStatusBar(status)
-        self._append_log("원본 엑셀은 읽기 전용으로만 엽니다. 저장은 새 타임스탬프 파일만 생성합니다.")
+        self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 상단/좌측 값으로 채웁니다.")
         self._append_log(f"지정 저장 폴더: {display_result_directory()}")
-        self._append_log(f"결과 시트: {UNIT_PRICE_SHEET_NAME}, {QUANTITY_SHEET_NAME}")
+        self._append_log(
+            f"결과 시트: {UNIT_PRICE_SHEET_NAME}, {QUANTITY_SHEET_NAME} "
+            "(E열 단가대비표 참조, G·K열 산출 수식, K열 합계)"
+        )
 
     def _append_log(self, message: str) -> None:
         self.log.append(message)
@@ -270,10 +273,16 @@ class MainWindow(QMainWindow):
         source = self._source_path
         self.run_button.setEnabled(False)
         self.statusBar().showMessage("공량 산출 파일을 생성하는 중…")
-        self._append_log("원본 읽기 전용 접근 시작")
+        self._append_log("원본 읽기 전용 접근 · 병합 셀 채움 · 수식 시트 생성")
 
         try:
             dest = save_result_workbook(source)
+        except ResultDirectoryError as exc:
+            self._append_log(f"저장 폴더 오류: {exc}")
+            self.statusBar().showMessage("저장 폴더 오류")
+            QMessageBox.critical(self, "저장 폴더 오류", str(exc))
+            self._refresh_run_enabled()
+            return
         except Exception as exc:  # noqa: BLE001 — GUI에서 사용자 메시지로 보여 준다.
             self._append_log(f"실패: {exc}")
             self.statusBar().showMessage("실패")
@@ -291,8 +300,8 @@ class MainWindow(QMainWindow):
                 "원본은 그대로 두었습니다.\n\n"
                 f"원본: {source}\n"
                 f"결과: {dest}\n\n"
-                f"시트1 {UNIT_PRICE_SHEET_NAME} — 원본 데이터 정리\n"
-                f"시트2 {QUANTITY_SHEET_NAME} — 공량 산출 기본 구조"
+                f"시트1 {UNIT_PRICE_SHEET_NAME} — 병합 채움 후 원본 정리\n"
+                f"시트2 {QUANTITY_SHEET_NAME} — E/G/K 수식, K열 합계"
             ),
         )
         self._refresh_run_enabled()
