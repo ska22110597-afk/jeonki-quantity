@@ -139,6 +139,47 @@ def _unit_from_amount(row: int, amount_col: str, qty_col: str = "D") -> str:
     return f'=IF({qty_col}{row}=0,0,TRUNC({amount_col}{row}/{qty_col}{row},2))'
 
 
+def _zero_price() -> str:
+    return "=0"
+
+
+def _qty_times_price(row: int, price_col: str) -> str:
+    """재료비 금액처럼 수량×단가."""
+    return f"=D{row}*{price_col}{row}"
+
+
+def _qty_times_price_trunc(row: int, price_col: str) -> str:
+    """노무·경비 금액. 소수 1자리."""
+    return f"=TRUNC({price_col}{row}*D{row},1)"
+
+
+def _idle_labor_expense(sheet: Worksheet, row: int) -> None:
+    """재료 행에서 쓰지 않는 노무·경비 칸도 수식으로 둔다."""
+    _price(sheet, row, 7, _zero_price())
+    _amount(sheet, row, 8, _qty_times_price_trunc(row, "G"))
+    _price(sheet, row, 9, _zero_price())
+    _amount(sheet, row, 10, _qty_times_price_trunc(row, "I"))
+
+
+def _idle_material_expense(sheet: Worksheet, row: int) -> None:
+    """노무 행에서 쓰지 않는 재료·경비 칸도 수식으로 둔다."""
+    _price(sheet, row, 5, _zero_price())
+    _amount(sheet, row, 6, _qty_times_price(row, "E"))
+    _price(sheet, row, 9, _zero_price())
+    _amount(sheet, row, 10, _qty_times_price_trunc(row, "I"))
+
+
+def _idle_material(sheet: Worksheet, row: int) -> None:
+    """공구손료처럼 재료비만 비울 때."""
+    _price(sheet, row, 5, _zero_price())
+    _amount(sheet, row, 6, _qty_times_price(row, "E"))
+
+
+def _idle_expense(sheet: Worksheet, row: int) -> None:
+    _price(sheet, row, 9, _zero_price())
+    _amount(sheet, row, 10, _qty_times_price_trunc(row, "I"))
+
+
 def _price_ref(item: LineItem, compare_sheet: str) -> str:
     col_index = (item.price_col if item.price_col is not None else 11) + 1
     return f"='{compare_sheet}'!{get_column_letter(col_index)}{item.excel_row}"
@@ -190,11 +231,8 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 3, item.unit or "개", font=BODY_FONT, align=CENTER)
         _set_cell(sheet, cursor, 4, qty, font=BODY_FONT, align=RIGHT, number_format="0.000")
         _price(sheet, cursor, 5, _price_ref(item, compare_sheet))
-        _amount(sheet, cursor, 6, f"=D{cursor}*E{cursor}")
-        _price(sheet, cursor, 7, 0)
-        _amount(sheet, cursor, 8, 0)
-        _price(sheet, cursor, 9, 0)
-        _amount(sheet, cursor, 10, 0)
+        _amount(sheet, cursor, 6, _qty_times_price(cursor, "E"))
+        _idle_labor_expense(sheet, cursor)
         _cost_totals(sheet, cursor)
         _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
         cursor += 1
@@ -208,10 +246,7 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
             _amount(sheet, cursor, 6, f"=F{material_row}*{CONDUIT_FITTING_RATE}")
             _price(sheet, cursor, 5, _unit_from_amount(cursor, "F"))
-            _price(sheet, cursor, 7, 0)
-            _amount(sheet, cursor, 8, 0)
-            _price(sheet, cursor, 9, 0)
-            _amount(sheet, cursor, 10, 0)
+            _idle_labor_expense(sheet, cursor)
             _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)
             cursor += 1
@@ -228,10 +263,7 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
             _amount(sheet, cursor, 6, f"={material_sum}*{SUNDRY_RATE}")
             _price(sheet, cursor, 5, _unit_from_amount(cursor, "F"))
-            _price(sheet, cursor, 7, 0)
-            _amount(sheet, cursor, 8, 0)
-            _price(sheet, cursor, 9, 0)
-            _amount(sheet, cursor, 10, 0)
+            _idle_labor_expense(sheet, cursor)
             _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)
             cursor += 1
@@ -244,12 +276,9 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 2, "일반공사 직종", font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
             _set_cell(sheet, cursor, 4, labor_qty_formula(labor), font=BODY_FONT, align=RIGHT, number_format="0.000")
-            _price(sheet, cursor, 5, 0)
-            _amount(sheet, cursor, 6, 0)
+            _idle_material_expense(sheet, cursor)
             _price(sheet, cursor, 7, f'=IFERROR(VLOOKUP("{job}",노임단가!A:B,2,FALSE),0)')
             _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
-            _price(sheet, cursor, 9, 0)
-            _amount(sheet, cursor, 10, 0)
             _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
@@ -261,12 +290,10 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 2, "인력품의 3%", font=BODY_FONT)
         _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
         _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
-        _price(sheet, cursor, 5, 0)
-        _amount(sheet, cursor, 6, 0)
+        _idle_material(sheet, cursor)
         _amount(sheet, cursor, 8, f"=SUM(H{first_labor}:H{last_labor})*{TOOL_RATE}")
         _price(sheet, cursor, 7, _unit_from_amount(cursor, "H"))
-        _price(sheet, cursor, 9, 0)
-        _amount(sheet, cursor, 10, 0)
+        _idle_expense(sheet, cursor)
         _cost_totals(sheet, cursor)
         _set_cell(sheet, cursor, 13, None)
         cursor += 1

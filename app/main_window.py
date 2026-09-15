@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -33,7 +34,7 @@ from app.excel_io import (
     QUANTITY_SHEET_NAME,
     save_result_workbook,
 )
-from app.paths import ResultDirectoryError, WINDOWS_RESULT_DIR, display_result_directory, is_windows
+from app.paths import ResultDirectoryError, WINDOWS_RESULT_DIR, app_icon_path, display_result_directory, is_windows
 from app.pumsam import PUMSAM_SHEET_NAME
 from app.version import APP_TAGLINE, APP_TITLE
 from app.wages import WAGES_SHEET_NAME
@@ -64,6 +65,11 @@ QLabel#appSubtitle {
 QFrame#laneForward {
     background: #C5D6E6;
     border: 2px solid #4A7190;
+    border-radius: 12px;
+}
+QFrame#laneReverse {
+    background: #E8D0C9;
+    border: 2px solid #8B4A42;
     border-radius: 12px;
 }
 QFrame#laneQty {
@@ -156,6 +162,21 @@ QPushButton#browseButton {
 QPushButton#browseButton:hover {
     background: #2A4054;
 }
+QPushButton#resetButton {
+    background: #EEF3F7;
+    color: #2C4A63;
+    border: 1px solid #8AA0B3;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    min-height: 0px;
+    max-height: 40px;
+    min-width: 88px;
+}
+QPushButton#resetButton:hover {
+    background: #D9E4EE;
+}
 QTextEdit#log {
     background: #121C28;
     color: #D3DFEA;
@@ -186,6 +207,10 @@ QFrame#dropZoneReverse {
 QFrame#dropZoneReverse[hover="true"] {
     background: #E4C4BC;
     border: 2px dashed #6B322C;
+}
+QFrame#dropZoneReverse[loaded="true"] {
+    background: #E7F2EA;
+    border: 2px solid #4F7F62;
 }
 QFrame#dropZoneQty {
     background: #E3EFE0;
@@ -280,6 +305,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1180, 980)
         self.resize(1260, 1080)
         self.setStyleSheet(APP_STYLESHEET)
+        icon_file = app_icon_path()
+        if icon_file.is_file():
+            self.setWindowIcon(QIcon(str(icon_file)))
 
         self._settings = QSettings("전기공사공량산출", "GongryangCalc")
         self._fwd_compare_path: Path | None = None
@@ -363,7 +391,7 @@ class MainWindow(QMainWindow):
         forward_lane = QFrame()
         forward_lane.setObjectName("laneForward")
         forward_layout = QVBoxLayout(forward_lane)
-        forward_layout.setContentsMargins(16, 14, 16, 16)
+        forward_layout.setContentsMargins(16, 14, 16, 20)
         forward_layout.setSpacing(10)
         forward_title = QLabel("정방향  ·  단가대비표 · 일위대가 · 내역서  →  내역서")
         forward_title.setObjectName("laneTitle")
@@ -397,12 +425,16 @@ class MainWindow(QMainWindow):
         )
         self.forward_estimate_drop.file_dropped.connect(self._on_fwd_estimate_dropped)
         forward_layout.addWidget(self.forward_estimate_drop)
+        for zone in (self.compare_drop, self.ilwidae_drop, self.forward_estimate_drop):
+            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            zone.setMinimumHeight(64)
+        forward_layout.addStretch(1)
         lanes.addWidget(forward_lane, 1)
 
         reverse_lane = QFrame()
         reverse_lane.setObjectName("laneReverse")
         reverse_layout = QVBoxLayout(reverse_lane)
-        reverse_layout.setContentsMargins(16, 14, 16, 16)
+        reverse_layout.setContentsMargins(16, 14, 16, 20)
         reverse_layout.setSpacing(10)
         reverse_title = QLabel("역방향  ·  내역서 · 일위대가  →  단가대비표")
         reverse_title.setObjectName("laneTitle")
@@ -426,6 +458,10 @@ class MainWindow(QMainWindow):
         )
         self.reverse_ilwidae_drop.file_dropped.connect(self._on_rev_ilwidae_dropped)
         reverse_layout.addWidget(self.reverse_ilwidae_drop)
+        for zone in (self.drop_zone, self.reverse_ilwidae_drop):
+            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            zone.setMinimumHeight(64)
+        reverse_layout.addStretch(1)
         lanes.addWidget(reverse_lane, 1)
         body_layout.addLayout(lanes)
 
@@ -452,18 +488,28 @@ class MainWindow(QMainWindow):
         path_card = QFrame()
         path_card.setObjectName("card")
         path_layout = QVBoxLayout(path_card)
-        path_layout.setContentsMargins(20, 16, 20, 16)
+        path_layout.setContentsMargins(20, 16, 20, 18)
         path_layout.setSpacing(10)
 
+        source_head = QHBoxLayout()
+        source_head.setContentsMargins(0, 0, 0, 0)
         source_label = QLabel("선택한 파일  (읽기 전용 · 원본은 수정하지 않습니다)")
         source_label.setObjectName("sectionLabel")
+        source_head.addWidget(source_label)
+        source_head.addStretch(1)
+        self.reset_button = QPushButton("새로고침")
+        self.reset_button.setObjectName("resetButton")
+        self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reset_button.setFixedSize(96, 36)
+        self.reset_button.clicked.connect(self._on_reset)
+        source_head.addWidget(self.reset_button)
+        path_layout.addLayout(source_head)
         self.source_edit = QLineEdit()
         self.source_edit.setObjectName("pathEdit")
         self.source_edit.setReadOnly(True)
         self.source_edit.setFixedHeight(40)
         self.source_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.source_edit.setPlaceholderText("아직 파일이 없습니다. 정방향·역방향·공량 칸에 엑셀을 놓아 주세요.")
-        path_layout.addWidget(source_label)
         path_layout.addWidget(self.source_edit)
 
         dest_head = QHBoxLayout()
@@ -499,18 +545,15 @@ class MainWindow(QMainWindow):
         dest_row.addWidget(self.browse_button, 0)
         path_layout.addWidget(dest_row_host)
 
+        self.confirm_note = QLabel("")
+        self.confirm_note.setObjectName("confirmNote")
+        self.confirm_note.setWordWrap(True)
+        path_layout.addWidget(self.confirm_note)
+        path_layout.addSpacing(12)
         self.confirm_box = QCheckBox("이 폴더에 새 파일로 저장")
         self.confirm_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.confirm_box.toggled.connect(self._refresh_run_enabled)
         path_layout.addWidget(self.confirm_box)
-        confirm_note = QLabel("파일명 공량산출_결과_날짜시간.xlsx  ·  원본은 그대로 둡니다.")
-        confirm_note.setObjectName("confirmNote")
-        confirm_note.setWordWrap(True)
-        if not is_windows():
-            confirm_note.setText(
-                confirm_note.text() + f"  (이 환경 기본 폴더: {display_result_directory()})"
-            )
-        path_layout.addWidget(confirm_note)
         body_layout.addWidget(path_card)
 
         self.run_button = QPushButton("산출 및 저장")
@@ -534,13 +577,8 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         status.showMessage("대기 — 정방향 또는 역방향 칸에 엑셀을 놓고 저장 폴더를 확인하세요.")
         self.setStatusBar(status)
-        self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
-        self._append_log(f"저장 폴더: {self.dest_edit.text()}")
-        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 · 내역서 → 내역서")
-        self._append_log("오른쪽(역방향): 내역서 · 일위대가 → 단가대비표")
-        self._append_log("아래(공량산출): 파트별로 나눈 내역서 → 공량산출서")
-        self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
-        self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
+        self._write_startup_log()
+        self._refresh_filename_hint()
 
     def _selected_discipline(self) -> str:
         if self.telecom_button.isChecked():
@@ -567,6 +605,54 @@ class MainWindow(QMainWindow):
         self._refresh_part_hint()
         self.statusBar().showMessage(f"{disc} 표준품셈을 사용합니다.")
         self._append_log(f"표준품셈 파트: {disc} → {pumsam_filename(disc)}")
+
+    def _write_startup_log(self) -> None:
+        self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
+        self._append_log(f"저장 폴더: {self.dest_edit.text()}")
+        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 · 내역서 → 내역서")
+        self._append_log("오른쪽(역방향): 내역서 · 일위대가 → 단가대비표")
+        self._append_log("아래(공량산출): 파트별로 나눈 내역서 → 공량산출서")
+        self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
+        self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
+
+    def _refresh_filename_hint(self) -> None:
+        if self._has_forward() and not self._has_reverse() and not self._has_quantity():
+            name = "내역서_결과_날짜시간.xlsx"
+        elif self._has_reverse() and not self._has_forward() and not self._has_quantity():
+            name = "단가대비표_결과_날짜시간.xlsx"
+        elif self._has_quantity() and not self._has_forward() and not self._has_reverse():
+            name = "공량산출_결과_날짜시간.xlsx"
+        else:
+            name = "내역서_결과_ · 단가대비표_결과_ · 공량산출_결과_ + 날짜시간.xlsx"
+        text = f"파일명 {name}  ·  원본은 그대로 둡니다."
+        if not is_windows():
+            text += f"  (이 환경 기본 폴더: {display_result_directory()})"
+        self.confirm_note.setText(text)
+
+    def _on_reset(self) -> None:
+        self._fwd_compare_path = None
+        self._fwd_ilwidae_path = None
+        self._fwd_estimate_path = None
+        self._rev_estimate_path = None
+        self._rev_ilwidae_path = None
+        self._qty_estimate_path = None
+        for zone in (
+            self.compare_drop,
+            self.ilwidae_drop,
+            self.forward_estimate_drop,
+            self.drop_zone,
+            self.reverse_ilwidae_drop,
+            self.quantity_drop,
+        ):
+            zone.reset()
+        self.source_edit.clear()
+        self.confirm_box.setChecked(False)
+        self.log.clear()
+        self._write_startup_log()
+        self._refresh_filename_hint()
+        self._refresh_run_enabled()
+        self.statusBar().showMessage("대기 — 파일을 모두 비웠습니다. 처음 켠 상태로 돌아갑니다.")
+        self._append_log("새로고침: 선택한 파일을 모두 비웠습니다.")
 
     def _append_log(self, message: str) -> None:
         self.log.append(message)
@@ -602,6 +688,7 @@ class MainWindow(QMainWindow):
         if self._qty_estimate_path is not None:
             parts.append(f"공량·내역서: {self._qty_estimate_path}")
         self.source_edit.setText("   |   ".join(parts))
+        self._refresh_filename_hint()
 
     def _on_browse_dest(self) -> None:
         start = self.dest_edit.text().strip() or display_result_directory()
@@ -687,6 +774,17 @@ class MainWindow(QMainWindow):
             return
         if not self.confirm_box.isChecked():
             QMessageBox.warning(self, "저장 경로 미확인", "저장 확인란을 선택해 주세요.")
+            return
+        lane_count = sum(
+            [self._has_forward(), self._has_reverse(), self._has_quantity()]
+        )
+        if lane_count > 1:
+            QMessageBox.warning(
+                self,
+                "칸이 여러 개 선택됨",
+                "정방향·역방향·공량산출에 파일이 같이 들어 있습니다.\n"
+                "새로고침으로 비운 뒤, 지금 만들 칸에만 엑셀을 놓아 주세요.",
+            )
             return
 
         dest_dir = self._chosen_dest_dir()

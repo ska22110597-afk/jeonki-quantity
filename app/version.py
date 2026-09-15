@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-APP_VERSION = "1.4"
+APP_VERSION = "1.5"
 APP_TITLE = f"제작자_박남석 자동 내역서식 프로그램.v{APP_VERSION}"
 APP_TAGLINE = "정방향은 단가대비표에서 내역서까지, 역방향은 내역서에서 단가대비표까지 만듭니다. 공량산출은 파트별로 나눈 내역서를 아래 칸에 놓으면 됩니다."

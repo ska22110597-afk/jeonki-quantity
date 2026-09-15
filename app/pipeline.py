@@ -166,8 +166,9 @@ def _write_compare_from_items(sheet: Worksheet, items: list[LineItem]) -> None:
     sheet.column_dimensions["A"].width = 32
     sheet.column_dimensions["B"].width = 16
     sheet.column_dimensions["C"].width = 8
+    page_cols = {5, 7, 9, 11}  # E, G, I, K — PAGE 열너비 5
     for col in range(4, last_col + 1):
-        sheet.column_dimensions[get_column_letter(col)].width = 12
+        sheet.column_dimensions[get_column_letter(col)].width = 5 if col in page_cols else 12
 
 
 def _write_wages_sheet(sheet: Worksheet, rows: list[WageRow]) -> None:
@@ -473,7 +474,7 @@ def run_pipeline(
     wage_rows = load_wages(database_dir)
     save_wages(wage_rows, database_dir)
 
-    dest = build_result_path(dest_dir)
+    dest = build_result_path(dest_dir, mode=mode)
     if primary is not None:
         assert_safe_save(Path(primary), dest)
 

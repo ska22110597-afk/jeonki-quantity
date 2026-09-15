@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QFrame
 
 from app.main_window import MainWindow
 from app.paths import display_result_directory
@@ -26,7 +26,9 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.minimumWidth() >= 980
         assert window.windowTitle().startswith("제작자_박남석")
         assert "v1." in window.windowTitle()
-        assert window.compare_drop is not None
+        assert window.reset_button.text() == "새로고침"
+        assert window.findChild(QFrame, "laneReverse") is not None
+        assert "내역서_결과_" in window.confirm_note.text()
         assert window.ilwidae_drop is not None
         assert window.forward_estimate_drop is not None
         assert window.drop_zone is not None
@@ -50,6 +52,14 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         window.confirm_box.setChecked(True)
         assert window.run_button.isEnabled() is True
         assert window._chosen_dest_dir() == chosen
+        assert "내역서_결과_날짜시간.xlsx" in window.confirm_note.text()
+
+        window._on_reset()
+        assert window._fwd_compare_path is None
+        assert window.source_edit.text() == ""
+        assert window.confirm_box.isChecked() is False
+        assert window.run_button.isEnabled() is False
+        assert window.compare_drop._title.text() == "단가대비표"
     finally:
         window.close()
         if app is not None:

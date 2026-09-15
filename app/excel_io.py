@@ -144,6 +144,70 @@ def first_qty_data_row_fallback() -> int:
     return 5
 
 
+def _unmerge_all(sheet: Worksheet) -> None:
+    for rng in list(sheet.merged_cells.ranges):
+        try:
+            sheet.unmerge_cells(str(rng))
+        except ValueError:
+            continue
+
+
+def _ranges_overlap(
+    left: tuple[int, int, int, int],
+    right: tuple[int, int, int, int],
+) -> bool:
+    a_min_r, a_min_c, a_max_r, a_max_c = left
+    b_min_r, b_min_c, b_max_r, b_max_c = right
+    return not (
+        a_max_r < b_min_r or a_min_r > b_max_r or a_max_c < b_min_c or a_min_c > b_max_c
+    )
+
+
+def _without_overlapping_merges(
+    merges: list[tuple[int, int, int, int]],
+) -> list[tuple[int, int, int, int]]:
+    """겹치는 병합은 엑셀 복구 대화상자를 만든다. 앞선 범위만 남긴다."""
+    kept: list[tuple[int, int, int, int]] = []
+    for item in merges:
+        min_row, min_col, max_row, max_col = item
+        if min_row == max_row and min_col == max_col:
+            continue
+        if any(_ranges_overlap(item, prev) for prev in kept):
+            continue
+        kept.append(item)
+    return kept
+
+
+def _safe_merge(
+    sheet: Worksheet,
+    min_row: int,
+    min_col: int,
+    max_row: int,
+    max_col: int,
+) -> None:
+    if min_row < 1 or min_col < 1 or max_row < min_row or max_col < min_col:
+        return
+    if min_row == max_row and min_col == max_col:
+        return
+    new = (min_row, min_col, max_row, max_col)
+    for rng in list(sheet.merged_cells.ranges):
+        existing = (int(rng.min_row), int(rng.min_col), int(rng.max_row), int(rng.max_col))
+        if _ranges_overlap(new, existing):
+            try:
+                sheet.unmerge_cells(str(rng))
+            except ValueError:
+                continue
+    try:
+        sheet.merge_cells(
+            start_row=min_row,
+            start_column=min_col,
+            end_row=max_row,
+            end_column=max_col,
+        )
+    except ValueError:
+        return
+
+
 def write_title_banner(
     sheet: Worksheet,
     title: str,
@@ -155,7 +219,7 @@ def write_title_banner(
     for col in range(1, last_col + 1):
         _set_cell(sheet, 1, col, title if col == 1 else None, font=TITLE_FONT, align=CENTER)
         _set_cell(sheet, 2, col, None, font=TITLE_FONT, align=CENTER)
-    sheet.merge_cells(start_row=1, start_column=1, end_row=2, end_column=last_col)
+    _safe_merge(sheet, 1, 1, 2, last_col)
     sheet.row_dimensions[1].height = row_height
     sheet.row_dimensions[2].height = row_height
 
@@ -170,7 +234,6 @@ def _apply_sheet_look(
     height = ROW_HEIGHT if row_height is None else row_height
     sheet.sheet_properties.tabColor = "FFFFFF"
     sheet.sheet_format.defaultRowHeight = height
-    sheet.sheet_format.customHeight = True
     for r in range(1, max(max_row, 1) + 1):
         sheet.row_dimensions[r].height = height
         for c in range(1, max(max_col, 1) + 1):
@@ -208,7 +271,6 @@ def _set_cell(
 def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
     filled = estimate.filled
     raw = estimate.raw
-    merges = estimate.merges
     max_row = estimate.max_row
     max_col = min(max(estimate.max_col, 13), 20)
     header_idx = find_header_row(filled)
@@ -217,6 +279,18 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
     unit_idx = find_column_index(filled[header_idx], "단위") if filled else None
     data_start = first_data_row_number(filled) if filled else 2
     subheader = filled[header_idx + 1] if filled and header_idx + 1 < len(filled) else []
+    _unmerge_all(sheet)
+
+    clipped: list[tuple[int, int, int, int]] = []
+    for min_row, min_col, max_r, max_c in estimate.merges:
+        if min_row < 1 or min_col < 1:
+            continue
+        end_row = min(max_r, max_row)
+        end_col = min(max_c, max_col)
+        if end_row < min_row or end_col < min_col:
+            continue
+        clipped.append((min_row, min_col, end_row, end_col))
+    kept_merges = _without_overlapping_merges(clipped)
 
     def _col_number_format(col: int) -> str:
         token = ""
@@ -236,14 +310,19 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
         is_header = r_idx <= data_start - 1
 
         for c_idx in range(1, max_col + 1):
-            if not is_merge_top_left(r_idx, c_idx, merges):
+            if not is_merge_top_left(r_idx, c_idx, kept_merges):
                 cell = sheet.cell(row=r_idx, column=c_idx)
+                cell.value = None
                 cell.fill = WHITE
                 cell.border = THIN
                 cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=False)
                 cell.font = HEADER_FONT if is_header else BODY_FONT
                 continue
             value = source[c_idx - 1] if c_idx - 1 < len(source) else None
+            if value in (None, "") and c_idx - 1 < len(filled_row):
+                filled_value = filled_row[c_idx - 1]
+                if isinstance(filled_value, str) and filled_value.startswith("="):
+                    value = filled_value
             font = HEADER_FONT if is_header else (SECTION_FONT if section and c_idx == 1 else BODY_FONT)
             align = CENTER if is_header or c_idx in (3, 4) else LEFT
             number_format = None
@@ -263,22 +342,8 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
                 number_format=number_format,
             )
 
-    for min_row, min_col, max_r, max_c in merges:
-        if max_r > max_row or max_c > max_col:
-            continue
-        if min_row < 1 or min_col < 1:
-            continue
-        if min_row == max_r and min_col == max_c:
-            continue
-        try:
-            sheet.merge_cells(
-                start_row=min_row,
-                start_column=min_col,
-                end_row=min(max_r, max_row),
-                end_column=min(max_c, max_col),
-            )
-        except ValueError:
-            continue
+    for min_row, min_col, end_row, end_col in kept_merges:
+        _safe_merge(sheet, min_row, min_col, end_row, end_col)
 
     _apply_sheet_look(sheet, max_row, max_col, row_height=FORM_ROW_HEIGHT)
     sheet.column_dimensions["A"].width = 32
@@ -391,24 +456,12 @@ def _write_quantity_header(sheet: Worksheet, header_row: int = 2) -> None:
     _set_cell(sheet, sub_row, 9, "품셈", font=HEADER_FONT, align=CENTER)
     _set_cell(sheet, sub_row, 10, "할증%", font=HEADER_FONT, align=CENTER)
     _set_cell(sheet, sub_row, 11, "공량", font=HEADER_FONT, align=CENTER)
-    sheet.merge_cells(
-        start_row=header_row, start_column=2, end_row=sub_row, end_column=2
-    )
-    sheet.merge_cells(
-        start_row=header_row, start_column=3, end_row=sub_row, end_column=3
-    )
-    sheet.merge_cells(
-        start_row=header_row, start_column=4, end_row=sub_row, end_column=4
-    )
-    sheet.merge_cells(
-        start_row=header_row, start_column=5, end_row=header_row, end_column=7
-    )
-    sheet.merge_cells(
-        start_row=header_row, start_column=8, end_row=header_row, end_column=11
-    )
-    sheet.merge_cells(
-        start_row=header_row, start_column=12, end_row=sub_row, end_column=12
-    )
+    _safe_merge(sheet, header_row, 2, sub_row, 2)
+    _safe_merge(sheet, header_row, 3, sub_row, 3)
+    _safe_merge(sheet, header_row, 4, sub_row, 4)
+    _safe_merge(sheet, header_row, 5, header_row, 7)
+    _safe_merge(sheet, header_row, 8, header_row, 11)
+    _safe_merge(sheet, header_row, 12, sub_row, 12)
 
 
 def _write_quantity_sheet(
@@ -417,6 +470,7 @@ def _write_quantity_sheet(
     pumsam_last_row: int,
     pumsam_rows: list[PumsamRow] | None = None,
 ) -> None:
+    _unmerge_all(sheet)
     filled = estimate.filled
     header_idx = find_header_row(filled) if filled else 0
     header = filled[header_idx] if filled else []
@@ -440,7 +494,7 @@ def _write_quantity_sheet(
                 font=TITLE_FONT,
                 align=CENTER,
             )
-        sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=QTY_LAST_COL)
+        _safe_merge(sheet, 1, 1, 1, QTY_LAST_COL)
         _write_quantity_header(sheet, 2)
     else:
         labels = ["", "명칭", "규격", "단위", "결정수량", "할증", "산출수량", "명칭", "품셈", "할증%", "공량", "품셈근거"]
@@ -485,7 +539,7 @@ def _write_quantity_sheet(
             align=RIGHT,
             number_format=QTY_FORMAT,
         )
-        _set_cell(sheet, excel_row, 6, 0, align=RIGHT, number_format=PERCENT_FORMAT)
+        _set_cell(sheet, excel_row, 6, "=0", align=RIGHT, number_format=PERCENT_FORMAT)
         _set_cell(
             sheet,
             excel_row,

@@ -44,8 +44,10 @@ echo [2] 콘솔 창 없는 단일 EXE 빌드
 echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe 가 없어도 됩니다^)
 %PY% -m PyInstaller --noconsole --onefile --clean ^
   --name GongryangCalc ^
+  --icon assets/app.ico ^
   --collect-all PyQt6 ^
   --add-data "data;data" ^
+  --add-data "assets;assets" ^
   --hidden-import openpyxl ^
   --hidden-import pandas ^
   --hidden-import app ^

@@ -54,6 +54,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
     dest = save_result_workbook(unit_price_path=source, dest_dir=tmp_path / "out")
     result = load_workbook(dest, data_only=False)
     try:
+        assert dest.name.startswith("내역서_결과_")
         assert result.sheetnames[0] == COMPARE_SHEET_NAME
         assert ILWIDAE_SHEET_NAME in result.sheetnames
         assert ESTIMATE_SHEET_NAME in result.sheetnames
@@ -71,6 +72,8 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert compare["A5"].value == "경질비닐전선관_지중"
         assert compare["D5"].value == 200
         assert compare["L5"].value == 200
+        assert compare.column_dimensions["E"].width == 5
+        assert compare.column_dimensions["K"].width == 5
         assert compare["A6"].value == "경질비닐전선관_노출"
         name_merges = [
             str(range_)
@@ -88,6 +91,15 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert "보통인부" in names
         assert ilwidae["A1"].value == "일 위 대 가"
         assert ilwidae["E6"].value == "='단가대비표'!L5"
+        assert ilwidae["G6"].value == "=0"
+        assert "TRUNC" in str(ilwidae["H6"].value)
+        assert "G6" in str(ilwidae["H6"].value)
+        labor_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "내선전공")
+        assert ilwidae.cell(labor_row, 5).value == "=0"
+        assert f"E{labor_row}" in str(ilwidae.cell(labor_row, 6).value)
+        tool_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "공구손료")
+        assert ilwidae.cell(tool_row, 5).value == "=0"
+        assert f"D{tool_row}" in str(ilwidae.cell(tool_row, 6).value)
         assert "0.15" in str(ilwidae["F7"].value)
         assert "F7" in str(ilwidae["E7"].value)
         sum_rows = [
@@ -222,6 +234,7 @@ def test_reverse_estimate_builds_unit_price(tmp_path: Path) -> None:
     dest = save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out")
     result = load_workbook(dest, data_only=False)
     try:
+        assert dest.name.startswith("단가대비표_결과_")
         assert result.sheetnames[0] == COMPARE_SHEET_NAME
         assert ESTIMATE_SHEET_NAME in result.sheetnames
         assert QUANTITY_SHEET_NAME not in result.sheetnames
@@ -310,6 +323,7 @@ def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
     dest = save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out", mode="quantity")
     result = load_workbook(dest, data_only=False)
     try:
+        assert dest.name.startswith("공량산출_결과_")
         assert COMPARE_SHEET_NAME not in result.sheetnames
         assert QUANTITY_SHEET_NAME in result.sheetnames
         qty = result[QUANTITY_SHEET_NAME]
@@ -334,6 +348,10 @@ def test_compare_keeps_page_and_pps_prices(tmp_path: Path) -> None:
         assert compare["A5"].value == "강제전선관"
         assert compare["D5"].value == 3374
         assert compare["E5"].value == 1202
+        assert compare.column_dimensions["E"].width == 5
+        assert compare.column_dimensions["G"].width == 5
+        assert compare.column_dimensions["I"].width == 5
+        assert compare.column_dimensions["K"].width == 5
         assert compare["L5"].value == 3374
         rows = {
             (compare.cell(r, 1).value, str(compare.cell(r, 2).value or "")): r
@@ -349,3 +367,61 @@ def test_compare_keeps_page_and_pps_prices(tmp_path: Path) -> None:
         assert "일위대가" in str(estimate["F6"].value)
     finally:
         result.close()
+
+
+def _merged_overlap(left, right) -> bool:
+    return not (
+        left.max_row < right.min_row
+        or left.min_row > right.max_row
+        or left.max_col < right.min_col
+        or left.min_col > right.max_col
+    )
+
+
+def test_quantity_keeps_sheet_with_overlapping_source_merges(tmp_path: Path) -> None:
+    from app.excel_io import _without_overlapping_merges
+    from app.estimate_parse import EstimateSheet
+    from app.pipeline import build_result_workbook
+    from app.pumsam import default_pumsam_rows
+    from app.wages import default_wage_rows
+
+    kept = _without_overlapping_merges([(1, 1, 1, 13), (1, 1, 2, 1), (2, 1, 3, 1)])
+    assert kept[0] == (1, 1, 1, 13)
+    assert (1, 1, 2, 1) not in kept
+
+    filled = [
+        ["[내역서 ]"] + [None] * 12,
+        ["명칭", "규격", "단위", "수량", "재료비"] + [None] * 8,
+        [None, None, None, None, "단가", "금액"] + [None] * 7,
+        ["1. 옥외전기공사"] + [None] * 12,
+        ["경질비닐전선관_지중", "HI 16 mm", "M", 10, 200, "=D5*E5"] + [None] * 7,
+    ]
+    estimate = EstimateSheet(
+        filled=filled,
+        raw=filled,
+        merges=[(1, 1, 1, 13), (1, 1, 2, 1), (2, 1, 3, 1), (2, 5, 2, 6)],
+    )
+    workbook = build_result_workbook(
+        compare=None,
+        estimate=estimate,
+        pumsam_rows=default_pumsam_rows(),
+        wage_rows=default_wage_rows(),
+        mode="quantity",
+    )
+    dest = tmp_path / "out.xlsx"
+    workbook.save(dest)
+    workbook.close()
+    result = load_workbook(dest, data_only=False)
+    try:
+        assert QUANTITY_SHEET_NAME in result.sheetnames
+        assert ESTIMATE_SHEET_NAME in result.sheetnames
+        qty = result[QUANTITY_SHEET_NAME]
+        assert qty["B5"].value == "경질비닐전선관_지중"
+        for sheet in result.worksheets:
+            ranges = list(sheet.merged_cells.ranges)
+            for i, left in enumerate(ranges):
+                for right in ranges[i + 1 :]:
+                    assert not _merged_overlap(left, right), f"{sheet.title}: {left} vs {right}"
+    finally:
+        result.close()
+

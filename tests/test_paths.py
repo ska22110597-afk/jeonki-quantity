@@ -29,9 +29,20 @@ def test_windows_result_dir_is_c_drive_local() -> None:
         assert resolved.name == RESULT_FOLDER_NAME
 
 
+def test_app_icon_file_exists() -> None:
+    from app.paths import app_icon_path
+
+    path = app_icon_path()
+    assert path.is_file()
+    assert path.suffix.lower() in {".ico", ".png"}
+
+
 def test_result_filename_uses_timestamp() -> None:
-    name = build_result_filename(datetime(2026, 9, 15, 9, 30, 7))
-    assert name == "공량산출_결과_20260915_093007.xlsx"
+    stamp = datetime(2026, 9, 15, 9, 30, 7)
+    assert build_result_filename(stamp) == "공량산출_결과_20260915_093007.xlsx"
+    assert build_result_filename(stamp, mode="forward") == "내역서_결과_20260915_093007.xlsx"
+    assert build_result_filename(stamp, mode="reverse") == "단가대비표_결과_20260915_093007.xlsx"
+    assert build_result_filename(stamp, mode="quantity") == "공량산출_결과_20260915_093007.xlsx"
 
 
 def test_allowed_excel_suffixes() -> None:

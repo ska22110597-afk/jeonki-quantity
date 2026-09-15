@@ -18,6 +18,11 @@ from pathlib import Path
 RESULT_FOLDER_NAME = "전기공사_공량산출_결과"
 WINDOWS_RESULT_DIR = Path(r"C:\전기공사_공량산출_결과")
 RESULT_FILENAME_PREFIX = "공량산출_결과_"
+RESULT_FILENAME_PREFIX_BY_MODE = {
+    "forward": "내역서_결과_",
+    "reverse": "단가대비표_결과_",
+    "quantity": "공량산출_결과_",
+}
 ALLOWED_EXCEL_SUFFIXES = (".xlsx", ".xlsm")
 
 
@@ -139,13 +144,40 @@ def ensure_result_directory(directory: Path | None = None) -> Path:
     return target
 
 
-def build_result_filename(now: datetime | None = None) -> str:
+def result_filename_prefix(mode: str | None = None) -> str:
+    """최종 산출 시트에 맞춰 결과 파일명 앞부분을 고른다."""
+    if mode is None:
+        return RESULT_FILENAME_PREFIX
+    return RESULT_FILENAME_PREFIX_BY_MODE.get(mode, RESULT_FILENAME_PREFIX)
+
+
+def build_result_filename(now: datetime | None = None, mode: str | None = None) -> str:
     stamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
-    return f"{RESULT_FILENAME_PREFIX}{stamp}.xlsx"
+    return f"{result_filename_prefix(mode)}{stamp}.xlsx"
 
 
-def build_result_path(directory: Path | None = None, now: datetime | None = None) -> Path:
-    return ensure_result_directory(directory) / build_result_filename(now)
+def build_result_path(
+    directory: Path | None = None,
+    now: datetime | None = None,
+    mode: str | None = None,
+) -> Path:
+    return ensure_result_directory(directory) / build_result_filename(now, mode=mode)
+
+
+def app_icon_path() -> Path:
+    """창·실행 파일 아이콘. exe로 묶이면 해제 폴더의 assets 를 본다."""
+    extract = bundle_extract_dir()
+    here = Path(__file__).resolve().parent.parent / "assets"
+    candidates = []
+    if extract is not None:
+        candidates.append(extract / "assets" / "app.ico")
+        candidates.append(extract / "assets" / "app.png")
+    candidates.append(here / "app.ico")
+    candidates.append(here / "app.png")
+    for path in candidates:
+        if path.is_file():
+            return path
+    return here / "app.ico"
 
 
 def is_allowed_excel(path: Path) -> bool:
