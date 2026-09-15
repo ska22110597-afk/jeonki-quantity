@@ -45,6 +45,7 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
 %PY% -m PyInstaller --noconsole --onefile --clean ^
   --name GongryangCalc ^
   --collect-all PyQt6 ^
+  --add-data "data;data" ^
   --hidden-import openpyxl ^
   --hidden-import pandas ^
   --hidden-import app ^
@@ -53,6 +54,10 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
   --hidden-import app.merge_parse ^
   --hidden-import app.estimate_parse ^
   --hidden-import app.pumsam ^
+  --hidden-import app.wages ^
+  --hidden-import app.items ^
+  --hidden-import app.ilwidae ^
+  --hidden-import app.pipeline ^
   --hidden-import app.main_window ^
   --hidden-import app.drop_zone ^
   main.py

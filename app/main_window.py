@@ -22,9 +22,16 @@ from PyQt6.QtWidgets import (
 )
 
 from app.drop_zone import DropZone
-from app.excel_io import ESTIMATE_SHEET_NAME, QUANTITY_SHEET_NAME, save_result_workbook
+from app.excel_io import (
+    COMPARE_SHEET_NAME,
+    ESTIMATE_SHEET_NAME,
+    ILWIDAE_SHEET_NAME,
+    QUANTITY_SHEET_NAME,
+    save_result_workbook,
+)
 from app.paths import ResultDirectoryError, WINDOWS_RESULT_DIR, display_result_directory, is_windows
-from app.pumsam import PUMSAM_SHEET_NAME, PUMSAM_DB_FILENAME
+from app.pumsam import PUMSAM_SHEET_NAME
+from app.wages import WAGES_SHEET_NAME
 
 APP_STYLESHEET = """
 QMainWindow, QWidget#root {
@@ -161,13 +168,14 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("전기공사 공량 산출")
-        self.setMinimumSize(980, 820)
-        self.resize(1080, 900)
+        self.setMinimumSize(1000, 900)
+        self.resize(1100, 980)
         self.setStyleSheet(APP_STYLESHEET)
 
         self._settings = QSettings("전기공사공량산출", "GongryangCalc")
+        self._unit_price_path: Path | None = None
+        self._ilwidae_path: Path | None = None
         self._source_path: Path | None = None
-        self._pumsam_path: Path | None = None
         self._build_ui()
         self._refresh_run_enabled()
 
@@ -192,8 +200,9 @@ class MainWindow(QMainWindow):
         title = QLabel("전기공사 견적 · 공량 산출")
         title.setObjectName("appTitle")
         subtitle = QLabel(
-            "내역서를 놓으면 내역서·품셈표·공량산출서 세 시트가 수식으로 연결된 새 파일을 만듭니다. "
-            "저장 폴더는 아래에서 직접 고를 수 있습니다."
+            "단가대비표를 놓으면 일위대가·내역서·공량산출서까지 만듭니다. "
+            "일위대가나 내역서만 놓아도 그다음 단계를 이어서 작성합니다. "
+            "저장 폴더는 아래에서 고를 수 있습니다."
         )
         subtitle.setObjectName("appSubtitle")
         subtitle.setWordWrap(True)
@@ -206,23 +215,32 @@ class MainWindow(QMainWindow):
         body_layout.setContentsMargins(28, 22, 28, 18)
         body_layout.setSpacing(16)
 
+        self.compare_drop = DropZone(
+            title="1) 단가대비표",
+            hint="물량 품목의 자재 단가  ·  놓으면 일위대가부터 공량산출서까지 작성",
+            dialog_title="단가대비표 엑셀 선택",
+        )
+        self.compare_drop.setMinimumHeight(88)
+        self.compare_drop.file_dropped.connect(self._on_unit_price_dropped)
+        body_layout.addWidget(self.compare_drop)
+
+        self.ilwidae_drop = DropZone(
+            title="2) 일위대가",
+            hint="호표가 있는 일위대가  ·  선택. 단가대비표가 있으면 새로 작성합니다",
+            dialog_title="일위대가 엑셀 선택",
+        )
+        self.ilwidae_drop.setMinimumHeight(88)
+        self.ilwidae_drop.file_dropped.connect(self._on_ilwidae_dropped)
+        body_layout.addWidget(self.ilwidae_drop)
+
         self.drop_zone = DropZone(
-            title="1) 내역서 엑셀을 여기에 놓으세요",
-            hint="xlsx · xlsm  ·  클릭 선택 가능  ·  원본은 읽기만 합니다",
+            title="3) 내역서",
+            hint="이미 있는 내역서만 놓고 공량산출서를 만들 때도 사용",
             dialog_title="내역서 엑셀 선택",
         )
-        self.drop_zone.setMinimumHeight(148)
+        self.drop_zone.setMinimumHeight(88)
         self.drop_zone.file_dropped.connect(self._on_file_dropped)
         body_layout.addWidget(self.drop_zone)
-
-        self.pumsam_drop = DropZone(
-            title="2) (선택) 품셈표 엑셀을 놓으면 데이터베이스에 합칩니다",
-            hint="비워 두면 저장된 품셈표_데이터베이스.xlsx 와 기본 경질비닐전선관 값을 씁니다",
-            dialog_title="품셈표 엑셀 선택",
-        )
-        self.pumsam_drop.setMinimumHeight(110)
-        self.pumsam_drop.file_dropped.connect(self._on_pumsam_dropped)
-        body_layout.addWidget(self.pumsam_drop)
 
         path_card = QFrame()
         path_card.setObjectName("card")
@@ -231,13 +249,13 @@ class MainWindow(QMainWindow):
         path_layout.setSpacing(12)
 
         source_row = QVBoxLayout()
-        source_label = QLabel("내역서 파일 경로 (읽기 전용 · 수정·덮어쓰기 없음)")
+        source_label = QLabel("선택한 파일 경로 (읽기 전용 · 원본은 수정하지 않습니다)")
         source_label.setObjectName("sectionLabel")
         self.source_edit = QLineEdit()
         self.source_edit.setObjectName("pathEdit")
         self.source_edit.setReadOnly(True)
         self.source_edit.setMinimumHeight(48)
-        self.source_edit.setPlaceholderText("아직 내역서가 없습니다. 위에서 엑셀을 놓아 주세요.")
+        self.source_edit.setPlaceholderText("아직 파일이 없습니다. 단가대비표·일위대가·내역서 중 하나를 놓아 주세요.")
         source_row.addWidget(source_label)
         source_row.addWidget(self.source_edit)
         path_layout.addLayout(source_row)
@@ -282,7 +300,7 @@ class MainWindow(QMainWindow):
         path_layout.addWidget(self.confirm_box)
         body_layout.addWidget(path_card)
 
-        self.run_button = QPushButton("공량 산출 및 저장")
+        self.run_button = QPushButton("산출 및 저장")
         self.run_button.setObjectName("runButton")
         self.run_button.setMinimumHeight(52)
         self.run_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -301,24 +319,37 @@ class MainWindow(QMainWindow):
         outer.addWidget(body, 1)
 
         status = QStatusBar()
-        status.showMessage("대기 — 내역서를 놓고 저장 폴더를 확인하세요.")
+        status.showMessage("대기 — 단가대비표·일위대가·내역서 중 하나를 놓고 저장 폴더를 확인하세요.")
         self.setStatusBar(status)
-        self._append_log("내역서 원본은 읽기만 합니다. 병합 셀은 메모리에서 상단/좌측 값으로 채웁니다.")
+        self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
         self._append_log(
-            f"결과 시트: {ESTIMATE_SHEET_NAME} · {PUMSAM_SHEET_NAME} · {QUANTITY_SHEET_NAME} "
-            "(같은 행의 내역서 수량 → 공량산출서, 품셈표에서 노무/품셈/할증 조회)"
+            "단가대비표를 놓으면 일위대가 → 내역서 → 공량산출서 순으로 새 파일을 만듭니다."
         )
         self._append_log(
-            f"품셈 데이터베이스 파일명: {PUMSAM_DB_FILENAME} (저장 폴더에 함께 쌓입니다)"
+            "표준품셈과 노임단가는 프로그램 data 폴더에 들어 있고, "
+            "저장 폴더의 데이터베이스 안에서 계속 고칠 수 있습니다."
         )
 
     def _append_log(self, message: str) -> None:
         self.log.append(message)
 
     def _refresh_run_enabled(self) -> None:
-        ready = self._source_path is not None and self.confirm_box.isChecked()
+        ready = self._has_input() and self.confirm_box.isChecked()
         self.run_button.setEnabled(ready)
+
+    def _has_input(self) -> bool:
+        return any([self._unit_price_path, self._ilwidae_path, self._source_path])
+
+    def _sync_source_edit(self) -> None:
+        parts: list[str] = []
+        if self._unit_price_path is not None:
+            parts.append(f"단가대비표: {self._unit_price_path}")
+        if self._ilwidae_path is not None:
+            parts.append(f"일위대가: {self._ilwidae_path}")
+        if self._source_path is not None:
+            parts.append(f"내역서: {self._source_path}")
+        self.source_edit.setText("   |   ".join(parts))
 
     def _on_browse_dest(self) -> None:
         start = self.dest_edit.text().strip() or display_result_directory()
@@ -335,30 +366,41 @@ class MainWindow(QMainWindow):
             return None
         return Path(text)
 
+    def _on_unit_price_dropped(self, path_text: str) -> None:
+        path = Path(path_text)
+        self._unit_price_path = path
+        self.compare_drop.set_loaded(path.name)
+        self._sync_source_edit()
+        self.statusBar().showMessage(f"단가대비표 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"단가대비표 로드 대기: {path}")
+        self._refresh_run_enabled()
+
+    def _on_ilwidae_dropped(self, path_text: str) -> None:
+        path = Path(path_text)
+        self._ilwidae_path = path
+        self.ilwidae_drop.set_loaded(path.name)
+        self._sync_source_edit()
+        self.statusBar().showMessage(f"일위대가 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"일위대가 로드 대기: {path}")
+        self._refresh_run_enabled()
+
     def _on_file_dropped(self, path_text: str) -> None:
         path = Path(path_text)
         self._source_path = path
-        self.source_edit.setText(str(path))
         self.drop_zone.set_loaded(path.name)
+        self._sync_source_edit()
         self.statusBar().showMessage(f"내역서 선택됨 (읽기 전용): {path.name}")
         self._append_log(f"내역서 로드 대기: {path}")
         self._refresh_run_enabled()
 
-    def _on_pumsam_dropped(self, path_text: str) -> None:
-        path = Path(path_text)
-        self._pumsam_path = path
-        self.pumsam_drop.set_loaded(path.name)
-        self._append_log(f"품셈표 추가 대기: {path}")
-
     def _on_run(self) -> None:
-        if self._source_path is None:
-            QMessageBox.warning(self, "내역서 없음", "내역서 엑셀을 먼저 놓아 주세요.")
+        if not self._has_input():
+            QMessageBox.warning(self, "파일 없음", "단가대비표, 일위대가, 내역서 중 하나를 먼저 놓아 주세요.")
             return
         if not self.confirm_box.isChecked():
             QMessageBox.warning(self, "저장 경로 미확인", "저장 폴더 확인란을 선택해 주세요.")
             return
 
-        source = self._source_path
         dest_dir = self._chosen_dest_dir()
         if dest_dir is not None:
             self._settings.setValue("dest_dir", str(dest_dir))
@@ -366,11 +408,16 @@ class MainWindow(QMainWindow):
                 self._append_log("알림: 선택한 폴더가 OneDrive 경로로 보입니다. 가능하면 로컬 폴더를 쓰세요.")
 
         self.run_button.setEnabled(False)
-        self.statusBar().showMessage("공량 산출 파일을 생성하는 중…")
-        self._append_log("내역서 읽기 전용 · 품셈표 결합 · 공량산출서 수식 생성")
+        self.statusBar().showMessage("산출 파일을 생성하는 중…")
+        self._append_log("원본 읽기 전용 · 표준품셈·노임단가 결합 · 결과 엑셀 생성")
 
         try:
-            dest = save_result_workbook(source, dest_dir=dest_dir, extra_pumsam_path=self._pumsam_path)
+            dest = save_result_workbook(
+                dest_dir=dest_dir,
+                unit_price_path=self._unit_price_path,
+                ilwidae_path=self._ilwidae_path,
+                estimate_path=self._source_path,
+            )
         except ResultDirectoryError as exc:
             self._append_log(f"저장 폴더 오류: {exc}")
             self.statusBar().showMessage("저장 폴더 오류")
@@ -384,7 +431,9 @@ class MainWindow(QMainWindow):
             self._refresh_run_enabled()
             return
 
-        self._append_log(f"원본 보존 확인: {source}")
+        originals = [p for p in (self._unit_price_path, self._ilwidae_path, self._source_path) if p is not None]
+        for original in originals:
+            self._append_log(f"원본 보존 확인: {original}")
         self._append_log(f"새 파일 저장: {dest}")
         self.statusBar().showMessage(f"저장 완료 — {dest.name}")
         QMessageBox.information(
@@ -392,11 +441,10 @@ class MainWindow(QMainWindow):
             "저장 완료",
             (
                 "원본은 그대로 두었습니다.\n\n"
-                f"원본: {source}\n"
                 f"결과: {dest}\n\n"
-                f"시트1 {ESTIMATE_SHEET_NAME} — 내역서(원본 행 번호 유지, 흰색 서식)\n"
-                f"시트2 {PUMSAM_SHEET_NAME} — 품셈 데이터베이스\n"
-                f"시트3 {QUANTITY_SHEET_NAME} — 같은 행의 내역서 수량으로 공량 수식"
+                f"{COMPARE_SHEET_NAME} → {ILWIDAE_SHEET_NAME} → {ESTIMATE_SHEET_NAME} → {QUANTITY_SHEET_NAME}\n"
+                f"참고 시트: {PUMSAM_SHEET_NAME}, {WAGES_SHEET_NAME}\n"
+                "표준품셈·노임단가는 저장 폴더의 데이터베이스에서 고칠 수 있습니다."
             ),
         )
         self._refresh_run_enabled()

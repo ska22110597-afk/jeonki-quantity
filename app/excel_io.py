@@ -35,7 +35,9 @@ from app.pumsam import (
 
 ESTIMATE_SHEET_NAME = "내역서"
 QUANTITY_SHEET_NAME = "공량산출서"
-UNIT_PRICE_SHEET_NAME = ESTIMATE_SHEET_NAME
+COMPARE_SHEET_NAME = "단가대비표"
+ILWIDAE_SHEET_NAME = "일위대가"
+UNIT_PRICE_SHEET_NAME = COMPARE_SHEET_NAME
 
 ROW_HEIGHT = 20
 PUMSAM_DATA_START = 3
@@ -80,9 +82,18 @@ def source_qty_formula(source_col_letter: str, row: int) -> str:
     return f"='{ESTIMATE_SHEET_NAME}'!{source_col_letter}{row}"
 
 
-def gongryang_formula(row: int) -> str:
-    """공량 = 내역서 수량 × 품셈 × (할증%/100). 샘플 K열."""
-    return f'=IF(G{row}*I{row}=0,"",G{row}*I{row}*(J{row}/100))'
+def gongryang_formula(row: int, last_row: int | None = None) -> str:
+    """공량. 품셈표에 인부가 여러 명이면 품셈×할증을 모두 더한다."""
+    if last_row is None:
+        return f'=IF(G{row}*I{row}=0,"",G{row}*I{row}*(J{row}/100))'
+    start = PUMSAM_DATA_START
+    return (
+        f'=IF(G{row}=0,"",G{row}*SUMPRODUCT('
+        f"('{PUMSAM_SHEET_NAME}'!$B${start}:$B${last_row}=B{row})*"
+        f"('{PUMSAM_SHEET_NAME}'!$C${start}:$C${last_row}=C{row})*"
+        f"('{PUMSAM_SHEET_NAME}'!$F${start}:$F${last_row})*"
+        f"('{PUMSAM_SHEET_NAME}'!$G${start}:$G${last_row}/100)))"
+    )
 
 
 def pumsam_vlookup(row: int, col: int, last_row: int) -> str:
@@ -432,7 +443,7 @@ def _write_quantity_sheet(
             sheet,
             excel_row,
             11,
-            gongryang_formula(excel_row),
+            gongryang_formula(excel_row, lookup_last),
             align=RIGHT,
             number_format=NUMBER_FORMAT,
         )
@@ -490,28 +501,29 @@ def create_result_workbook(
 
 
 def save_result_workbook(
-    source_path: Path,
+    source_path: Path | None = None,
     dest_dir: Path | None = None,
     estimate_rows: list[list[Any]] | None = None,
     extra_pumsam_path: Path | None = None,
     db_dir: Path | None = None,
+    unit_price_path: Path | None = None,
+    ilwidae_path: Path | None = None,
+    estimate_path: Path | None = None,
 ) -> Path:
-    """원본 내역서는 읽기만 하고, 3시트 결과 파일만 새로 저장한다."""
-    source = Path(source_path)
-    if estimate_rows is not None:
-        estimate = EstimateSheet(filled=estimate_rows, raw=estimate_rows, merges=[])
-    else:
-        estimate = load_estimate_sheet(source)
-    pumsam_rows = collect_pumsam_rows(source, dest_dir, extra_pumsam_path, db_dir=db_dir)
-    dest = build_result_path(dest_dir)
-    assert_safe_save(source, dest)
+    """드롭한 원본은 읽기만 하고, 결과 엑셀만 새로 저장한다."""
+    from app.pipeline import run_pipeline
 
-    workbook = create_result_workbook(estimate, pumsam_rows=pumsam_rows, source_name=source.name)
-    try:
-        workbook.save(dest)
-    finally:
-        workbook.close()
-    return dest
+    if estimate_path is None and source_path is not None:
+        estimate_path = source_path
+    return run_pipeline(
+        dest_dir=dest_dir,
+        unit_price_path=unit_price_path,
+        ilwidae_path=ilwidae_path,
+        estimate_path=estimate_path,
+        extra_pumsam_path=extra_pumsam_path,
+        db_dir=db_dir,
+        estimate_rows=estimate_rows,
+    )
 
 
 # 이전 이름 호환

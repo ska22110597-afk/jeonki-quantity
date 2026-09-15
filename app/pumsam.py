@@ -15,18 +15,68 @@ from app.estimate_parse import (
     normalize_header,
 )
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
-from app.paths import ensure_result_directory, get_result_directory, is_allowed_excel
+from app.paths import (
+    bundled_data_dir,
+    ensure_result_directory,
+    get_result_directory,
+    is_allowed_excel,
+    user_database_dir,
+)
 
 PUMSAM_SHEET_NAME = "품셈표"
-PUMSAM_DB_FILENAME = "품셈표_데이터베이스.xlsx"
+PUMSAM_DB_FILENAME = "표준품셈.xlsx"
+LEGACY_PUMSAM_DB_FILENAME = "품셈표_데이터베이스.xlsx"
 PUMSAM_HEADERS = ["검색키", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
 
 PumsamRow = dict[str, Any]
 
 
 def pumsam_db_path(directory: Path | None = None) -> Path:
-    folder = Path(directory) if directory is not None else get_result_directory()
-    return folder / PUMSAM_DB_FILENAME
+    return user_database_dir(directory) / PUMSAM_DB_FILENAME
+
+
+def bundled_pumsam_path() -> Path:
+    return bundled_data_dir() / PUMSAM_DB_FILENAME
+
+
+def _load_rows_from_path(path: Path) -> list[PumsamRow]:
+    workbook = load_workbook(path, data_only=True)
+    try:
+        sheet = workbook.active
+        for candidate in workbook.worksheets:
+            if "품셈" in str(candidate.title):
+                sheet = candidate
+                break
+        grid = fill_merged_values(sheet)
+    finally:
+        workbook.close()
+    table = trim_grid(grid)
+    if not table:
+        return []
+    header_idx = find_header_row(table)
+    return rows_from_grid(trim_grid(table[header_idx:]))
+
+
+def ensure_pumsam_database(directory: Path | None = None) -> Path:
+    dest = pumsam_db_path(directory)
+    if dest.exists():
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    bundled = bundled_pumsam_path()
+    if bundled.exists():
+        dest.write_bytes(bundled.read_bytes())
+        return dest
+    legacy = get_result_directory() / LEGACY_PUMSAM_DB_FILENAME
+    if directory is not None:
+        legacy_alt = Path(directory) / LEGACY_PUMSAM_DB_FILENAME
+        if legacy_alt.exists():
+            dest.write_bytes(legacy_alt.read_bytes())
+            return dest
+    if legacy.exists():
+        dest.write_bytes(legacy.read_bytes())
+        return dest
+    save_pumsam_database(default_pumsam_rows(), directory)
+    return dest
 
 
 def _hi_spec(mm: int) -> str:
@@ -90,6 +140,18 @@ def default_pumsam_rows() -> list[PumsamRow]:
                 "품셈근거": "전기5-1",
             }
         )
+    rows.append(
+        {
+            "검색키": lookup_key("경질비닐전선관_노출", _hi_spec(104)),
+            "명칭": "경질비닐전선관_노출",
+            "규격": _hi_spec(104),
+            "단위": "M",
+            "노무명칭": "보통인부",
+            "품셈": 0.001,
+            "할증%": 120,
+            "품셈근거": "전기5-1",
+        }
+    )
     return rows
 
 
@@ -170,6 +232,9 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
         name_idx = find_column_index(header, "명칭")
 
     parsed: list[PumsamRow] = []
+    prev_name: Any = None
+    prev_spec: Any = None
+    prev_unit: Any = None
     for source in table[data_start:]:
         def pick(index: int | None) -> Any:
             if index is None or index >= len(source):
@@ -178,20 +243,29 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
 
         name = pick(name_idx)
         spec = pick(spec_idx)
+        labor = pick(labor_idx)
+        pumsam_value = pick(pumsam_idx)
         if name is None and spec is None:
-            continue
+            if (labor or pumsam_value is not None) and prev_name is not None:
+                name, spec = prev_name, prev_spec
+                unit_value = prev_unit
+            else:
+                continue
+        else:
+            unit_value = pick(unit_idx)
+            prev_name, prev_spec, prev_unit = name, spec, unit_value
         if normalize_header(name) in _HEADER_LIKE_NAMES:
             continue
-        if normalize_header(pick(pumsam_idx)) == "품셈":
+        if normalize_header(pumsam_value) == "품셈":
             continue
         parsed.append(
             {
                 "검색키": lookup_key(name, spec),
                 "명칭": name,
                 "규격": spec,
-                "단위": pick(unit_idx),
-                "노무명칭": pick(labor_idx),
-                "품셈": pick(pumsam_idx),
+                "단위": unit_value if name is not None else prev_unit,
+                "노무명칭": labor,
+                "품셈": pumsam_value,
                 "할증%": pick(rate_idx),
                 "품셈근거": pick(ref_idx),
             }
@@ -199,42 +273,35 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
     return parsed
 
 
+def pumsam_identity(row: PumsamRow) -> str:
+    labor = str(row.get("노무명칭") or "").strip()
+    return f"{lookup_key(row.get('명칭'), row.get('규격'))}|{labor}"
+
+
 def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
     merged: dict[str, PumsamRow] = {}
     for group in groups:
         for row in group:
-            key = str(row.get("검색키") or lookup_key(row.get("명칭"), row.get("규격")))
-            if not key:
+            key = pumsam_identity(row)
+            if not key or key == "|":
                 continue
             row = dict(row)
-            row["검색키"] = key
+            row["검색키"] = lookup_key(row.get("명칭"), row.get("규격"))
             merged[key] = row
     return list(merged.values())
 
 
 def load_pumsam_database(directory: Path | None = None) -> list[PumsamRow]:
-    path = pumsam_db_path(directory)
-    if not path.exists():
-        return default_pumsam_rows()
-    workbook = load_workbook(path, data_only=True)
-    try:
-        sheet = workbook.active
-        grid = fill_merged_values(sheet)
-    finally:
-        workbook.close()
-    table = trim_grid(grid)
-    if not table:
-        return default_pumsam_rows()
-    header_idx = find_header_row(table)
-    parsed = rows_from_grid(trim_grid(table[header_idx:]))
+    path = ensure_pumsam_database(directory)
+    parsed = _load_rows_from_path(path) if path.exists() else []
     if not parsed:
         return default_pumsam_rows()
     return merge_pumsam_rows(default_pumsam_rows(), parsed)
 
 
 def save_pumsam_database(rows: list[PumsamRow], directory: Path | None = None) -> Path:
-    folder = ensure_result_directory(directory)
-    path = pumsam_db_path(folder)
+    path = pumsam_db_path(directory)
+    path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = PUMSAM_SHEET_NAME

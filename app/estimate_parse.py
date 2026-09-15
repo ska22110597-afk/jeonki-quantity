@@ -15,6 +15,7 @@ HEADER_ALIASES = {
     "규격": ("규격", "사양", "규격/사양"),
     "단위": ("단위", "단위명"),
     "수량": ("수량", "설계수량", "물량", "결정수량", "계약수량", "설계물량"),
+    "단가": ("단가", "재료비단가", "재료비", "가격"),
 }
 
 HEADER_HINTS = ("명칭", "품명", "규격", "단위", "수량", "단가")
@@ -99,6 +100,8 @@ def is_section_row(name: Any, spec: Any, unit: Any) -> bool:
     if not name_text:
         return True
     if spec is None and unit is None and SECTION_NAME.match(name_text):
+        return True
+    if "호표" in name_text:
         return True
     if spec is None and unit is None and name_text.endswith("공사") and "_" not in name_text:
         return True

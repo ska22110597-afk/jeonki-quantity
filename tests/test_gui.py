@@ -23,12 +23,15 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.source_edit.minimumHeight() >= 40
         assert window.dest_edit.minimumHeight() >= 40
         assert window.minimumWidth() >= 980
+        assert window.compare_drop is not None
+        assert window.ilwidae_drop is not None
+        assert window.drop_zone is not None
 
-        source = tmp_path / "내역서.xlsx"
+        source = tmp_path / "단가대비표.xlsx"
         source.write_bytes(b"unused")
-        window._on_file_dropped(str(source))
+        window._on_unit_price_dropped(str(source))
         assert window.run_button.isEnabled() is False
-        assert window.source_edit.text() == str(source)
+        assert "단가대비표" in window.source_edit.text()
 
         chosen = tmp_path / "저장위치"
         window.dest_edit.setText(str(chosen))

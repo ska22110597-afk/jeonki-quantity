@@ -42,6 +42,19 @@ def bundle_extract_dir() -> Path | None:
     return Path(meipass)
 
 
+def bundled_data_dir() -> Path:
+    """프로그램과 함께 실리는 data 폴더. 표준품셈·노임단가 씨앗 파일."""
+    extract = bundle_extract_dir()
+    if extract is not None:
+        return extract / "data"
+    return Path(__file__).resolve().parent.parent / "data"
+
+
+def user_database_dir(directory: Path | None = None) -> Path:
+    """사용자가 고친 품셈·노임 파일을 두는 폴더. exe 임시 경로가 아니다."""
+    return ensure_result_directory(directory) / "데이터베이스"
+
+
 def get_result_directory() -> Path:
     """결과 파일을 둘 로컬 폴더를 반환한다.
 
