@@ -108,7 +108,7 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
     source = tmp_path / "내역서.xlsx"
     _write_estimate(source)
     dest_dir = tmp_path / "결과"
-    dest = save_result_workbook(source, dest_dir=dest_dir, mode="forward")
+    dest = save_result_workbook(source, dest_dir=dest_dir, mode="quantity")
 
     assert dest.name.startswith("공량산출_결과_")
     assert dest.parent == dest_dir
@@ -168,7 +168,7 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
 def test_merged_source_does_not_error(tmp_path: Path) -> None:
     source = tmp_path / "내역서_병합.xlsx"
     _write_estimate(source, with_merge=True)
-    dest = save_result_workbook(source, dest_dir=tmp_path / "out", mode="forward")
+    dest = save_result_workbook(source, dest_dir=tmp_path / "out", mode="quantity")
     result = load_workbook(dest, data_only=False)
     try:
         qty = result[QUANTITY_SHEET_NAME]

@@ -50,7 +50,7 @@ PUMSAM_DATA_START = 5
 QTY_HEADER_ROW = 2
 QTY_SUBHEADER_ROW = 3
 COMPARE_DATA_START = 5
-COMPARE_PRICE_COL = 3  # D열 물가정보. 코드 열은 쓰지 않는다.
+COMPARE_PRICE_COL = 11  # L열 적용단가. 코드 열은 쓰지 않는다.
 
 WHITE = PatternFill("solid", fgColor="FFFFFF")
 TITLE_FONT = Font(name="굴림", size=16, bold=True, underline="single", color="000000")
@@ -69,7 +69,10 @@ RIGHT = Alignment(horizontal="right", vertical="center", wrap_text=False)
 
 NUMBER_FORMAT = "#,##0.000"
 QTY_FORMAT = "#,##0"
-MONEY_FORMAT = "#,##0"
+PRICE_FORMAT = "#,##0.00"
+AMOUNT_FORMAT = "#,##0.0"
+PAGE_FORMAT = "0"
+MONEY_FORMAT = PRICE_FORMAT
 PERCENT_FORMAT = "0%"
 RATE_FORMAT = "0"
 PUMSAM_FORMAT = "0.000"
@@ -213,6 +216,15 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
     spec_idx = find_column_index(filled[header_idx], "규격") if filled else None
     unit_idx = find_column_index(filled[header_idx], "단위") if filled else None
     data_start = first_data_row_number(filled) if filled else 2
+    subheader = filled[header_idx + 1] if filled and header_idx + 1 < len(filled) else []
+
+    def _col_number_format(col: int) -> str:
+        token = ""
+        if col - 1 < len(subheader):
+            token = str(subheader[col - 1] or "")
+        if "금액" in token.replace(" ", ""):
+            return AMOUNT_FORMAT
+        return PRICE_FORMAT
 
     for r_idx in range(1, max_row + 1):
         source = raw[r_idx - 1] if r_idx - 1 < len(raw) else []
@@ -236,10 +248,10 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
             align = CENTER if is_header or c_idx in (3, 4) else LEFT
             number_format = None
             if r_idx >= data_start and isinstance(value, (int, float)):
-                number_format = MONEY_FORMAT
+                number_format = _col_number_format(c_idx)
                 align = RIGHT
             elif isinstance(value, str) and value.startswith("=") and c_idx >= 4:
-                number_format = MONEY_FORMAT
+                number_format = _col_number_format(c_idx)
                 align = RIGHT
             _set_cell(
                 sheet,

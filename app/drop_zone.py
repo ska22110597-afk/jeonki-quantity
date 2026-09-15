@@ -23,7 +23,12 @@ class DropZone(QFrame):
         tone: str = "forward",
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("dropZoneForward" if tone == "forward" else "dropZoneReverse")
+        names = {
+            "forward": "dropZoneForward",
+            "reverse": "dropZoneReverse",
+            "quantity": "dropZoneQty",
+        }
+        self.setObjectName(names.get(tone, "dropZoneForward"))
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(56)

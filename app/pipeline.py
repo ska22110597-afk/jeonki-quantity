@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.discipline import normalize_discipline
 from app.estimate_parse import EstimateSheet, load_estimate_sheet, normalize_header
 from app.excel_io import (
+    AMOUNT_FORMAT,
     BODY_FONT,
     CENTER,
     COMPARE_DATA_START,
@@ -22,7 +22,8 @@ from app.excel_io import (
     FORM_ROW_HEIGHT,
     HEADER_FONT,
     ILWIDAE_SHEET_NAME,
-    MONEY_FORMAT,
+    PAGE_FORMAT,
+    PRICE_FORMAT,
     PUMSAM_DATA_START,
     QUANTITY_SHEET_NAME,
     RIGHT,
@@ -36,7 +37,7 @@ from app.excel_io import (
     write_title_banner,
 )
 from app.ilwidae import IlwidaeBlock, write_ilwidae_sheet
-from app.items import LineItem, parse_line_items
+from app.items import LineItem, first_filled, parse_line_items
 from app.paths import assert_safe_save, build_result_path
 from app.pumsam import PUMSAM_SHEET_NAME, PumsamRow
 from app.wages import WAGES_SHEET_NAME, WageRow, load_wages, save_wages
@@ -45,7 +46,7 @@ COMPARE_LAST_COL = 21
 
 
 def remap_items_to_compare(items: list[LineItem]) -> None:
-    """다시 쓴 단가대비표 행에 맞춰 단가 열을 D(물가정보)로 고정한다. 코드 열은 없다."""
+    """다시 쓴 단가대비표 행에 맞춰 단가 열을 L(적용단가)로 고정한다. 코드 열은 없다."""
     excel_row = COMPARE_DATA_START
     for item in items:
         if item.section:
@@ -56,22 +57,22 @@ def remap_items_to_compare(items: list[LineItem]) -> None:
         excel_row += 1
 
 
-def _merge_same_item_names(sheet: Worksheet, names: list[str], start_row: int) -> None:
-    index = 0
-    while index < len(names):
-        end = index + 1
-        while end < len(names) and names[end] and names[end] == names[index]:
-            end += 1
-        if end - index > 1:
-            sheet.merge_cells(
-                start_row=start_row + index,
-                start_column=1,
-                end_row=start_row + end - 1,
-                end_column=1,
-            )
-            cell = sheet.cell(row=start_row + index, column=1)
-            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
-        index = end
+def _write_price_cell(sheet: Worksheet, row: int, col: int, value: Any, *, page: bool = False) -> None:
+    if value in (None, ""):
+        _set_cell(sheet, row, col, None)
+        return
+    if page:
+        _set_cell(sheet, row, col, value, font=BODY_FONT, align=CENTER, number_format=PAGE_FORMAT)
+        return
+    _set_cell(
+        sheet,
+        row,
+        col,
+        value,
+        font=BODY_FONT,
+        align=RIGHT,
+        number_format=PRICE_FORMAT,
+    )
 
 
 def _write_compare_from_items(sheet: Worksheet, items: list[LineItem]) -> None:
@@ -125,41 +126,42 @@ def _write_compare_from_items(sheet: Worksheet, items: list[LineItem]) -> None:
 
     excel_row = COMPARE_DATA_START
     serial = 0
-    written_names: list[str] = []
     for item in items:
         if item.section:
             continue
         serial += 1
-        name_text = "" if item.name is None else str(item.name)
-        written_names.append(name_text)
+        fields = item.fields or {}
         _set_cell(sheet, excel_row, 1, item.name, font=BODY_FONT)
         _set_cell(sheet, excel_row, 2, item.spec, font=BODY_FONT)
         _set_cell(sheet, excel_row, 3, item.unit, font=BODY_FONT, align=CENTER)
         for col in range(4, last_col + 1):
             _set_cell(sheet, excel_row, col, None)
-        if item.material_price not in (None, ""):
-            _set_cell(
-                sheet,
-                excel_row,
-                4,
-                item.material_price,
-                font=BODY_FONT,
-                align=RIGHT,
-                number_format=MONEY_FORMAT,
-            )
-            _set_cell(
-                sheet,
-                excel_row,
-                12,
-                item.material_price,
-                font=BODY_FONT,
-                align=RIGHT,
-                number_format=MONEY_FORMAT,
-            )
+        info = first_filled(fields.get("물가정보"))
+        pps = first_filled(fields.get("조달청"))
+        survey2 = first_filled(fields.get("조사가격2"))
+        survey3 = first_filled(fields.get("조사가격3"))
+        if info is None and pps is None and survey2 is None and survey3 is None:
+            info = first_filled(fields.get("단가"), fields.get("재료비"), item.material_price)
+        applied = first_filled(
+            fields.get("적용단가"),
+            info,
+            pps,
+            survey2,
+            survey3,
+            item.material_price,
+        )
+        _write_price_cell(sheet, excel_row, 4, info)
+        _write_price_cell(sheet, excel_row, 5, fields.get("물가정보_PAGE"), page=True)
+        _write_price_cell(sheet, excel_row, 6, pps)
+        _write_price_cell(sheet, excel_row, 7, fields.get("조달청_PAGE"), page=True)
+        _write_price_cell(sheet, excel_row, 8, survey2)
+        _write_price_cell(sheet, excel_row, 9, fields.get("조사가격2_PAGE"), page=True)
+        _write_price_cell(sheet, excel_row, 10, survey3)
+        _write_price_cell(sheet, excel_row, 11, fields.get("조사가격3_PAGE"), page=True)
+        _write_price_cell(sheet, excel_row, 12, applied)
         _set_cell(sheet, excel_row, 20, f"자재 {serial}", font=BODY_FONT, align=CENTER)
         excel_row += 1
 
-    _merge_same_item_names(sheet, written_names, COMPARE_DATA_START)
     _apply_sheet_look(sheet, max(excel_row - 1, 4), last_col, row_height=FORM_ROW_HEIGHT)
     sheet.column_dimensions["A"].width = 32
     sheet.column_dimensions["B"].width = 16
@@ -186,7 +188,7 @@ def _write_wages_sheet(sheet: Worksheet, rows: list[WageRow]) -> None:
             row.get("노임단가"),
             font=BODY_FONT,
             align=RIGHT,
-            number_format=MONEY_FORMAT,
+            number_format=PRICE_FORMAT,
         )
         _set_cell(sheet, excel_row, 3, row.get("비고"), font=BODY_FONT)
     _apply_sheet_look(sheet, last, 3)
@@ -202,7 +204,7 @@ def _write_generated_estimate(
     items: list[LineItem],
     blocks: list[IlwidaeBlock],
 ) -> EstimateSheet:
-    """일위대가 단가와 단가대비표 단가로 내역서를 만든다."""
+    """내역서에는 일위대가 합계 금액만 넣는다. 단가 열은 비운다."""
     sheet.title = ESTIMATE_SHEET_NAME
     last_col = 13
     write_title_banner(sheet, "[내역서 ]", last_col)
@@ -253,8 +255,8 @@ def _write_generated_estimate(
     filled[3][5] = "금액"
 
     excel_row = 5
-    work_items = [item for item in items if not item.section]
-    if work_items:
+    has_sections = any(item.section for item in items)
+    if not has_sections and any(not item.section for item in items):
         _set_cell(sheet, excel_row, 1, "1. 전기공사", font=SECTION_FONT)
         for col in range(2, last_col + 1):
             _set_cell(sheet, excel_row, col, None)
@@ -263,6 +265,11 @@ def _write_generated_estimate(
 
     for item in items:
         if item.section:
+            _set_cell(sheet, excel_row, 1, item.name, font=SECTION_FONT)
+            for col in range(2, last_col + 1):
+                _set_cell(sheet, excel_row, col, None)
+            filled.append([item.name] + [None] * (last_col - 1))
+            excel_row += 1
             continue
         block = block_by_key.get(item.key)
         _set_cell(sheet, excel_row, 1, item.name, font=BODY_FONT)
@@ -276,69 +283,24 @@ def _write_generated_estimate(
             qty_value,
             font=BODY_FONT,
             align=RIGHT,
-            number_format=MONEY_FORMAT,
+            number_format=AMOUNT_FORMAT,
         )
-        price_letter = get_column_letter((item.price_col if item.price_col is not None else COMPARE_PRICE_COL) + 1)
-        _set_cell(
-            sheet,
-            excel_row,
-            5,
-            f"='{COMPARE_SHEET_NAME}'!{price_letter}{item.excel_row}",
-            font=BODY_FONT,
-            align=RIGHT,
-            number_format=MONEY_FORMAT,
-        )
-        _set_cell(
-            sheet,
-            excel_row,
-            6,
-            f'=IF(D{excel_row}="","",D{excel_row}*E{excel_row})',
-            font=BODY_FONT,
-            align=RIGHT,
-            number_format=MONEY_FORMAT,
-        )
-        labor_ref = f"='{ILWIDAE_SHEET_NAME}'!H{block.sum_row}" if block else 0
-        _set_cell(sheet, excel_row, 7, labor_ref, font=BODY_FONT, align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(
-            sheet,
-            excel_row,
-            8,
-            f'=IF(D{excel_row}="","",D{excel_row}*G{excel_row})',
-            font=BODY_FONT,
-            align=RIGHT,
-            number_format=MONEY_FORMAT,
-        )
-        _set_cell(sheet, excel_row, 9, 0, font=BODY_FONT, align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(
-            sheet,
-            excel_row,
-            10,
-            f'=IF(D{excel_row}="","",D{excel_row}*I{excel_row})',
-            font=BODY_FONT,
-            align=RIGHT,
-            number_format=MONEY_FORMAT,
-        )
-        _set_cell(
-            sheet,
-            excel_row,
-            11,
-            f"=E{excel_row}+G{excel_row}+I{excel_row}",
-            font=BODY_FONT,
-            align=RIGHT,
-            number_format=MONEY_FORMAT,
-        )
-        _set_cell(
-            sheet,
-            excel_row,
-            12,
-            f'=IF(D{excel_row}="","",F{excel_row}+H{excel_row}+J{excel_row})',
-            font=BODY_FONT,
-            align=RIGHT,
-            number_format=MONEY_FORMAT,
-        )
+        for price_col in (5, 7, 9, 11):
+            _set_cell(sheet, excel_row, price_col, None, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        if block:
+            material_amt = f"='{ILWIDAE_SHEET_NAME}'!F{block.sum_row}"
+            labor_amt = f"='{ILWIDAE_SHEET_NAME}'!H{block.sum_row}"
+            expense_amt = f"='{ILWIDAE_SHEET_NAME}'!J{block.sum_row}"
+            total_amt = f"='{ILWIDAE_SHEET_NAME}'!L{block.sum_row}"
+        else:
+            material_amt = labor_amt = expense_amt = total_amt = None
+        _set_cell(sheet, excel_row, 6, material_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        _set_cell(sheet, excel_row, 8, labor_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        _set_cell(sheet, excel_row, 10, expense_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        _set_cell(sheet, excel_row, 12, total_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
         _set_cell(sheet, excel_row, 13, None)
         filled.append(
-            [item.name, item.spec, item.unit, item.qty, item.material_price, None, None, None, None, None, None, None, None]
+            [item.name, item.spec, item.unit, item.qty, None, None, None, None, None, None, None, None, None]
         )
         excel_row += 1
 
@@ -404,7 +366,6 @@ def build_result_workbook(
     sheets = _SheetFactory(workbook)
     items: list[LineItem] = []
     blocks: list[IlwidaeBlock] = []
-    qty_estimate: EstimateSheet | None = None
 
     if mode == "reverse":
         source_items: list[LineItem] = []
@@ -424,6 +385,14 @@ def build_result_workbook(
             copied_ilwidae = sheets.take(ILWIDAE_SHEET_NAME)
             _write_estimate_sheet(copied_ilwidae, dropped_ilwidae)
             copied_ilwidae.title = ILWIDAE_SHEET_NAME
+    elif mode == "quantity":
+        if estimate is None:
+            raise ValueError("공량산출을 하려면 파트별로 나눈 내역서를 놓아 주세요.")
+        copied = sheets.take(ESTIMATE_SHEET_NAME)
+        _write_estimate_sheet(copied, estimate)
+        pumsam_last = PUMSAM_DATA_START + len(pumsam_rows) - 1 if pumsam_rows else PUMSAM_DATA_START
+        qty = sheets.take(QUANTITY_SHEET_NAME)
+        _write_quantity_sheet(qty, estimate, pumsam_last, pumsam_rows)
     else:
         if compare is not None:
             items = parse_line_items(compare)
@@ -447,15 +416,9 @@ def build_result_workbook(
         if estimate is not None:
             copied = sheets.take(ESTIMATE_SHEET_NAME)
             _write_estimate_sheet(copied, estimate)
-            qty_estimate = estimate
         elif items:
             generated = sheets.take(ESTIMATE_SHEET_NAME)
-            qty_estimate = _write_generated_estimate(generated, items, blocks)
-
-        pumsam_last = PUMSAM_DATA_START + len(pumsam_rows) - 1 if pumsam_rows else PUMSAM_DATA_START
-        if qty_estimate is not None:
-            qty = sheets.take(QUANTITY_SHEET_NAME)
-            _write_quantity_sheet(qty, qty_estimate, pumsam_last, pumsam_rows)
+            _write_generated_estimate(generated, items, blocks)
 
     pumsam_sheet = sheets.take(PUMSAM_SHEET_NAME)
     _write_pumsam_sheet(pumsam_sheet, pumsam_rows)
@@ -483,7 +446,10 @@ def run_pipeline(
         raise ValueError("단가대비표, 일위대가, 내역서 중 하나를 놓아 주세요.")
 
     if mode is None:
-        mode = "forward" if unit_price_path is not None else "reverse"
+        if unit_price_path is not None:
+            mode = "forward"
+        else:
+            mode = "reverse"
 
     compare = _load_optional(Path(unit_price_path) if unit_price_path else None)
     dropped_ilwidae = _load_optional(Path(ilwidae_path) if ilwidae_path else None)

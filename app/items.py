@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.estimate_parse import (
@@ -30,6 +30,7 @@ class LineItem:
     section: bool = False
     price_col: int | None = None
     qty_col: int | None = None
+    fields: dict[str, Any] = field(default_factory=dict)
 
     @property
     def key(self) -> str:
@@ -100,6 +101,43 @@ def find_material_price_column(
     return 4 if len(header) > 4 else None
 
 
+_SKIP_FIELD_TOKENS = {
+    "코드",
+    "품명",
+    "명칭",
+    "규격",
+    "단위",
+    "번호",
+    "비고",
+    "수량",
+    "품목",
+}
+
+
+def extract_price_fields(row: list[Any], labels: list[str]) -> dict[str, Any]:
+    """물가정보·PAGE·조달청처럼 짝이 되는 단가 열을 이름 그대로 담는다."""
+    result: dict[str, Any] = {}
+    last_key: str | None = None
+    for index, label in enumerate(labels):
+        token = normalize_header(label)
+        if not token or token in _SKIP_FIELD_TOKENS:
+            continue
+        if token == "PAGE":
+            if last_key:
+                result[f"{last_key}_PAGE"] = _pick(row, index)
+            continue
+        result[token] = _pick(row, index)
+        last_key = token
+    return result
+
+
+def first_filled(*values: Any) -> Any:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
     filled = sheet.filled
     if not filled:
@@ -114,6 +152,7 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
     qty_idx = find_quantity_column(header)
     data_start = first_data_row_number(filled)
     price_idx = find_material_price_column(header, subheader, filled, data_start)
+    labels = _combined_labels(header, subheader)
     items: list[LineItem] = []
     for excel_row in range(data_start, len(filled) + 1):
         row = filled[excel_row - 1]
@@ -126,6 +165,7 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
             continue
         section = is_section_row(name, spec, unit)
         qty = None if section or qty_idx is None else _pick(row, qty_idx)
+        fields = {} if section else extract_price_fields(row, labels)
         items.append(
             LineItem(
                 excel_row=excel_row,
@@ -133,10 +173,18 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
                 spec=spec,
                 unit=unit,
                 qty=qty,
-                material_price=None if section else _pick(row, price_idx),
+                material_price=None if section else first_filled(
+                    fields.get("적용단가"),
+                    fields.get("물가정보"),
+                    fields.get("조달청"),
+                    fields.get("조사가격2"),
+                    fields.get("조사가격3"),
+                    _pick(row, price_idx),
+                ),
                 section=section,
                 price_col=price_idx,
                 qty_col=qty_idx,
+                fields=fields,
             )
         )
     return items

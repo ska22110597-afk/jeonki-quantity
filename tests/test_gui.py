@@ -20,8 +20,9 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.dest_edit.text() == display_result_directory()
         assert window.dest_edit.isReadOnly() is False
         assert window.browse_button.text() == "폴더 찾기"
-        assert window.source_edit.minimumHeight() >= 40
-        assert window.dest_edit.minimumHeight() >= 40
+        assert window.source_edit.minimumHeight() >= 36
+        assert window.dest_edit.minimumHeight() >= 36
+        assert window.dest_edit.height() <= 44
         assert window.minimumWidth() >= 980
         assert window.windowTitle().startswith("제작자_박남석")
         assert "v1." in window.windowTitle()
@@ -30,6 +31,7 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.forward_estimate_drop is not None
         assert window.drop_zone is not None
         assert window.reverse_ilwidae_drop is not None
+        assert window.quantity_drop is not None
         assert window.electric_button.isChecked() is True
         assert window.telecom_button.isChecked() is False
         window.telecom_button.click()

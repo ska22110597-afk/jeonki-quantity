@@ -11,13 +11,14 @@ from openpyxl.worksheet.worksheet import Worksheet
 from app.discipline import default_labor_name
 from app.estimate_parse import normalize_header
 from app.excel_io import (
+    AMOUNT_FORMAT,
     BODY_FONT,
     CENTER,
     FORM_ROW_HEIGHT,
     HEADER_FONT,
     ILWIDAE_SHEET_NAME,
     LEFT,
-    MONEY_FORMAT,
+    PRICE_FORMAT,
     RIGHT,
     write_title_banner,
     _apply_sheet_look,
@@ -120,12 +121,26 @@ def _write_ilwidae_header(sheet: Worksheet) -> None:
     sheet.merge_cells("M3:M4")
 
 
-def _money(sheet: Worksheet, row: int, col: int, value: Any, align=RIGHT) -> None:
-    _set_cell(sheet, row, col, value, font=BODY_FONT, align=align, number_format=MONEY_FORMAT)
+def _price(sheet: Worksheet, row: int, col: int, value: Any, align=RIGHT) -> None:
+    _set_cell(sheet, row, col, value, font=BODY_FONT, align=align, number_format=PRICE_FORMAT)
+
+
+def _amount(sheet: Worksheet, row: int, col: int, value: Any, align=RIGHT) -> None:
+    _set_cell(sheet, row, col, value, font=BODY_FONT, align=align, number_format=AMOUNT_FORMAT)
+
+
+def _cost_totals(sheet: Worksheet, row: int) -> None:
+    """단가=재료+노무+경비(소수 2자리), 금액=재료+노무+경비(소수 1자리)."""
+    _price(sheet, row, 11, f"=TRUNC(E{row}+G{row}+I{row},2)")
+    _amount(sheet, row, 12, f"=TRUNC(F{row}+H{row}+J{row},1)")
+
+
+def _unit_from_amount(row: int, amount_col: str, qty_col: str = "D") -> str:
+    return f'=IF({qty_col}{row}=0,0,TRUNC({amount_col}{row}/{qty_col}{row},2))'
 
 
 def _price_ref(item: LineItem, compare_sheet: str) -> str:
-    col_index = (item.price_col if item.price_col is not None else 4) + 1
+    col_index = (item.price_col if item.price_col is not None else 11) + 1
     return f"='{compare_sheet}'!{get_column_letter(col_index)}{item.excel_row}"
 
 
@@ -162,10 +177,10 @@ def write_ilwidae_sheet(
         ref = format_pumsam_ref(labors[0].get("품셈근거") or "")
         title = f"{item.name} {item.spec or ''}  ( 호표 {ho_no} )".strip()
         title_row = cursor
-        _set_cell(sheet, cursor, 1, title, font=BODY_FONT, align=LEFT)
-        for col in range(2, 13):
+        _set_cell(sheet, cursor, 1, title, font=BODY_FONT, align=CENTER)
+        for col in range(2, 14):
             _set_cell(sheet, cursor, col, None)
-        _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
+        sheet.merge_cells(start_row=cursor, start_column=1, end_row=cursor, end_column=13)
         cursor += 1
 
         material_row = cursor
@@ -173,15 +188,14 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 1, item.name, font=BODY_FONT)
         _set_cell(sheet, cursor, 2, item.spec, font=BODY_FONT)
         _set_cell(sheet, cursor, 3, item.unit or "개", font=BODY_FONT, align=CENTER)
-        _money(sheet, cursor, 4, qty)
-        _money(sheet, cursor, 5, _price_ref(item, compare_sheet))
-        _money(sheet, cursor, 6, f"=D{cursor}*E{cursor}")
-        _money(sheet, cursor, 7, 0)
-        _money(sheet, cursor, 8, 0)
-        _money(sheet, cursor, 9, 0)
-        _money(sheet, cursor, 10, 0)
-        _money(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
-        _money(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
+        _set_cell(sheet, cursor, 4, qty, font=BODY_FONT, align=RIGHT, number_format="0.000")
+        _price(sheet, cursor, 5, _price_ref(item, compare_sheet))
+        _amount(sheet, cursor, 6, f"=D{cursor}*E{cursor}")
+        _price(sheet, cursor, 7, 0)
+        _amount(sheet, cursor, 8, 0)
+        _price(sheet, cursor, 9, 0)
+        _amount(sheet, cursor, 10, 0)
+        _cost_totals(sheet, cursor)
         _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
         cursor += 1
 
@@ -191,15 +205,14 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 1, "전선관부속품비", font=BODY_FONT)
             _set_cell(sheet, cursor, 2, "전선관의 15%", font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
-            _money(sheet, cursor, 4, 1)
-            _money(sheet, cursor, 5, 0)
-            _money(sheet, cursor, 6, f"=F{material_row}*{CONDUIT_FITTING_RATE}")
-            _money(sheet, cursor, 7, 0)
-            _money(sheet, cursor, 8, 0)
-            _money(sheet, cursor, 9, 0)
-            _money(sheet, cursor, 10, 0)
-            _money(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
-            _money(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
+            _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+            _amount(sheet, cursor, 6, f"=F{material_row}*{CONDUIT_FITTING_RATE}")
+            _price(sheet, cursor, 5, _unit_from_amount(cursor, "F"))
+            _price(sheet, cursor, 7, 0)
+            _amount(sheet, cursor, 8, 0)
+            _price(sheet, cursor, 9, 0)
+            _amount(sheet, cursor, 10, 0)
+            _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)
             cursor += 1
 
@@ -212,15 +225,14 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 1, "잡재료비", font=BODY_FONT)
             _set_cell(sheet, cursor, 2, "배관배선의 2%", font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
-            _money(sheet, cursor, 4, 1)
-            _money(sheet, cursor, 5, 0)
-            _money(sheet, cursor, 6, f"={material_sum}*{SUNDRY_RATE}")
-            _money(sheet, cursor, 7, 0)
-            _money(sheet, cursor, 8, 0)
-            _money(sheet, cursor, 9, 0)
-            _money(sheet, cursor, 10, 0)
-            _money(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
-            _money(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
+            _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+            _amount(sheet, cursor, 6, f"={material_sum}*{SUNDRY_RATE}")
+            _price(sheet, cursor, 5, _unit_from_amount(cursor, "F"))
+            _price(sheet, cursor, 7, 0)
+            _amount(sheet, cursor, 8, 0)
+            _price(sheet, cursor, 9, 0)
+            _amount(sheet, cursor, 10, 0)
+            _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)
             cursor += 1
             _ = sundry_row
@@ -232,14 +244,13 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 2, "일반공사 직종", font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
             _set_cell(sheet, cursor, 4, labor_qty_formula(labor), font=BODY_FONT, align=RIGHT, number_format="0.000")
-            _money(sheet, cursor, 5, 0)
-            _money(sheet, cursor, 6, 0)
-            _money(sheet, cursor, 7, f'=IFERROR(VLOOKUP("{job}",노임단가!A:B,2,FALSE),0)')
-            _money(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
-            _money(sheet, cursor, 9, 0)
-            _money(sheet, cursor, 10, 0)
-            _money(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
-            _money(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
+            _price(sheet, cursor, 5, 0)
+            _amount(sheet, cursor, 6, 0)
+            _price(sheet, cursor, 7, f'=IFERROR(VLOOKUP("{job}",노임단가!A:B,2,FALSE),0)')
+            _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
+            _price(sheet, cursor, 9, 0)
+            _amount(sheet, cursor, 10, 0)
+            _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
             cursor += 1
@@ -249,15 +260,14 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 1, "공구손료", font=BODY_FONT)
         _set_cell(sheet, cursor, 2, "인력품의 3%", font=BODY_FONT)
         _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
-        _money(sheet, cursor, 4, 1)
-        _money(sheet, cursor, 5, 0)
-        _money(sheet, cursor, 6, 0)
-        _money(sheet, cursor, 7, 0)
-        _money(sheet, cursor, 8, f"=SUM(H{first_labor}:H{last_labor})*{TOOL_RATE}")
-        _money(sheet, cursor, 9, 0)
-        _money(sheet, cursor, 10, 0)
-        _money(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
-        _money(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
+        _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+        _price(sheet, cursor, 5, 0)
+        _amount(sheet, cursor, 6, 0)
+        _amount(sheet, cursor, 8, f"=SUM(H{first_labor}:H{last_labor})*{TOOL_RATE}")
+        _price(sheet, cursor, 7, _unit_from_amount(cursor, "H"))
+        _price(sheet, cursor, 9, 0)
+        _amount(sheet, cursor, 10, 0)
+        _cost_totals(sheet, cursor)
         _set_cell(sheet, cursor, 13, None)
         cursor += 1
 
@@ -265,15 +275,17 @@ def write_ilwidae_sheet(
         last_data = cursor - 1
         sum_row = cursor
         _set_cell(sheet, cursor, 1, " [ 합          계 ]", font=BODY_FONT)
-        for col in range(2, 6):
+        for col in range(2, 5):
             _set_cell(sheet, cursor, col, None)
-        _money(sheet, cursor, 6, f"=SUM(F{first_data}:F{last_data})")
-        _set_cell(sheet, cursor, 7, None)
-        _money(sheet, cursor, 8, f"=SUM(H{first_data}:H{last_data})")
-        _set_cell(sheet, cursor, 9, None)
-        _money(sheet, cursor, 10, f"=SUM(J{first_data}:J{last_data})")
-        _set_cell(sheet, cursor, 11, None)
-        _money(sheet, cursor, 12, f"=SUM(L{first_data}:L{last_data})")
+        _set_cell(sheet, cursor, 4, None)
+        _price(sheet, cursor, 5, f"=SUM(E{first_data}:E{last_data})")
+        _amount(sheet, cursor, 6, f"=SUM(F{first_data}:F{last_data})")
+        _price(sheet, cursor, 7, f"=SUM(G{first_data}:G{last_data})")
+        _amount(sheet, cursor, 8, f"=SUM(H{first_data}:H{last_data})")
+        _price(sheet, cursor, 9, f"=SUM(I{first_data}:I{last_data})")
+        _amount(sheet, cursor, 10, f"=SUM(J{first_data}:J{last_data})")
+        _price(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
+        _amount(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
         _set_cell(sheet, cursor, 13, None)
         blocks.append(
             IlwidaeBlock(
