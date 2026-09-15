@@ -76,22 +76,11 @@ def pumsam_rate_value(row: PumsamRow) -> float:
 
 
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
-    """같은 명칭·규격의 인부 행을 모두 반환한다."""
+    """같은 명칭·규격의 인부 행만 반환한다. 비슷한 이름(지중/노출)은 끌어오지 않는다."""
     key = lookup_key(name, spec)
-    exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
-    if exact:
-        return exact
-    spec_key = lookup_key("", spec)
-    name_token = normalize_header(name)
-    fuzzy: list[PumsamRow] = []
-    for row in rows:
-        row_spec = lookup_key("", row.get("규격"))
-        row_name = normalize_header(row.get("명칭"))
-        if spec_key and row_spec != spec_key:
-            continue
-        if name_token and row_name and (name_token in row_name or row_name in name_token):
-            fuzzy.append(row)
-    return fuzzy
+    if not key:
+        return []
+    return [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
 
 
 def labor_names_text(rows: list[PumsamRow]) -> str:
@@ -163,6 +152,12 @@ def ensure_pumsam_database(directory: Path | None = None, discipline: str | None
         return dest
     save_pumsam_database(default_pumsam_rows(disc), directory, discipline=disc)
     return dest
+
+
+def ensure_all_pumsam_databases(directory: Path | None = None) -> None:
+    """전기·통신 표준품셈 파일이 없으면 씨앗으로 만든다. 있는 파일은 덮어쓰지 않는다."""
+    for disc in (ELECTRIC, TELECOM):
+        ensure_pumsam_database(directory, disc)
 
 
 def _hi_spec(mm: int) -> str:

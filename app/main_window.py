@@ -356,16 +356,8 @@ class MainWindow(QMainWindow):
         )
         self.ilwidae_drop.file_dropped.connect(self._on_fwd_ilwidae_dropped)
         forward_layout.addWidget(self.ilwidae_drop)
-
-        self.forward_estimate_drop = DropZone(
-            title="일위대가목록",
-            hint="이미 있는 목록이 있으면 놓습니다  ·  없으면 프로그램이 작성",
-            dialog_title="일위대가목록 엑셀 선택",
-            tone="forward",
-        )
-        self.forward_estimate_drop.file_dropped.connect(self._on_fwd_estimate_dropped)
-        forward_layout.addWidget(self.forward_estimate_drop)
-        for zone in (self.compare_drop, self.ilwidae_drop, self.forward_estimate_drop):
+        self.forward_estimate_drop = None
+        for zone in (self.compare_drop, self.ilwidae_drop):
             zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         forward_layout.addStretch(1)
         lanes.addWidget(forward_lane, 1)
@@ -537,7 +529,7 @@ class MainWindow(QMainWindow):
     def _write_startup_log(self) -> None:
         self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
-        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 · 일위대가목록 → 일위대가목록")
+        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 → 일위대가목록")
         self._append_log("오른쪽(역방향): 일위대가목록 · 일위대가 → 단가대비표")
         self._append_log("아래(공량산출): 파트별로 나눈 내역서 → 공량산출서. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트를 남깁니다.")
         self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
@@ -567,7 +559,6 @@ class MainWindow(QMainWindow):
         for zone in (
             self.compare_drop,
             self.ilwidae_drop,
-            self.forward_estimate_drop,
             self.drop_zone,
             self.reverse_ilwidae_drop,
             self.quantity_drop,
@@ -593,7 +584,7 @@ class MainWindow(QMainWindow):
         return self._has_forward() or self._has_reverse() or self._has_quantity()
 
     def _has_forward(self) -> bool:
-        return any([self._fwd_compare_path, self._fwd_ilwidae_path, self._fwd_estimate_path])
+        return any([self._fwd_compare_path, self._fwd_ilwidae_path])
 
     def _has_reverse(self) -> bool:
         return any([self._rev_estimate_path, self._rev_ilwidae_path])
@@ -607,8 +598,6 @@ class MainWindow(QMainWindow):
             parts.append(f"정·단가대비표: {self._fwd_compare_path}")
         if self._fwd_ilwidae_path is not None:
             parts.append(f"정·일위대가: {self._fwd_ilwidae_path}")
-        if self._fwd_estimate_path is not None:
-            parts.append(f"정·일위대가목록: {self._fwd_estimate_path}")
         if self._rev_estimate_path is not None:
             parts.append(f"역·일위대가목록: {self._rev_estimate_path}")
         if self._rev_ilwidae_path is not None:
@@ -652,13 +641,8 @@ class MainWindow(QMainWindow):
         self._refresh_run_enabled()
 
     def _on_fwd_estimate_dropped(self, path_text: str) -> None:
-        path = Path(path_text)
-        self._fwd_estimate_path = path
-        self.forward_estimate_drop.set_loaded(path.name)
-        self._sync_source_edit()
-        self.statusBar().showMessage(f"정방향 일위대가목록 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"정방향 일위대가목록 로드 대기: {path}")
-        self._refresh_run_enabled()
+        """정방향은 일위대가목록을 입력으로 받지 않는다."""
+        return
 
     def _on_rev_estimate_dropped(self, path_text: str) -> None:
         path = Path(path_text)
@@ -730,7 +714,7 @@ class MainWindow(QMainWindow):
             mode = "forward"
             unit_price_path = self._fwd_compare_path
             ilwidae_path = self._fwd_ilwidae_path
-            estimate_path = self._fwd_estimate_path
+            estimate_path = None
         elif self._has_reverse():
             mode = "reverse"
             unit_price_path = None

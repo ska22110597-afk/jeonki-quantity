@@ -393,7 +393,7 @@ def _write_generated_estimate(
     items: list[LineItem],
     blocks: list[IlwidaeBlock],
 ) -> EstimateSheet:
-    """일위대가목록 품목은 일위대가 재료비 금액만 연결한다. 부가세·노무는 아래 양식에서 합친다."""
+    """일위대가목록 단가=일위대가 금액, 금액=단가×수량."""
     sheet.title = ILWIDAE_LIST_SHEET_NAME
     last_col = 13
     write_title_banner(sheet, "[일위대가목록]", last_col)
@@ -461,20 +461,52 @@ def _write_generated_estimate(
             align=RIGHT,
             number_format=AMOUNT_FORMAT,
         )
-        for price_col in (5, 7, 9, 11):
-            _set_cell(sheet, excel_row, price_col, None, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
         if block:
-            material_amt = f"='{ILWIDAE_SHEET_NAME}'!F{block.material_row}"
+            material_price = f"='{ILWIDAE_SHEET_NAME}'!F{block.sum_row}"
+            labor_price = f"='{ILWIDAE_SHEET_NAME}'!H{block.sum_row}"
+            expense_price = f"='{ILWIDAE_SHEET_NAME}'!J{block.sum_row}"
         else:
-            material_amt = None
-        _set_cell(sheet, excel_row, 6, material_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
-        _set_cell(sheet, excel_row, 8, None, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
-        _set_cell(sheet, excel_row, 10, None, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+            material_price = labor_price = expense_price = "=0"
+        _set_cell(sheet, excel_row, 5, material_price, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            6,
+            f"=TRUNC(E{excel_row}*D{excel_row},1)",
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=AMOUNT_FORMAT,
+        )
+        _set_cell(sheet, excel_row, 7, labor_price, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            8,
+            f"=TRUNC(G{excel_row}*D{excel_row},1)",
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=AMOUNT_FORMAT,
+        )
+        _set_cell(sheet, excel_row, 9, expense_price, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            10,
+            f"=TRUNC(I{excel_row}*D{excel_row},1)",
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=AMOUNT_FORMAT,
+        )
+        if block:
+            total_price = f"='{ILWIDAE_SHEET_NAME}'!L{block.sum_row}"
+        else:
+            total_price = "=0"
+        _set_cell(sheet, excel_row, 11, total_price, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
         _set_cell(
             sheet,
             excel_row,
             12,
-            f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},1)",
+            f"=TRUNC(K{excel_row}*D{excel_row},1)",
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,

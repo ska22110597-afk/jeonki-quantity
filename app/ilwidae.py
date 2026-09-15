@@ -225,7 +225,7 @@ def write_ilwidae_sheet(
 
         labor_rows: list[int] = []
         for labor in labors:
-            job = labor.get("노무명칭") or "내선전공"
+            job = labor.get("노무명칭") or fallback_labor
             _set_cell(sheet, cursor, 1, job, font=BODY_FONT)
             _set_cell(sheet, cursor, 2, "일반공사 직종", font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
@@ -248,16 +248,11 @@ def write_ilwidae_sheet(
         last_data = cursor - 1
         sum_row = cursor
         _set_cell(sheet, cursor, 1, " [ 합          계 ]", font=BODY_FONT)
-        for col in range(2, 5):
+        for col in range(2, 14):
             _set_cell(sheet, cursor, col, None)
-        _set_cell(sheet, cursor, 4, None)
-        _price(sheet, cursor, 5, f"=SUM(E{first_data}:E{last_data})")
         _amount(sheet, cursor, 6, f"=SUM(F{first_data}:F{last_data})")
-        _price(sheet, cursor, 7, f"=SUM(G{first_data}:G{last_data})")
         _amount(sheet, cursor, 8, f"=SUM(H{first_data}:H{last_data})")
-        _price(sheet, cursor, 9, f"=SUM(I{first_data}:I{last_data})")
         _amount(sheet, cursor, 10, f"=SUM(J{first_data}:J{last_data})")
-        _price(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
         _amount(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
         _set_cell(sheet, cursor, 13, None)
         blocks.append(

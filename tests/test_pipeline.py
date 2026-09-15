@@ -108,7 +108,12 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
             if "합계" in str(ilwidae.cell(r, 1).value or "").replace(" ", "")
         ]
         assert sum_rows
+        for price_col in (5, 7, 9, 11):
+            assert ilwidae.cell(sum_rows[0], price_col).value in (None, "")
         assert "SUM" in str(ilwidae.cell(sum_rows[0], 6).value)
+        assert "SUM" in str(ilwidae.cell(sum_rows[0], 8).value)
+        assert "SUM" in str(ilwidae.cell(sum_rows[0], 10).value)
+        assert "TRUNC" in str(ilwidae.cell(sum_rows[0], 12).value)
         assert ilwidae["E6"].number_format == "#,##0.00"
         assert ilwidae["F6"].number_format == "#,##0.0"
         assert any("'노임단가'" in str(ilwidae.cell(r, 7).value or "") for r in range(5, 20))
@@ -119,11 +124,17 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert estimate["A3"].value == "명칭"
         assert estimate["A5"].value == "경질비닐전선관_지중"
         assert estimate["D5"].value == 100
-        assert estimate["E5"].value in (None, "")
-        assert "일위대가" in str(estimate["F5"].value)
-        assert "F6" in str(estimate["F5"].value)
-        assert estimate["G5"].value in (None, "")
-        assert estimate["H5"].value in (None, "")
+        assert "일위대가" in str(estimate["E5"].value)
+        assert f"F{sum_rows[0]}" in str(estimate["E5"].value)
+        assert "E5" in str(estimate["F5"].value)
+        assert "TRUNC" in str(estimate["F5"].value)
+        assert "일위대가" in str(estimate["G5"].value)
+        assert f"H{sum_rows[0]}" in str(estimate["G5"].value)
+        assert "G5" in str(estimate["H5"].value)
+        assert "TRUNC" in str(estimate["H5"].value)
+        assert "일위대가" in str(estimate["K5"].value)
+        assert f"L{sum_rows[0]}" in str(estimate["K5"].value)
+        assert "K5" in str(estimate["L5"].value)
         assert "TRUNC" in str(estimate["L5"].value)
         assert estimate["L5"].number_format == "#,##0.0"
         assert estimate.row_dimensions[5].height == 30
@@ -153,6 +164,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
 
     db = tmp_path / "out" / "데이터베이스"
     assert (db / "전기_표준품셈.xlsx").exists()
+    assert (db / "통신_표준품셈.xlsx").exists()
     assert (db / "노임단가.xlsx").exists()
 
 
@@ -164,6 +176,87 @@ def test_match_pumsam_keeps_two_labors() -> None:
     assert "보통인부" in jobs
     assert is_conduit_name(item.name)
     assert "*1.2" in labor_qty_formula(matched[0]) or "*120" in labor_qty_formula(matched[0])
+
+
+def test_unmatched_pumsam_does_not_use_similar_names() -> None:
+    item = LineItem(excel_row=5, name="경질비닐전선관", spec="HI 28 mm", unit="M", qty=1, material_price=1)
+    assert match_pumsam(item, default_pumsam_rows()) == []
+
+
+def test_unmatched_item_gets_one_fallback_labor(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "단가대비표"
+    sheet["A1"] = "단 가 대 비 표"
+    sheet["A3"] = "품명"
+    sheet["B3"] = "규격"
+    sheet["C3"] = "단위"
+    sheet["D3"] = "수량"
+    sheet["A5"] = "경질비닐전선관"
+    sheet["B5"] = "HI 28 mm"
+    sheet["C5"] = "M"
+    sheet["L5"] = 1021
+    source = tmp_path / "단가대비표.xlsx"
+    workbook.save(source)
+    workbook.close()
+    dest = save_result_workbook(unit_price_path=source, dest_dir=tmp_path / "out")
+    result = load_workbook(dest, data_only=False)
+    try:
+        ilwidae = result[ILWIDAE_SHEET_NAME]
+        title = next(r for r in range(5, 20) if "호표" in str(ilwidae.cell(r, 1).value or ""))
+        total = next(
+            r
+            for r in range(title, 30)
+            if "합계" in str(ilwidae.cell(r, 1).value or "").replace(" ", "")
+        )
+        jobs = [ilwidae.cell(r, 1).value for r in range(title + 1, total)]
+        assert jobs.count("내선전공") == 1
+        assert "보통인부" not in jobs
+        labor_row = title + 2
+        assert ilwidae.cell(labor_row, 1).value == "내선전공"
+        assert str(ilwidae.cell(labor_row, 4).value).startswith("=0")
+    finally:
+        result.close()
+
+
+def test_unmatched_telecom_item_gets_one_telecom_labor(tmp_path: Path) -> None:
+    from app.discipline import TELECOM
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "단가대비표"
+    sheet["A1"] = "단 가 대 비 표"
+    sheet["A3"] = "품명"
+    sheet["B3"] = "규격"
+    sheet["C3"] = "단위"
+    sheet["D3"] = "수량"
+    sheet["A5"] = "강제전선관"
+    sheet["B5"] = "아연도 16 mm"
+    sheet["C5"] = "M"
+    sheet["L5"] = 1338
+    source = tmp_path / "단가대비표.xlsx"
+    workbook.save(source)
+    workbook.close()
+    dest = save_result_workbook(
+        unit_price_path=source,
+        dest_dir=tmp_path / "out",
+        discipline=TELECOM,
+    )
+    result = load_workbook(dest, data_only=False)
+    try:
+        ilwidae = result[ILWIDAE_SHEET_NAME]
+        title = next(r for r in range(5, 20) if "호표" in str(ilwidae.cell(r, 1).value or ""))
+        total = next(
+            r
+            for r in range(title, 30)
+            if "합계" in str(ilwidae.cell(r, 1).value or "").replace(" ", "")
+        )
+        jobs = [ilwidae.cell(r, 1).value for r in range(title + 1, total)]
+        assert jobs.count("통신내선공") == 1
+        assert "내선전공" not in jobs
+        assert "보통인부" not in jobs
+    finally:
+        result.close()
 
 
 def test_default_wages_include_trades() -> None:
@@ -209,8 +302,8 @@ def test_sample_unit_price_skips_header_and_empty_qty(tmp_path: Path) -> None:
         assert estimate["A5"].value == "강제전선관"
         assert estimate["D5"].value in (None, "")
         assert estimate["C5"].value == "M"
-        assert estimate["E5"].value in (None, "")
-        assert "일위대가" in str(estimate["F5"].value or "")
+        assert "일위대가" in str(estimate["E5"].value or "")
+        assert "E5" in str(estimate["F5"].value or "")
     finally:
         result.close()
 
@@ -295,7 +388,7 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
 
     db = tmp_path / "out" / "데이터베이스"
     assert (db / pumsam_filename(TELECOM)).exists()
-    assert not (db / "전기_표준품셈.xlsx").exists()
+    assert (db / "전기_표준품셈.xlsx").exists()
     loaded = load_pumsam_database(tmp_path / "out", TELECOM)
     jobs = {row.get("노무명칭") for row in loaded if "경질비닐전선관" in str(row.get("명칭") or "")}
     assert "통신내선공" in jobs
@@ -375,8 +468,8 @@ def test_compare_keeps_page_and_pps_prices(tmp_path: Path) -> None:
         assert compare.cell(d30, 6).value == 14350
         assert compare.cell(d30, 12).value == 14350
         estimate = result[ILWIDAE_LIST_SHEET_NAME]
-        assert estimate["E5"].value in (None, "")
-        assert "일위대가" in str(estimate["F5"].value)
+        assert "일위대가" in str(estimate["E5"].value)
+        assert "E5" in str(estimate["F5"].value)
     finally:
         result.close()
 

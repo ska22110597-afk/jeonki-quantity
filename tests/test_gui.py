@@ -32,7 +32,7 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.findChild(QFrame, "laneReverse") is not None
         assert "일위대가목록_결과_" in window.confirm_note.text()
         assert window.ilwidae_drop is not None
-        assert window.forward_estimate_drop is not None
+        assert window.forward_estimate_drop is None
         assert window.drop_zone is not None
         assert window.reverse_ilwidae_drop is not None
         assert window.quantity_drop is not None

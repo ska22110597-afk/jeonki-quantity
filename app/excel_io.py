@@ -28,6 +28,7 @@ from app.paths import assert_safe_save, build_result_path
 from app.pumsam import (
     PUMSAM_SHEET_NAME,
     PumsamRow,
+    ensure_all_pumsam_databases,
     import_pumsam_file,
     load_pumsam_database,
     merge_pumsam_rows,
@@ -604,6 +605,7 @@ def collect_pumsam_rows(
     discipline: str | None = None,
 ) -> list[PumsamRow]:
     database_dir = db_dir if db_dir is not None else dest_dir
+    ensure_all_pumsam_databases(database_dir)
     groups = [load_pumsam_database(database_dir, discipline=discipline)]
     if source_path is not None:
         embedded = read_named_sheet_rows(source_path, "품셈")
