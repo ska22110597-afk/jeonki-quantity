@@ -43,7 +43,7 @@ echo.
 echo [2] 콘솔 창 없는 단일 EXE 빌드
 echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe 가 없어도 됩니다^)
 %PY% -m PyInstaller --noconsole --onefile --clean ^
-  --name "전기공사_공량산출" ^
+  --name GongryangCalc ^
   --collect-all PyQt6 ^
   --hidden-import openpyxl ^
   --hidden-import pandas ^
@@ -51,13 +51,15 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
   --hidden-import app.excel_io ^
   --hidden-import app.paths ^
   --hidden-import app.merge_parse ^
+  --hidden-import app.estimate_parse ^
+  --hidden-import app.pumsam ^
   --hidden-import app.main_window ^
   --hidden-import app.drop_zone ^
   main.py
 if errorlevel 1 goto :fail
 
 echo.
-echo 완료: %CD%\dist\전기공사_공량산출.exe
+echo 완료: %CD%\dist\GongryangCalc.exe
 echo 이 파일을 파이썬이 없는 사무용 PC에 복사해 실행하면 됩니다.
 echo 결과는 C:\전기공사_공량산출_결과 에 저장됩니다.
 pause

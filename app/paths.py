@@ -17,7 +17,7 @@ from pathlib import Path
 
 RESULT_FOLDER_NAME = "전기공사_공량산출_결과"
 WINDOWS_RESULT_DIR = Path(r"C:\전기공사_공량산출_결과")
-RESULT_FILENAME_PREFIX = "단가대비_공량산출_결과_"
+RESULT_FILENAME_PREFIX = "공량산출_결과_"
 ALLOWED_EXCEL_SUFFIXES = (".xlsx", ".xlsm")
 
 

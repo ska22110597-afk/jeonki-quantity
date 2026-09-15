@@ -31,7 +31,7 @@ def test_windows_result_dir_is_c_drive_local() -> None:
 
 def test_result_filename_uses_timestamp() -> None:
     name = build_result_filename(datetime(2026, 9, 15, 9, 30, 7))
-    assert name == "단가대비_공량산출_결과_20260915_093007.xlsx"
+    assert name == "공량산출_결과_20260915_093007.xlsx"
 
 
 def test_allowed_excel_suffixes() -> None:

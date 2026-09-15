@@ -14,23 +14,32 @@ from app.paths import is_allowed_excel
 class DropZone(QFrame):
     file_dropped = pyqtSignal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(
+        self,
+        parent=None,
+        title: str = "내역서 엑셀 파일을 여기에 놓으세요",
+        hint: str = "xlsx · xlsm  ·  클릭하면 파일 선택  ·  원본은 읽기만 합니다",
+        dialog_title: str = "엑셀 선택",
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("dropZone")
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(168)
+        self.setMinimumHeight(132)
+        self._idle_title = title
+        self._idle_hint = hint
+        self._dialog_title = dialog_title
 
-        self._title = QLabel("단가대비표 엑셀 파일을 여기에 놓으세요")
+        self._title = QLabel(title)
         self._title.setObjectName("dropTitle")
         self._title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._hint = QLabel("xlsx · xlsm  ·  클릭하면 파일 선택  ·  원본은 읽기만 합니다")
+        self._hint = QLabel(hint)
         self._hint.setObjectName("dropHint")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 28, 24, 28)
+        layout.setContentsMargins(24, 20, 24, 20)
         layout.addStretch(1)
         layout.addWidget(self._title)
         layout.addWidget(self._hint)
@@ -44,8 +53,8 @@ class DropZone(QFrame):
         self.style().polish(self)
 
     def reset(self) -> None:
-        self._title.setText("단가대비표 엑셀 파일을 여기에 놓으세요")
-        self._hint.setText("xlsx · xlsm  ·  클릭하면 파일 선택  ·  원본은 읽기만 합니다")
+        self._title.setText(self._idle_title)
+        self._hint.setText(self._idle_hint)
         self.setProperty("loaded", False)
         self.style().unpolish(self)
         self.style().polish(self)
@@ -70,6 +79,7 @@ class DropZone(QFrame):
 
     def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
         self.setProperty("hover", False)
+        self.setProperty("loaded", False)
         self.style().unpolish(self)
         self.style().polish(self)
         path = self._first_excel(event)
@@ -83,7 +93,7 @@ class DropZone(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             chosen, _ = QFileDialog.getOpenFileName(
                 self,
-                "단가대비표 엑셀 선택",
+                self._dialog_title,
                 "",
                 "Excel (*.xlsx *.xlsm)",
             )
