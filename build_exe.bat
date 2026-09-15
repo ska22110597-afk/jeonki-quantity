@@ -57,6 +57,7 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
   --hidden-import app.wages ^
   --hidden-import app.official_wages ^
   --hidden-import app.version ^
+  --hidden-import app.discipline ^
   --hidden-import app.items ^
   --hidden-import app.ilwidae ^
   --hidden-import app.pipeline ^

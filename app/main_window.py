@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QFileDialog,
     QFrame,
@@ -20,6 +21,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from app.discipline import ELECTRIC, TELECOM, normalize_discipline, pumsam_filename
 
 from app.drop_zone import DropZone
 from app.excel_io import (
@@ -206,6 +209,47 @@ QLabel#badge {
     font-size: 11px;
     font-weight: 700;
 }
+QFrame#partCard {
+    background: #FFFFFF;
+    border: 1px solid #D5DDE4;
+    border-radius: 12px;
+}
+QLabel#partCaption {
+    color: #5A6A78;
+    font-size: 12px;
+    font-weight: 700;
+}
+QLabel#partFileHint {
+    color: #667888;
+    font-size: 12px;
+}
+QPushButton#partElectric, QPushButton#partTelecom {
+    min-height: 48px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+QPushButton#partElectric {
+    background: #EEF3F7;
+    border: 2px solid #8AA0B3;
+    color: #3E5B70;
+}
+QPushButton#partElectric:checked {
+    background: #3E5B70;
+    color: #FFFFFF;
+    border: 2px solid #3E5B70;
+}
+QPushButton#partTelecom {
+    background: #F6F1EE;
+    border: 2px solid #C4A199;
+    color: #7A534C;
+}
+QPushButton#partTelecom:checked {
+    background: #7A534C;
+    color: #FFFFFF;
+    border: 2px solid #7A534C;
+}
 QStatusBar {
     background: #E8EDF2;
     color: #5A6A78;
@@ -217,8 +261,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.setMinimumSize(1080, 860)
-        self.resize(1180, 920)
+        self.setMinimumSize(1080, 900)
+        self.resize(1180, 980)
         self.setStyleSheet(APP_STYLESHEET)
 
         self._settings = QSettings("전기공사공량산출", "GongryangCalc")
@@ -261,6 +305,39 @@ class MainWindow(QMainWindow):
         body_layout.setContentsMargins(28, 20, 28, 16)
         body_layout.setSpacing(14)
 
+        part_card = QFrame()
+        part_card.setObjectName("partCard")
+        part_layout = QVBoxLayout(part_card)
+        part_layout.setContentsMargins(22, 14, 22, 14)
+        part_layout.setSpacing(8)
+        part_caption = QLabel("표준품셈 파트")
+        part_caption.setObjectName("partCaption")
+        part_layout.addWidget(part_caption)
+        part_buttons = QHBoxLayout()
+        part_buttons.setSpacing(10)
+        self.electric_button = QPushButton("전기")
+        self.electric_button.setObjectName("partElectric")
+        self.electric_button.setCheckable(True)
+        self.electric_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.telecom_button = QPushButton("통신")
+        self.telecom_button.setObjectName("partTelecom")
+        self.telecom_button.setCheckable(True)
+        self.telecom_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.part_group = QButtonGroup(self)
+        self.part_group.setExclusive(True)
+        self.part_group.addButton(self.electric_button)
+        self.part_group.addButton(self.telecom_button)
+        part_buttons.addWidget(self.electric_button, 1)
+        part_buttons.addWidget(self.telecom_button, 1)
+        part_layout.addLayout(part_buttons)
+        self.part_file_hint = QLabel("")
+        self.part_file_hint.setObjectName("partFileHint")
+        part_layout.addWidget(self.part_file_hint)
+        self.electric_button.clicked.connect(self._on_part_changed)
+        self.telecom_button.clicked.connect(self._on_part_changed)
+        body_layout.addWidget(part_card)
+        self._restore_discipline()
+
         lanes = QHBoxLayout()
         lanes.setSpacing(14)
 
@@ -281,7 +358,7 @@ class MainWindow(QMainWindow):
             dialog_title="단가대비표 엑셀 선택",
             tone="forward",
         )
-        self.compare_drop.setMinimumHeight(86)
+        self.compare_drop.setMinimumHeight(72)
         self.compare_drop.file_dropped.connect(self._on_unit_price_dropped)
         forward_layout.addWidget(self.compare_drop)
 
@@ -291,7 +368,7 @@ class MainWindow(QMainWindow):
             dialog_title="일위대가 엑셀 선택",
             tone="forward",
         )
-        self.ilwidae_drop.setMinimumHeight(86)
+        self.ilwidae_drop.setMinimumHeight(72)
         self.ilwidae_drop.file_dropped.connect(self._on_ilwidae_dropped)
         forward_layout.addWidget(self.ilwidae_drop)
         lanes.addWidget(forward_lane, 1)
@@ -312,7 +389,7 @@ class MainWindow(QMainWindow):
             dialog_title="내역서 엑셀 선택",
             tone="reverse",
         )
-        self.drop_zone.setMinimumHeight(188)
+        self.drop_zone.setMinimumHeight(160)
         self.drop_zone.file_dropped.connect(self._on_file_dropped)
         reverse_layout.addWidget(self.drop_zone, 1)
         lanes.addWidget(reverse_lane, 1)
@@ -390,7 +467,7 @@ class MainWindow(QMainWindow):
         self.log = QTextEdit()
         self.log.setObjectName("log")
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(140)
+        self.log.setMinimumHeight(120)
         body_layout.addWidget(log_label)
         body_layout.addWidget(self.log, 1)
 
@@ -403,7 +480,34 @@ class MainWindow(QMainWindow):
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
         self._append_log("왼쪽(정방향): 단가대비표 → 일위대가 → 내역서 → 공량산출서")
         self._append_log("오른쪽(역방향): 내역서 → 단가대비표 · 공량산출서")
+        self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
         self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
+
+    def _selected_discipline(self) -> str:
+        if self.telecom_button.isChecked():
+            return TELECOM
+        return ELECTRIC
+
+    def _restore_discipline(self) -> None:
+        stored = self._settings.value("discipline", ELECTRIC)
+        disc = normalize_discipline(str(stored) if stored is not None else ELECTRIC)
+        self.electric_button.setChecked(disc == ELECTRIC)
+        self.telecom_button.setChecked(disc == TELECOM)
+        self._refresh_part_hint()
+
+    def _refresh_part_hint(self) -> None:
+        disc = self._selected_discipline()
+        filename = pumsam_filename(disc)
+        self.part_file_hint.setText(
+            f"지금 불러오는 파일: 데이터베이스\\{filename}  ·  같은 자재라도 전공·품셈은 이 파일만 봅니다."
+        )
+
+    def _on_part_changed(self) -> None:
+        disc = self._selected_discipline()
+        self._settings.setValue("discipline", disc)
+        self._refresh_part_hint()
+        self.statusBar().showMessage(f"{disc} 표준품셈을 사용합니다.")
+        self._append_log(f"표준품셈 파트: {disc} → {pumsam_filename(disc)}")
 
     def _append_log(self, message: str) -> None:
         self.log.append(message)
@@ -483,7 +587,8 @@ class MainWindow(QMainWindow):
 
         self.run_button.setEnabled(False)
         self.statusBar().showMessage("산출 파일을 생성하는 중…")
-        self._append_log("원본 읽기 전용 · 표준품셈·노임단가 결합 · 결과 엑셀 생성")
+        discipline = self._selected_discipline()
+        self._append_log(f"원본 읽기 전용 · {pumsam_filename(discipline)} · 노임단가 결합 · 결과 엑셀 생성")
 
         try:
             dest = save_result_workbook(
@@ -491,6 +596,7 @@ class MainWindow(QMainWindow):
                 unit_price_path=self._unit_price_path,
                 ilwidae_path=self._ilwidae_path,
                 estimate_path=self._source_path,
+                discipline=discipline,
             )
         except ResultDirectoryError as exc:
             self._append_log(f"저장 폴더 오류: {exc}")
@@ -518,6 +624,7 @@ class MainWindow(QMainWindow):
                 f"결과: {dest}\n\n"
                 f"{COMPARE_SHEET_NAME} · {ILWIDAE_SHEET_NAME} · {ESTIMATE_SHEET_NAME} · {QUANTITY_SHEET_NAME}\n"
                 f"참고 시트: {PUMSAM_SHEET_NAME}, {WAGES_SHEET_NAME}\n"
+                f"사용한 표준품셈: {pumsam_filename(discipline)}\n"
                 "표준품셈·노임단가는 저장 폴더의 데이터베이스에서 고칠 수 있습니다."
             ),
         )

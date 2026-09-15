@@ -16,6 +16,14 @@ from app.estimate_parse import (
     normalize_header,
 )
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
+from app.discipline import (
+    ELECTRIC,
+    LEGACY_PUMSAM_FILENAME,
+    TELECOM,
+    default_labor_name,
+    normalize_discipline,
+    pumsam_filename,
+)
 from app.paths import (
     bundled_data_dir,
     ensure_result_directory,
@@ -25,7 +33,7 @@ from app.paths import (
 )
 
 PUMSAM_SHEET_NAME = "품셈표"
-PUMSAM_DB_FILENAME = "표준품셈.xlsx"
+PUMSAM_DB_FILENAME = LEGACY_PUMSAM_FILENAME
 LEGACY_PUMSAM_DB_FILENAME = "품셈표_데이터베이스.xlsx"
 PUMSAM_HEADERS = ["검색키", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
 
@@ -38,7 +46,7 @@ def format_pumsam_ref(value: Any) -> str:
     if not text:
         return ""
     compact = text.replace(" ", "")
-    matched = re.fullmatch(r"(전기)(\d+)-(\d+)", compact)
+    matched = re.fullmatch(r"(전기|통신)(\d+)-(\d+)", compact)
     if matched:
         return f"{matched.group(1)} {matched.group(2)}-{matched.group(3)}"
     return text
@@ -95,12 +103,20 @@ def labor_names_text(rows: list[PumsamRow]) -> str:
     return ", ".join(seen)
 
 
-def pumsam_db_path(directory: Path | None = None) -> Path:
-    return user_database_dir(directory) / PUMSAM_DB_FILENAME
+def pumsam_db_path(directory: Path | None = None, discipline: str | None = None) -> Path:
+    return user_database_dir(directory) / pumsam_filename(discipline)
 
 
-def bundled_pumsam_path() -> Path:
-    return bundled_data_dir() / PUMSAM_DB_FILENAME
+def bundled_pumsam_path(discipline: str | None = None) -> Path:
+    disc = normalize_discipline(discipline)
+    named = bundled_data_dir() / pumsam_filename(disc)
+    if named.exists():
+        return named
+    if disc == ELECTRIC:
+        shared = bundled_data_dir() / PUMSAM_DB_FILENAME
+        if shared.exists():
+            return shared
+    return named
 
 
 def _load_rows_from_path(path: Path) -> list[PumsamRow]:
@@ -121,25 +137,31 @@ def _load_rows_from_path(path: Path) -> list[PumsamRow]:
     return rows_from_grid(trim_grid(table[header_idx:]))
 
 
-def ensure_pumsam_database(directory: Path | None = None) -> Path:
-    dest = pumsam_db_path(directory)
+def ensure_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> Path:
+    disc = normalize_discipline(discipline)
+    dest = pumsam_db_path(directory, disc)
     if dest.exists():
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    bundled = bundled_pumsam_path()
+    if disc == ELECTRIC:
+        shared = user_database_dir(directory) / PUMSAM_DB_FILENAME
+        if shared.exists() and shared != dest:
+            dest.write_bytes(shared.read_bytes())
+            return dest
+        legacy = get_result_directory() / LEGACY_PUMSAM_DB_FILENAME
+        if directory is not None:
+            legacy_alt = Path(directory) / LEGACY_PUMSAM_DB_FILENAME
+            if legacy_alt.exists():
+                dest.write_bytes(legacy_alt.read_bytes())
+                return dest
+        if legacy.exists():
+            dest.write_bytes(legacy.read_bytes())
+            return dest
+    bundled = bundled_pumsam_path(disc)
     if bundled.exists():
         dest.write_bytes(bundled.read_bytes())
         return dest
-    legacy = get_result_directory() / LEGACY_PUMSAM_DB_FILENAME
-    if directory is not None:
-        legacy_alt = Path(directory) / LEGACY_PUMSAM_DB_FILENAME
-        if legacy_alt.exists():
-            dest.write_bytes(legacy_alt.read_bytes())
-            return dest
-    if legacy.exists():
-        dest.write_bytes(legacy.read_bytes())
-        return dest
-    save_pumsam_database(default_pumsam_rows(), directory)
+    save_pumsam_database(default_pumsam_rows(disc), directory, discipline=disc)
     return dest
 
 
@@ -147,8 +169,8 @@ def _hi_spec(mm: int) -> str:
     return f"HI {mm} mm"
 
 
-def default_pumsam_rows() -> list[PumsamRow]:
-    """사용자가 보여 준 경질비닐전선관 품셈 초기값."""
+def _conduit_seed_rows(labor: str, extra_labor: str | None = None) -> list[PumsamRow]:
+    """경질비닐전선관 씨앗. 전기자재라 품셈근거는 전기 5-1을 유지한다."""
     buried = {
         16: 0.050,
         22: 0.060,
@@ -183,7 +205,7 @@ def default_pumsam_rows() -> list[PumsamRow]:
                 "명칭": name,
                 "규격": spec,
                 "단위": "M",
-                "노무명칭": "내선전공",
+                "노무명칭": labor,
                 "품셈": value,
                 "할증%": 100,
                 "품셈근거": "전기5-1",
@@ -198,24 +220,58 @@ def default_pumsam_rows() -> list[PumsamRow]:
                 "명칭": name,
                 "규격": spec,
                 "단위": "M",
-                "노무명칭": "내선전공",
+                "노무명칭": labor,
                 "품셈": value,
                 "할증%": 120,
                 "품셈근거": "전기5-1",
             }
         )
-    rows.append(
-        {
-            "검색키": lookup_key("경질비닐전선관_노출", _hi_spec(104)),
-            "명칭": "경질비닐전선관_노출",
-            "규격": _hi_spec(104),
-            "단위": "M",
-            "노무명칭": "보통인부",
-            "품셈": 0.001,
-            "할증%": 120,
-            "품셈근거": "전기5-1",
-        }
-    )
+    if extra_labor:
+        rows.append(
+            {
+                "검색키": lookup_key("경질비닐전선관_노출", _hi_spec(104)),
+                "명칭": "경질비닐전선관_노출",
+                "규격": _hi_spec(104),
+                "단위": "M",
+                "노무명칭": extra_labor,
+                "품셈": 0.001,
+                "할증%": 120,
+                "품셈근거": "전기5-1",
+            }
+        )
+    return rows
+
+
+def default_pumsam_rows(discipline: str | None = None) -> list[PumsamRow]:
+    """선택한 파트의 씨앗 품셈. 전기와 통신을 섞지 않는다."""
+    disc = normalize_discipline(discipline)
+    labor = default_labor_name(disc)
+    rows = _conduit_seed_rows(labor, extra_labor="보통인부")
+    if disc == TELECOM:
+        rows.extend(
+            [
+                {
+                    "검색키": lookup_key("UTP케이블", "CAT.6"),
+                    "명칭": "UTP케이블",
+                    "규격": "CAT.6",
+                    "단위": "M",
+                    "노무명칭": "통신내선공",
+                    "품셈": 0.040,
+                    "할증%": 100,
+                    "품셈근거": "통신4-1",
+                },
+                {
+                    "검색키": lookup_key("광케이블", "SM 4C"),
+                    "명칭": "광케이블",
+                    "규격": "SM 4C",
+                    "단위": "M",
+                    "노무명칭": "통신케이블공",
+                    "품셈": 0.080,
+                    "할증%": 100,
+                    "품셈근거": "통신4-2",
+                },
+            ]
+        )
     return rows
 
 
@@ -355,16 +411,22 @@ def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
     return list(merged.values())
 
 
-def load_pumsam_database(directory: Path | None = None) -> list[PumsamRow]:
-    path = ensure_pumsam_database(directory)
+def load_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> list[PumsamRow]:
+    disc = normalize_discipline(discipline)
+    path = ensure_pumsam_database(directory, disc)
     parsed = _load_rows_from_path(path) if path.exists() else []
+    seed = default_pumsam_rows(disc)
     if not parsed:
-        return default_pumsam_rows()
-    return merge_pumsam_rows(default_pumsam_rows(), parsed)
+        return seed
+    return merge_pumsam_rows(seed, parsed)
 
 
-def save_pumsam_database(rows: list[PumsamRow], directory: Path | None = None) -> Path:
-    path = pumsam_db_path(directory)
+def save_pumsam_database(
+    rows: list[PumsamRow],
+    directory: Path | None = None,
+    discipline: str | None = None,
+) -> Path:
+    path = pumsam_db_path(directory, discipline)
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     sheet = workbook.active

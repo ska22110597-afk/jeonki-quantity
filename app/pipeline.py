@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.discipline import normalize_discipline
 from app.estimate_parse import EstimateSheet, load_estimate_sheet
 from app.excel_io import (
     BODY_FONT,
@@ -320,6 +321,7 @@ def build_result_workbook(
     estimate: EstimateSheet | None,
     pumsam_rows: list[PumsamRow],
     wage_rows: list[WageRow],
+    discipline: str | None = None,
 ) -> Workbook:
     workbook = Workbook()
     first = workbook.active
@@ -340,7 +342,14 @@ def build_result_workbook(
 
     if compare is not None and items:
         ilwidae = workbook.create_sheet(ILWIDAE_SHEET_NAME)
-        blocks = write_ilwidae_sheet(ilwidae, items, pumsam_rows, wage_rows, compare_sheet=COMPARE_SHEET_NAME)
+        blocks = write_ilwidae_sheet(
+            ilwidae,
+            items,
+            pumsam_rows,
+            wage_rows,
+            compare_sheet=COMPARE_SHEET_NAME,
+            discipline=discipline,
+        )
         generated = workbook.create_sheet(ESTIMATE_SHEET_NAME)
         estimate = _write_generated_estimate(generated, items, blocks)
     elif reverse:
@@ -375,8 +384,10 @@ def run_pipeline(
     extra_pumsam_path: Path | None = None,
     db_dir: Path | None = None,
     estimate_rows: list[list[Any]] | None = None,
+    discipline: str | None = None,
 ) -> Path:
     database_dir = db_dir if db_dir is not None else dest_dir
+    disc = normalize_discipline(discipline)
     primary = unit_price_path or ilwidae_path or estimate_path
     if primary is None and estimate_rows is None:
         raise ValueError("단가대비표, 일위대가, 내역서 중 하나를 놓아 주세요.")
@@ -398,6 +409,7 @@ def run_pipeline(
         database_dir,
         extra_pumsam_path,
         db_dir=database_dir,
+        discipline=disc,
     )
     wage_rows = load_wages(database_dir)
     save_wages(wage_rows, database_dir)
@@ -411,6 +423,7 @@ def run_pipeline(
         estimate=estimate,
         pumsam_rows=pumsam_rows,
         wage_rows=wage_rows,
+        discipline=disc,
     )
     try:
         workbook.save(dest)

@@ -8,6 +8,7 @@ from typing import Any
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from app.discipline import default_labor_name
 from app.estimate_parse import normalize_header
 from app.excel_io import (
     BODY_FONT,
@@ -136,12 +137,14 @@ def write_ilwidae_sheet(
     pumsam_rows: list[PumsamRow],
     wage_rows: list[WageRow],
     compare_sheet: str = "단가대비표",
+    discipline: str | None = None,
 ) -> list[IlwidaeBlock]:
     sheet.title = ILWIDAE_SHEET_NAME
     _write_ilwidae_header(sheet)
     cursor = 5
     blocks: list[IlwidaeBlock] = []
     ho_no = 0
+    fallback_labor = default_labor_name(discipline)
     for item in items:
         if item.section or (item.spec is None and item.unit is None):
             continue
@@ -152,7 +155,7 @@ def write_ilwidae_sheet(
                 {
                     "명칭": item.name,
                     "규격": item.spec,
-                    "노무명칭": "내선전공",
+                    "노무명칭": fallback_labor,
                     "품셈": 0,
                     "할증%": 100,
                     "품셈근거": "",

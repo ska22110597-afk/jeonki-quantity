@@ -502,9 +502,10 @@ def collect_pumsam_rows(
     dest_dir: Path | None,
     extra_pumsam_path: Path | None = None,
     db_dir: Path | None = None,
+    discipline: str | None = None,
 ) -> list[PumsamRow]:
     database_dir = db_dir if db_dir is not None else dest_dir
-    groups = [load_pumsam_database(database_dir)]
+    groups = [load_pumsam_database(database_dir, discipline=discipline)]
     if source_path is not None:
         embedded = read_named_sheet_rows(source_path, "품셈")
         if embedded:
@@ -512,7 +513,7 @@ def collect_pumsam_rows(
     if extra_pumsam_path is not None:
         groups.append(import_pumsam_file(extra_pumsam_path))
     merged = merge_pumsam_rows(*groups)
-    save_pumsam_database(merged, database_dir)
+    save_pumsam_database(merged, database_dir, discipline=discipline)
     return merged
 
 
@@ -548,6 +549,7 @@ def save_result_workbook(
     unit_price_path: Path | None = None,
     ilwidae_path: Path | None = None,
     estimate_path: Path | None = None,
+    discipline: str | None = None,
 ) -> Path:
     """드롭한 원본은 읽기만 하고, 결과 엑셀만 새로 저장한다."""
     from app.pipeline import run_pipeline
@@ -562,6 +564,7 @@ def save_result_workbook(
         extra_pumsam_path=extra_pumsam_path,
         db_dir=db_dir,
         estimate_rows=estimate_rows,
+        discipline=discipline,
     )
 
 

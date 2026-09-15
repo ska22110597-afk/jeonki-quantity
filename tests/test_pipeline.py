@@ -101,7 +101,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         result.close()
 
     db = tmp_path / "out" / "데이터베이스"
-    assert (db / "표준품셈.xlsx").exists()
+    assert (db / "전기_표준품셈.xlsx").exists()
     assert (db / "노임단가.xlsx").exists()
 
 
@@ -201,3 +201,43 @@ def test_reverse_estimate_builds_unit_price(tmp_path: Path) -> None:
         assert qty["B5"].value == "강제전선관"
     finally:
         result.close()
+
+
+def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
+    from app.discipline import TELECOM
+    from app.pumsam import load_pumsam_database, pumsam_filename
+
+    electric = {row.get("노무명칭") for row in default_pumsam_rows("전기")}
+    telecom = {row.get("노무명칭") for row in default_pumsam_rows(TELECOM)}
+    assert "내선전공" in electric
+    assert "내선전공" not in telecom
+    assert "통신내선공" in telecom
+    assert "통신케이블공" in telecom
+
+    source = tmp_path / "단가대비표.xlsx"
+    _write_compare(source)
+    dest = save_result_workbook(
+        unit_price_path=source,
+        dest_dir=tmp_path / "out",
+        discipline=TELECOM,
+    )
+    result = load_workbook(dest, data_only=False)
+    try:
+        ilwidae = result[ILWIDAE_SHEET_NAME]
+        names = [ilwidae.cell(r, 1).value for r in range(1, 40)]
+        assert "통신내선공" in names
+        assert "내선전공" not in names
+        qty = result[QUANTITY_SHEET_NAME]
+        assert qty["H5"].value == "통신내선공"
+        remarks = [ilwidae.cell(r, 13).value for r in range(5, 40)]
+        assert any(str(value or "").replace(" ", "") == "전기5-1" for value in remarks)
+    finally:
+        result.close()
+
+    db = tmp_path / "out" / "데이터베이스"
+    assert (db / pumsam_filename(TELECOM)).exists()
+    assert not (db / "전기_표준품셈.xlsx").exists()
+    loaded = load_pumsam_database(tmp_path / "out", TELECOM)
+    jobs = {row.get("노무명칭") for row in loaded if "경질비닐전선관" in str(row.get("명칭") or "")}
+    assert "통신내선공" in jobs
+    assert "내선전공" not in jobs

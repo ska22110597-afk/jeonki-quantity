@@ -25,7 +25,7 @@ jobs:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: utf-8
         run: |
-          python -m PyInstaller --noconsole --onefile --clean --name GongryangCalc --collect-all PyQt6 --add-data "data;data" --hidden-import openpyxl --hidden-import pandas --hidden-import app --hidden-import app.excel_io --hidden-import app.paths --hidden-import app.merge_parse --hidden-import app.estimate_parse --hidden-import app.pumsam --hidden-import app.wages --hidden-import app.official_wages --hidden-import app.items --hidden-import app.ilwidae --hidden-import app.pipeline --hidden-import app.main_window --hidden-import app.drop_zone --hidden-import app.version main.py
+          python -m PyInstaller --noconsole --onefile --clean --name GongryangCalc --collect-all PyQt6 --add-data "data;data" --hidden-import openpyxl --hidden-import pandas --hidden-import app --hidden-import app.excel_io --hidden-import app.paths --hidden-import app.merge_parse --hidden-import app.estimate_parse --hidden-import app.pumsam --hidden-import app.wages --hidden-import app.official_wages --hidden-import app.items --hidden-import app.ilwidae --hidden-import app.pipeline --hidden-import app.main_window --hidden-import app.drop_zone --hidden-import app.version --hidden-import app.discipline main.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
