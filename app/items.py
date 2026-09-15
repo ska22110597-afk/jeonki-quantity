@@ -14,6 +14,7 @@ from app.estimate_parse import (
     header_row_span,
     is_header_item,
     is_section_row,
+    is_sundry_form_row,
     lookup_key,
     normalize_header,
 )
@@ -162,6 +163,8 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
         if name is None and spec is None:
             continue
         if is_header_item(name, spec, unit):
+            continue
+        if is_sundry_form_row(name):
             continue
         section = is_section_row(name, spec, unit)
         qty = None if section or qty_idx is None else _pick(row, qty_idx)

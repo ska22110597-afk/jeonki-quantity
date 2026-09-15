@@ -84,12 +84,13 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
 
         ilwidae = result[ILWIDAE_SHEET_NAME]
         names = [ilwidae.cell(r, 1).value for r in range(1, 40)]
-        assert "전선관부속품비" in names
-        assert "잡재료비" in names
-        assert "공구손료" in names
+        assert "전선관부속품비" not in names
+        assert "잡재료비" not in names
+        assert "공구손료" not in names
         assert "내선전공" in names
         assert "보통인부" in names
         assert ilwidae["A1"].value == "일 위 대 가"
+        assert ilwidae["A5"].alignment.horizontal == "left"
         assert ilwidae["E6"].value == "='단가대비표'!L5"
         assert ilwidae["G6"].value == "=0"
         assert "TRUNC" in str(ilwidae["H6"].value)
@@ -97,11 +98,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         labor_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "내선전공")
         assert ilwidae.cell(labor_row, 5).value == "=0"
         assert f"E{labor_row}" in str(ilwidae.cell(labor_row, 6).value)
-        tool_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "공구손료")
-        assert ilwidae.cell(tool_row, 5).value == "=0"
-        assert f"D{tool_row}" in str(ilwidae.cell(tool_row, 6).value)
-        assert "0.15" in str(ilwidae["F7"].value)
-        assert "F7" in str(ilwidae["E7"].value)
+        assert labor_row == 7
         sum_rows = [
             r
             for r in range(5, 25)
@@ -122,11 +119,22 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert estimate["D6"].value == 100
         assert estimate["E6"].value in (None, "")
         assert "일위대가" in str(estimate["F6"].value)
-        assert "F" in str(estimate["F6"].value)
+        assert "F6" in str(estimate["F6"].value)
         assert estimate["G6"].value in (None, "")
-        assert "일위대가" in str(estimate["L6"].value)
+        assert estimate["H6"].value in (None, "")
+        assert "TRUNC" in str(estimate["L6"].value)
         assert estimate["L6"].number_format == "#,##0.0"
         assert estimate.row_dimensions[6].height == 30
+        estimate_names = [estimate.cell(r, 1).value for r in range(1, 40)]
+        assert any("배관" in str(value or "") and "부속" in str(value or "") for value in estimate_names)
+        assert any("소모" in str(value or "") and "잡자" in str(value or "") for value in estimate_names)
+        assert any("공구" in str(value or "").replace(" ", "") for value in estimate_names)
+        assert any(str(value or "").replace(" ", "") == "(합계)" for value in estimate_names)
+        sundry_row = next(
+            r for r in range(5, 40) if "부속" in str(estimate.cell(r, 1).value or "") and "CD" in str(estimate.cell(r, 2).value or "")
+        )
+        assert "SUMPRODUCT" in str(estimate.cell(sundry_row, 6).value)
+        assert "0.4" in str(estimate.cell(sundry_row, 6).value)
         titles = [
             ilwidae.cell(r, 1).value
             for r in range(1, 40)
@@ -332,7 +340,9 @@ def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
         assert "1. 전열설비공사" in names
         assert names.index("1. 전기공사") < names.index("강제전선관") < names.index("1. 전열설비공사")
         assert qty["B8"].value == "경질비닐전선관"
-        assert qty["H8"].value == "내선전공"
+        assert "VLOOKUP" in str(qty["H8"].value)
+        assert "SUMPRODUCT" in str(qty["K8"].value)
+        assert qty["A3"].value == "품목"
     finally:
         result.close()
 
@@ -443,6 +453,52 @@ def test_quantity_strips_external_workbook_formulas(tmp_path: Path) -> None:
                     assert "노임산출서" not in value
         assert estimate["F5"].value == "=D5*E5"
         assert estimate["D214"].value in (0, None)
+    finally:
+        result.close()
+
+
+def test_quantity_skips_sundry_form_formulas(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "내역서"
+    sheet["A1"] = "[내역서 ]"
+    sheet["A3"] = "명칭"
+    sheet["B3"] = "규격"
+    sheet["C3"] = "단위"
+    sheet["D3"] = "수량"
+    sheet["E3"] = "재료비"
+    sheet["E4"] = "단가"
+    sheet["A5"] = "1. 전기공사"
+    sheet["A6"] = "강제전선관"
+    sheet["B6"] = "아연도 16 mm"
+    sheet["C6"] = "M"
+    sheet["D6"] = 10
+    sheet["A8"] = "[ 배관 부속재 ]"
+    sheet["B8"] = "전선관의 15 %"
+    sheet["C8"] = "식"
+    sheet["D8"] = 1
+    sheet["A9"] = "노 무 비"
+    sheet["B9"] = "내선전공"
+    sheet["C9"] = "인"
+    sheet["A10"] = "( 합 계 )"
+    source = tmp_path / "내역서_양식.xlsx"
+    workbook.save(source)
+    workbook.close()
+
+    dest = save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out", mode="quantity")
+    result = load_workbook(dest, data_only=False)
+    try:
+        qty = result[QUANTITY_SHEET_NAME]
+        assert qty["B6"].value == "강제전선관"
+        assert "VLOOKUP" in str(qty["H6"].value)
+        assert qty["B8"].value == "[ 배관 부속재 ]"
+        assert qty["C8"].value == "전선관의 15 %"
+        assert qty["H8"].value in (None, "")
+        assert qty["K8"].value in (None, "")
+        assert qty["B9"].value == "노 무 비"
+        assert qty["H9"].value in (None, "")
+        assert qty["B10"].value == "( 합 계 )"
+        assert qty["H10"].value in (None, "")
     finally:
         result.close()
 

@@ -45,6 +45,7 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
 %PY% -m PyInstaller --noconsole --onefile --clean ^
   --name GongryangCalc ^
   --icon assets/app.ico ^
+  --version-file file_version_info.txt ^
   --collect-all PyQt6 ^
   --add-data "data;data" ^
   --add-data "assets;assets" ^

@@ -1,4 +1,4 @@
-"""일위대가 호표 작성. 표준품셈 인부와 전선관 부가항목을 넣는다."""
+"""일위대가 호표 작성. 품명과 표준품셈 인부만 넣고, 부가세는 내역서 아래에 모은다."""
 
 from __future__ import annotations
 
@@ -34,10 +34,11 @@ from app.pumsam import (
 )
 from app.wages import WAGES_SHEET_NAME, WageRow
 
+PIPE_WASTE_QTY = 1.1
+CD_FITTING_RATE = 0.40
 CONDUIT_FITTING_RATE = 0.15
 SUNDRY_RATE = 0.02
 TOOL_RATE = 0.03
-PIPE_WASTE_QTY = 1.1
 
 
 @dataclass
@@ -135,10 +136,6 @@ def _cost_totals(sheet: Worksheet, row: int) -> None:
     _amount(sheet, row, 12, f"=TRUNC(F{row}+H{row}+J{row},1)")
 
 
-def _unit_from_amount(row: int, amount_col: str, qty_col: str = "D") -> str:
-    return f'=IF({qty_col}{row}=0,0,TRUNC({amount_col}{row}/{qty_col}{row},2))'
-
-
 def _zero_price() -> str:
     return "=0"
 
@@ -165,17 +162,6 @@ def _idle_material_expense(sheet: Worksheet, row: int) -> None:
     """노무 행에서 쓰지 않는 재료·경비 칸도 수식으로 둔다."""
     _price(sheet, row, 5, _zero_price())
     _amount(sheet, row, 6, _qty_times_price(row, "E"))
-    _price(sheet, row, 9, _zero_price())
-    _amount(sheet, row, 10, _qty_times_price_trunc(row, "I"))
-
-
-def _idle_material(sheet: Worksheet, row: int) -> None:
-    """공구손료처럼 재료비만 비울 때."""
-    _price(sheet, row, 5, _zero_price())
-    _amount(sheet, row, 6, _qty_times_price(row, "E"))
-
-
-def _idle_expense(sheet: Worksheet, row: int) -> None:
     _price(sheet, row, 9, _zero_price())
     _amount(sheet, row, 10, _qty_times_price_trunc(row, "I"))
 
@@ -218,7 +204,7 @@ def write_ilwidae_sheet(
         ref = format_pumsam_ref(labors[0].get("품셈근거") or "")
         title = f"{item.name} {item.spec or ''}  ( 호표 {ho_no} )".strip()
         title_row = cursor
-        _set_cell(sheet, cursor, 1, title, font=BODY_FONT, align=CENTER)
+        _set_cell(sheet, cursor, 1, title, font=BODY_FONT, align=LEFT)
         for col in range(2, 14):
             _set_cell(sheet, cursor, col, None)
         sheet.merge_cells(start_row=cursor, start_column=1, end_row=cursor, end_column=13)
@@ -236,38 +222,6 @@ def write_ilwidae_sheet(
         _cost_totals(sheet, cursor)
         _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
         cursor += 1
-
-        fitting_row = None
-        if is_conduit_name(item.name):
-            fitting_row = cursor
-            _set_cell(sheet, cursor, 1, "전선관부속품비", font=BODY_FONT)
-            _set_cell(sheet, cursor, 2, "전선관의 15%", font=BODY_FONT)
-            _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
-            _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
-            _amount(sheet, cursor, 6, f"=F{material_row}*{CONDUIT_FITTING_RATE}")
-            _price(sheet, cursor, 5, _unit_from_amount(cursor, "F"))
-            _idle_labor_expense(sheet, cursor)
-            _cost_totals(sheet, cursor)
-            _set_cell(sheet, cursor, 13, None)
-            cursor += 1
-
-        sundry_row = None
-        if is_conduit_name(item.name) or is_cable_name(item.name):
-            sundry_row = cursor
-            material_sum = f"F{material_row}"
-            if fitting_row is not None:
-                material_sum = f"(F{material_row}+F{fitting_row})"
-            _set_cell(sheet, cursor, 1, "잡재료비", font=BODY_FONT)
-            _set_cell(sheet, cursor, 2, "배관배선의 2%", font=BODY_FONT)
-            _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
-            _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
-            _amount(sheet, cursor, 6, f"={material_sum}*{SUNDRY_RATE}")
-            _price(sheet, cursor, 5, _unit_from_amount(cursor, "F"))
-            _idle_labor_expense(sheet, cursor)
-            _cost_totals(sheet, cursor)
-            _set_cell(sheet, cursor, 13, None)
-            cursor += 1
-            _ = sundry_row
 
         labor_rows: list[int] = []
         for labor in labors:
@@ -289,20 +243,6 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
             cursor += 1
-
-        first_labor = labor_rows[0]
-        last_labor = labor_rows[-1]
-        _set_cell(sheet, cursor, 1, "공구손료", font=BODY_FONT)
-        _set_cell(sheet, cursor, 2, "인력품의 3%", font=BODY_FONT)
-        _set_cell(sheet, cursor, 3, "식", font=BODY_FONT, align=CENTER)
-        _set_cell(sheet, cursor, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
-        _idle_material(sheet, cursor)
-        _amount(sheet, cursor, 8, f"=SUM(H{first_labor}:H{last_labor})*{TOOL_RATE}")
-        _price(sheet, cursor, 7, _unit_from_amount(cursor, "H"))
-        _idle_expense(sheet, cursor)
-        _cost_totals(sheet, cursor)
-        _set_cell(sheet, cursor, 13, None)
-        cursor += 1
 
         first_data = material_row
         last_data = cursor - 1

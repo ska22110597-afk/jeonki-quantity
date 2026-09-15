@@ -130,6 +130,16 @@ def first_data_row_number(rows: SheetRows) -> int:
     return header_idx + header_row_span(rows, header_idx) + 1
 
 
+def is_sundry_form_row(name: Any) -> bool:
+    """내역서 아래 부속재·잡자재·노무비·공구손료·합계 양식 행."""
+    token = normalize_header(name)
+    if not token:
+        return False
+    if "합계" in token and (token.startswith("(") or token.startswith("[")):
+        return True
+    return any(key in token for key in ("배관부속재", "소모잡자재", "공구손료", "노무비"))
+
+
 def is_section_row(name: Any, spec: Any, unit: Any) -> bool:
     """'1. 옥외전기공사' 같은 공종 제목 행."""
     name_text = str(name).strip() if name is not None else ""

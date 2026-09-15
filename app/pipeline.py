@@ -36,7 +36,14 @@ from app.excel_io import (
     collect_pumsam_rows,
     write_title_banner,
 )
-from app.ilwidae import IlwidaeBlock, write_ilwidae_sheet
+from app.ilwidae import (
+    CD_FITTING_RATE,
+    CONDUIT_FITTING_RATE,
+    IlwidaeBlock,
+    SUNDRY_RATE,
+    TOOL_RATE,
+    write_ilwidae_sheet,
+)
 from app.items import LineItem, first_filled, parse_line_items
 from app.paths import assert_safe_save, build_result_path
 from app.pumsam import PUMSAM_SHEET_NAME, PumsamRow
@@ -200,12 +207,187 @@ def _write_wages_sheet(sheet: Worksheet, rows: list[WageRow]) -> None:
     sheet.column_dimensions["C"].width = 40
 
 
+SUNDRY_LABOR_JOBS = ("내선전공", "저압케이블전공", "통신케이블공")
+
+
+def _sumproduct_amount(item_first: int, item_last: int, *search_flags: str) -> str:
+    """내역서 품목 구간의 재료비 금액(F)을 품명 조건으로 더한다."""
+    cells_a = f"$A${item_first}:$A${item_last}"
+    cells_f = f"$F${item_first}:$F${item_last}"
+    terms = [f"(ISNUMBER(SEARCH(\"{token}\",{cells_a})))" for token in search_flags]
+    joined = "*".join(terms)
+    return f"SUMPRODUCT({joined}*({cells_f}))"
+
+
+def _write_estimate_sundry_form(
+    sheet: Worksheet,
+    excel_row: int,
+    *,
+    item_first_row: int,
+    item_last_row: int,
+    last_col: int,
+    filled: list[list[Any]],
+) -> int:
+    """내역서 아래에 부속재·잡자재·노무비·공구손료 통합 양식을 넣는다."""
+    first = item_first_row
+    last = max(item_last_row, item_first_row)
+    cd_base = _sumproduct_amount(first, last, "전선관", "CD")
+    conduit_only = (
+        f"SUMPRODUCT((ISNUMBER(SEARCH(\"전선관\",$A${first}:$A${last})))*"
+        f"(NOT(ISNUMBER(SEARCH(\"CD\",$A${first}:$A${last}))))*"
+        f"($F${first}:$F${last}))"
+    )
+    wire_base = (
+        f"SUMPRODUCT(((ISNUMBER(SEARCH(\"전선\",$A${first}:$A${last})))+"
+        f"(ISNUMBER(SEARCH(\"케이블\",$A${first}:$A${last}))))*"
+        f"($F${first}:$F${last}))"
+    )
+
+    def _push(row: list[Any]) -> None:
+        padded = list(row) + [None] * (last_col - len(row))
+        filled.append(padded[:last_col])
+
+    def _unit_price(row: int, amount_col: str) -> str:
+        return f'=IF(D{row}=0,0,TRUNC({amount_col}{row}/D{row},2))'
+
+    def _line_total(row: int) -> str:
+        return f"=TRUNC(F{row}+H{row}+J{row},1)"
+
+    rows: list[tuple[str, str, str, Any, str | None, str | None]] = [
+        (
+            "[ 배관 부속재 ]",
+            "CD 전선관의 40 %",
+            "식",
+            1,
+            "F",
+            f"=TRUNC({cd_base}*{CD_FITTING_RATE},1)",
+        ),
+        (
+            "[ 배관 부속재 ]",
+            "전선관의 15 %",
+            "식",
+            1,
+            "F",
+            f"=TRUNC({conduit_only}*{CONDUIT_FITTING_RATE},1)",
+        ),
+        (
+            "[ 소모 잡자재 ]",
+            "전선, 전선관의 2 %",
+            "식",
+            1,
+            "F",
+            f"=TRUNC({wire_base}*{SUNDRY_RATE},1)",
+        ),
+    ]
+    labor_start = excel_row + len(rows)
+    for job in SUNDRY_LABOR_JOBS:
+        job_lit = str(job).replace('"', '""')
+        qty = f"=TRUNC(SUMIF('{ILWIDAE_SHEET_NAME}'!$A:$A,\"{job_lit}\",'{ILWIDAE_SHEET_NAME}'!$D:$D),0)"
+        amount = f"=SUMIF('{ILWIDAE_SHEET_NAME}'!$A:$A,\"{job_lit}\",'{ILWIDAE_SHEET_NAME}'!$H:$H)"
+        rows.append(("노 무 비", job, "인", qty, "H", amount))
+
+    labor_end = labor_start + len(SUNDRY_LABOR_JOBS) - 1
+    tool_labor_sum = "+".join(f"H{r}" for r in range(labor_start, labor_end + 1))
+    rows.append(
+        (
+            "[ 공 구 손 료 ]",
+            "직접노무비의 3 %",
+            "식",
+            1,
+            "J",
+            f"=TRUNC(({tool_labor_sum})*{TOOL_RATE},1)",
+        )
+    )
+
+    form_first = excel_row
+    for name, spec, unit, qty, amount_col, amount_formula in rows:
+        _set_cell(sheet, excel_row, 1, name, font=BODY_FONT)
+        _set_cell(sheet, excel_row, 2, spec, font=BODY_FONT)
+        _set_cell(sheet, excel_row, 3, unit, font=BODY_FONT, align=CENTER)
+        qty_format = "#,##0" if unit == "인" else AMOUNT_FORMAT
+        _set_cell(sheet, excel_row, 4, qty, font=BODY_FONT, align=RIGHT, number_format=qty_format)
+        for col in range(5, last_col + 1):
+            _set_cell(sheet, excel_row, col, None)
+        if amount_col == "F":
+            _set_cell(sheet, excel_row, 6, amount_formula, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+            _set_cell(sheet, excel_row, 5, _unit_price(excel_row, "F"), font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        elif amount_col == "H":
+            job_lit = str(spec).replace('"', '""')
+            _set_cell(
+                sheet,
+                excel_row,
+                7,
+                f"=IFERROR(VLOOKUP(\"{job_lit}\",'{WAGES_SHEET_NAME}'!A:B,2,FALSE),0)",
+                font=BODY_FONT,
+                align=RIGHT,
+                number_format=PRICE_FORMAT,
+            )
+            _set_cell(sheet, excel_row, 8, amount_formula, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        elif amount_col == "J":
+            _set_cell(sheet, excel_row, 10, amount_formula, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+            _set_cell(sheet, excel_row, 9, _unit_price(excel_row, "J"), font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            12,
+            _line_total(excel_row),
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=AMOUNT_FORMAT,
+        )
+        _push([name, spec, unit, qty])
+        excel_row += 1
+
+    form_last = excel_row - 1
+    _set_cell(sheet, excel_row, 1, "( 합 계 )", font=BODY_FONT)
+    for col in range(2, last_col + 1):
+        _set_cell(sheet, excel_row, col, None)
+    _set_cell(
+        sheet,
+        excel_row,
+        6,
+        f"=SUM(F{form_first}:F{form_last})+SUM(F{first}:F{last})",
+        font=BODY_FONT,
+        align=RIGHT,
+        number_format=AMOUNT_FORMAT,
+    )
+    _set_cell(
+        sheet,
+        excel_row,
+        8,
+        f"=SUM(H{form_first}:H{form_last})",
+        font=BODY_FONT,
+        align=RIGHT,
+        number_format=AMOUNT_FORMAT,
+    )
+    _set_cell(
+        sheet,
+        excel_row,
+        10,
+        f"=SUM(J{form_first}:J{form_last})",
+        font=BODY_FONT,
+        align=RIGHT,
+        number_format=AMOUNT_FORMAT,
+    )
+    _set_cell(
+        sheet,
+        excel_row,
+        12,
+        f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},1)",
+        font=BODY_FONT,
+        align=RIGHT,
+        number_format=AMOUNT_FORMAT,
+    )
+    _push(["( 합 계 )"])
+    return excel_row + 1
+
+
 def _write_generated_estimate(
     sheet: Worksheet,
     items: list[LineItem],
     blocks: list[IlwidaeBlock],
 ) -> EstimateSheet:
-    """내역서에는 일위대가 합계 금액만 넣는다. 단가 열은 비운다."""
+    """내역서 품목은 일위대가 재료비 금액만 연결한다. 부가세·노무는 아래 양식에서 합친다."""
     sheet.title = ESTIMATE_SHEET_NAME
     last_col = 13
     write_title_banner(sheet, "[내역서 ]", last_col)
@@ -289,21 +471,41 @@ def _write_generated_estimate(
         for price_col in (5, 7, 9, 11):
             _set_cell(sheet, excel_row, price_col, None, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
         if block:
-            material_amt = f"='{ILWIDAE_SHEET_NAME}'!F{block.sum_row}"
-            labor_amt = f"='{ILWIDAE_SHEET_NAME}'!H{block.sum_row}"
-            expense_amt = f"='{ILWIDAE_SHEET_NAME}'!J{block.sum_row}"
-            total_amt = f"='{ILWIDAE_SHEET_NAME}'!L{block.sum_row}"
+            material_amt = f"='{ILWIDAE_SHEET_NAME}'!F{block.material_row}"
         else:
-            material_amt = labor_amt = expense_amt = total_amt = None
+            material_amt = None
         _set_cell(sheet, excel_row, 6, material_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
-        _set_cell(sheet, excel_row, 8, labor_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
-        _set_cell(sheet, excel_row, 10, expense_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
-        _set_cell(sheet, excel_row, 12, total_amt, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        _set_cell(sheet, excel_row, 8, None, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        _set_cell(sheet, excel_row, 10, None, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            12,
+            f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},1)",
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=AMOUNT_FORMAT,
+        )
         _set_cell(sheet, excel_row, 13, None)
         filled.append(
             [item.name, item.spec, item.unit, item.qty, None, None, None, None, None, None, None, None, None]
         )
         excel_row += 1
+
+    item_last_row = excel_row - 1
+    for _ in range(2):
+        for col in range(1, last_col + 1):
+            _set_cell(sheet, excel_row, col, None)
+        filled.append([None] * last_col)
+        excel_row += 1
+    excel_row = _write_estimate_sundry_form(
+        sheet,
+        excel_row,
+        item_first_row=5,
+        item_last_row=max(item_last_row, 5),
+        last_col=last_col,
+        filled=filled,
+    )
 
     _apply_sheet_look(sheet, max(excel_row - 1, 4), last_col, row_height=FORM_ROW_HEIGHT)
     sheet.column_dimensions["A"].width = 32
@@ -327,6 +529,10 @@ def _is_ilwidae_extra_row(item: LineItem) -> bool:
     if "합계" in name or "부속품" in name:
         return True
     if name in {"잡재료비", "공구손료"}:
+        return True
+    if "배관부속재" in name or "소모잡자재" in name:
+        return True
+    if name == "노무비":
         return True
     if unit in {"인", "식"}:
         return True

@@ -16,7 +16,7 @@ from app.excel_io import (
     save_result_workbook,
     source_qty_formula,
 )
-from app.estimate_parse import first_data_row_number, is_section_row, load_estimate_sheet, lookup_key
+from app.estimate_parse import first_data_row_number, is_section_row, is_sundry_form_row, load_estimate_sheet, lookup_key
 from app.pumsam import PUMSAM_SHEET_NAME, import_pumsam_file
 
 
@@ -71,6 +71,10 @@ def _fill_rgb(cell) -> str:
 def test_section_row_detection() -> None:
     assert is_section_row("1. 옥외전기공사", None, None)
     assert not is_section_row("경질비닐전선관_지중", "HI 16 mm", "M")
+    assert is_sundry_form_row("[ 배관 부속재 ]")
+    assert is_sundry_form_row("노 무 비")
+    assert is_sundry_form_row("( 합 계 )")
+    assert not is_sundry_form_row("강제전선관")
 
 
 def test_read_only_skips_title_keeps_items(tmp_path: Path) -> None:
@@ -150,8 +154,9 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert qty["F5"].value == "=0"
         assert qty["G5"].value == source_qty_formula("D", 5)
         assert qty["G5"].value == "='내역서'!D5"
-        assert qty["H5"].value == "내선전공"
-        assert qty["I5"].value == 0.05 or "VLOOKUP" in str(qty["I5"].value)
+        assert "VLOOKUP" in str(qty["H5"].value)
+        assert "SUMPRODUCT" in str(qty["K5"].value)
+        assert qty["A2"].value == "품목"
         assert "G5" in str(qty["K5"].value)
         assert qty["K5"].number_format == NUMBER_FORMAT
         assert qty.row_dimensions[5].height == ROW_HEIGHT
