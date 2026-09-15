@@ -1,3 +1,3 @@
-"""전기공사 견적·공량 산출 데스크톱 앱."""
+"""제작자_박남석 자동 내역서식 프로그램."""
 
-__version__ = "0.5.0"
+from app.version import APP_VERSION as __version__

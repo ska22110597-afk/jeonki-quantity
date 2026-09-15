@@ -20,7 +20,29 @@ HEADER_ALIASES = {
 
 HEADER_HINTS = ("명칭", "품명", "규격", "단위", "수량", "단가")
 SECTION_NAME = re.compile(r"^\s*\d+\s*[\.．]")
-SUBHEADER_TOKENS = {"단가", "금액", "할증", "할증%", "품셈", "공량", "산출수량", "결정수량"}
+SUBHEADER_TOKENS = {
+    "단가",
+    "금액",
+    "할증",
+    "할증%",
+    "품셈",
+    "공량",
+    "산출수량",
+    "결정수량",
+    "물가정보",
+    "적용단가",
+    "조달청",
+    "조달청가격",
+    "조사가격",
+    "조사가격1",
+    "조사가격2",
+    "조사가격3",
+    "거래가격",
+    "유통물가",
+    "page",
+    "PAGE",
+}
+HEADER_ITEM_NAMES = {"품명", "명칭", "품목", "코드", "자재명", "항목", "품목명"}
 MergeRange = tuple[int, int, int, int]
 
 
@@ -83,9 +105,23 @@ def header_row_span(rows: SheetRows, header_idx: int) -> int:
     if header_idx + 1 >= len(rows):
         return 1
     next_tokens = [normalize_header(c) for c in rows[header_idx + 1]]
-    if any(token in SUBHEADER_TOKENS for token in next_tokens):
+    if any(token in SUBHEADER_TOKENS or token.startswith("조사가격") for token in next_tokens):
         return 2
     return 1
+
+
+def is_header_item(name: Any, spec: Any, unit: Any) -> bool:
+    """헤더 글자(품명·규격·단위)가 데이터 행으로 섞인 경우."""
+    name_token = normalize_header(name)
+    if name_token in HEADER_ITEM_NAMES:
+        return True
+    if name_token == "코드":
+        return True
+    spec_token = normalize_header(spec)
+    unit_token = normalize_header(unit)
+    if spec_token == "규격" and unit_token in {"단위", "단위명", ""}:
+        return True
+    return False
 
 
 def first_data_row_number(rows: SheetRows) -> int:

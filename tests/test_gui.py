@@ -23,6 +23,8 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.source_edit.minimumHeight() >= 40
         assert window.dest_edit.minimumHeight() >= 40
         assert window.minimumWidth() >= 980
+        assert window.windowTitle().startswith("제작자_박남석")
+        assert "v1." in window.windowTitle()
         assert window.compare_drop is not None
         assert window.ilwidae_drop is not None
         assert window.drop_zone is not None

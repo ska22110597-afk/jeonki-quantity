@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,69 @@ LEGACY_PUMSAM_DB_FILENAME = "품셈표_데이터베이스.xlsx"
 PUMSAM_HEADERS = ["검색키", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
 
 PumsamRow = dict[str, Any]
+
+
+def format_pumsam_ref(value: Any) -> str:
+    """전기5-1 → 전기 5-1. 비고란에 그대로 넣는다."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    compact = text.replace(" ", "")
+    matched = re.fullmatch(r"(전기)(\d+)-(\d+)", compact)
+    if matched:
+        return f"{matched.group(1)} {matched.group(2)}-{matched.group(3)}"
+    return text
+
+
+def pumsam_qty_value(row: PumsamRow) -> float:
+    value = row.get("품셈")
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def pumsam_rate_value(row: PumsamRow) -> float:
+    value = row.get("할증%")
+    if value is None or value == "":
+        return 1.0
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if number > 5:
+        return number / 100.0
+    return number
+
+
+def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """같은 명칭·규격의 인부 행을 모두 반환한다."""
+    key = lookup_key(name, spec)
+    exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
+    if exact:
+        return exact
+    spec_key = lookup_key("", spec)
+    name_token = normalize_header(name)
+    fuzzy: list[PumsamRow] = []
+    for row in rows:
+        row_spec = lookup_key("", row.get("규격"))
+        row_name = normalize_header(row.get("명칭"))
+        if spec_key and row_spec != spec_key:
+            continue
+        if name_token and row_name and (name_token in row_name or row_name in name_token):
+            fuzzy.append(row)
+    return fuzzy
+
+
+def labor_names_text(rows: list[PumsamRow]) -> str:
+    seen: list[str] = []
+    for row in rows:
+        job = str(row.get("노무명칭") or "").strip()
+        if job and job not in seen:
+            seen.append(job)
+    return ", ".join(seen)
 
 
 def pumsam_db_path(directory: Path | None = None) -> Path:

@@ -9,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 
 from app.estimate_parse import find_header_row, normalize_header
 from app.merge_parse import fill_merged_values, trim_grid
+from app.official_wages import OFFICIAL_WAGES_2026H2, WAGE_NOTE
 from app.paths import bundled_data_dir, ensure_result_directory, is_allowed_excel, user_database_dir
 
 WAGES_SHEET_NAME = "노임단가"
@@ -19,13 +20,10 @@ WageRow = dict[str, Any]
 
 
 def default_wage_rows() -> list[WageRow]:
-    """일위대가 샘플에 있던 직종 단가. 없는 직종은 0으로 두고 직접 입력한다."""
+    """2026년 하반기 시중노임. 엑셀 비고에 적용일과 직종번호를 적는다."""
     return [
-        {"직종": "내선전공", "노임단가": 276108, "비고": "샘플 일위대가 값. 최신 노임으로 고치세요."},
-        {"직종": "보통인부", "노임단가": 0, "비고": "노임단가를 입력하세요."},
-        {"직종": "저압케이블전공", "노임단가": 306274, "비고": "샘플 일위대가 값. 최신 노임으로 고치세요."},
-        {"직종": "케이블전공", "노임단가": 306274, "비고": "저압케이블전공과 같게 시작. 필요하면 수정."},
-        {"직종": "고압케이블전공", "노임단가": 0, "비고": "노임단가를 입력하세요."},
+        {"직종": name, "노임단가": wage, "비고": f"{WAGE_NOTE} · {code}"}
+        for name, wage, code in OFFICIAL_WAGES_2026H2
     ]
 
 
@@ -112,10 +110,38 @@ def ensure_wages_database(directory: Path | None = None) -> Path:
     return dest
 
 
+def _as_number(value: Any) -> float:
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).replace(",", ""))
+    except ValueError:
+        return 0.0
+
+
+def _is_placeholder(row: WageRow) -> bool:
+    note = str(row.get("비고") or "")
+    if "샘플" in note or "입력하세요" in note:
+        return True
+    return _as_number(row.get("노임단가")) <= 0
+
+
 def load_wages(directory: Path | None = None) -> list[WageRow]:
     path = ensure_wages_database(directory)
     parsed = _rows_from_sheet(path) if path.exists() else []
-    return merge_wage_rows(default_wage_rows(), parsed)
+    merged: dict[str, WageRow] = {}
+    for row in default_wage_rows():
+        key = normalize_header(row.get("직종"))
+        if key:
+            merged[key] = dict(row)
+    for row in parsed:
+        key = normalize_header(row.get("직종"))
+        if not key or _is_placeholder(row):
+            continue
+        merged[key] = dict(row)
+    return list(merged.values())
 
 
 def save_wages(rows: list[WageRow], directory: Path | None = None) -> Path:
@@ -141,14 +167,3 @@ def wage_lookup(job_name: Any, rows: list[WageRow]) -> float:
         if token in key or key in token:
             return _as_number(value)
     return 0.0
-
-
-def _as_number(value: Any) -> float:
-    if value is None or value == "":
-        return 0.0
-    if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return float(str(value).replace(",", ""))
-    except ValueError:
-        return 0.0

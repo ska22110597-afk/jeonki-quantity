@@ -20,12 +20,13 @@ class DropZone(QFrame):
         title: str = "내역서 엑셀 파일을 여기에 놓으세요",
         hint: str = "xlsx · xlsm  ·  클릭하면 파일 선택  ·  원본은 읽기만 합니다",
         dialog_title: str = "엑셀 선택",
+        tone: str = "forward",
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("dropZone")
+        self.setObjectName("dropZoneForward" if tone == "forward" else "dropZoneReverse")
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(96)
+        self.setMinimumHeight(92)
         self._idle_title = title
         self._idle_hint = hint
         self._dialog_title = dialog_title
@@ -37,9 +38,10 @@ class DropZone(QFrame):
         self._hint = QLabel(hint)
         self._hint.setObjectName("dropHint")
         self._hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._hint.setWordWrap(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setContentsMargins(18, 16, 18, 16)
         layout.addStretch(1)
         layout.addWidget(self._title)
         layout.addWidget(self._hint)

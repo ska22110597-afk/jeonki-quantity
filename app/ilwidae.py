@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from app.estimate_parse import lookup_key, normalize_header
+from app.estimate_parse import normalize_header
 from app.excel_io import (
     BODY_FONT,
     CENTER,
@@ -16,12 +17,18 @@ from app.excel_io import (
     LEFT,
     MONEY_FORMAT,
     RIGHT,
-    SECTION_FONT,
+    TITLE_FONT,
     _apply_sheet_look,
     _set_cell,
 )
 from app.items import LineItem
-from app.pumsam import PumsamRow
+from app.pumsam import (
+    PumsamRow,
+    format_pumsam_ref,
+    match_pumsam as match_pumsam_rows,
+    pumsam_qty_value,
+    pumsam_rate_value,
+)
 from app.wages import WageRow
 
 CONDUIT_FITTING_RATE = 0.15
@@ -38,6 +45,7 @@ class IlwidaeBlock:
     material_row: int
     sum_row: int
     labor_rows: list[int] = field(default_factory=list)
+    pumsam_ref: str = ""
 
 
 def is_conduit_name(name: Any) -> bool:
@@ -63,55 +71,17 @@ def material_qty(item: LineItem) -> float:
 
 
 def match_pumsam(item: LineItem, rows: list[PumsamRow]) -> list[PumsamRow]:
-    """같은 명칭·규격의 인부 행을 모두 반환한다."""
-    key = item.key
-    exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
-    if exact:
-        return exact
-    spec_key = lookup_key("", item.spec)
-    name_token = normalize_header(item.name)
-    fuzzy: list[PumsamRow] = []
-    for row in rows:
-        row_spec = lookup_key("", row.get("규격"))
-        row_name = normalize_header(row.get("명칭"))
-        if spec_key and row_spec != spec_key:
-            continue
-        if name_token and row_name and (name_token in row_name or row_name in name_token):
-            fuzzy.append(row)
-    return fuzzy
-
-
-def _pumsam_value(row: PumsamRow) -> float:
-    value = row.get("품셈")
-    if isinstance(value, (int, float)):
-        return float(value)
-    try:
-        return float(str(value).replace(",", ""))
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _pumsam_rate(row: PumsamRow) -> float:
-    value = row.get("할증%")
-    if value is None or value == "":
-        return 1.0
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return 1.0
-    if number > 5:
-        return number / 100.0
-    return number
+    return match_pumsam_rows(item.name, item.spec, rows)
 
 
 def labor_qty_formula(row: PumsamRow) -> str:
-    qty = _pumsam_value(row)
-    rate = _pumsam_rate(row)
+    qty = pumsam_qty_value(row)
+    rate = pumsam_rate_value(row)
     return f"={qty}*{rate}"
 
 
 def _write_ilwidae_header(sheet: Worksheet) -> None:
-    _set_cell(sheet, 1, 1, "일 위 대 가", font=SECTION_FONT, align=CENTER)
+    _set_cell(sheet, 1, 1, "일 위 대 가", font=TITLE_FONT, align=CENTER)
     for col in range(2, 14):
         _set_cell(sheet, 1, col, None, font=HEADER_FONT, align=CENTER)
     sheet.merge_cells("A1:M1")
@@ -129,7 +99,16 @@ def _write_ilwidae_header(sheet: Worksheet) -> None:
     for col in range(1, 14):
         _set_cell(sheet, 3, col, labels.get(col), font=HEADER_FONT, align=CENTER)
         _set_cell(sheet, 4, col, None, font=HEADER_FONT, align=CENTER)
-    for col, text in ((5, "단  가"), (6, "금  액"), (7, "단  가"), (8, "금  액"), (9, "단  가"), (10, "금  액"), (11, "단  가"), (12, "금  액")):
+    for col, text in (
+        (5, "단  가"),
+        (6, "금  액"),
+        (7, "단  가"),
+        (8, "금  액"),
+        (9, "단  가"),
+        (10, "금  액"),
+        (11, "단  가"),
+        (12, "금  액"),
+    ):
         _set_cell(sheet, 4, col, text, font=HEADER_FONT, align=CENTER)
     sheet.merge_cells("A3:A4")
     sheet.merge_cells("B3:B4")
@@ -146,9 +125,9 @@ def _money(sheet: Worksheet, row: int, col: int, value: Any, align=RIGHT) -> Non
     _set_cell(sheet, row, col, value, font=BODY_FONT, align=align, number_format=MONEY_FORMAT)
 
 
-def _blank_cost_row(sheet: Worksheet, row: int) -> None:
-    for col in range(5, 13):
-        _money(sheet, row, col, 0 if col in (5, 7, 9) else None)
+def _price_ref(item: LineItem, compare_sheet: str) -> str:
+    col_index = (item.price_col if item.price_col is not None else 4) + 1
+    return f"='{compare_sheet}'!{get_column_letter(col_index)}{item.excel_row}"
 
 
 def write_ilwidae_sheet(
@@ -167,7 +146,7 @@ def write_ilwidae_sheet(
         if item.section or (item.spec is None and item.unit is None):
             continue
         ho_no += 1
-        labors = match_pumsam(item, pumsam_rows)
+        labors = match_pumsam_rows(item.name, item.spec, pumsam_rows)
         if not labors:
             labors = [
                 {
@@ -179,12 +158,13 @@ def write_ilwidae_sheet(
                     "품셈근거": "",
                 }
             ]
-        ref = str(labors[0].get("품셈근거") or "").strip()
-        title = f"{item.name} {item.spec or ''}  ( 호표 {ho_no} )   {ref}".strip()
+        ref = format_pumsam_ref(labors[0].get("품셈근거") or "")
+        title = f"{item.name} {item.spec or ''}  ( 호표 {ho_no} )".strip()
         title_row = cursor
-        _set_cell(sheet, cursor, 1, title, font=SECTION_FONT, align=LEFT)
-        for col in range(2, 14):
+        _set_cell(sheet, cursor, 1, title, font=BODY_FONT, align=LEFT)
+        for col in range(2, 13):
             _set_cell(sheet, cursor, col, None)
+        _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
         cursor += 1
 
         material_row = cursor
@@ -193,7 +173,7 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 2, item.spec, font=BODY_FONT)
         _set_cell(sheet, cursor, 3, item.unit or "개", font=BODY_FONT, align=CENTER)
         _money(sheet, cursor, 4, qty)
-        _money(sheet, cursor, 5, f"='{compare_sheet}'!E{item.excel_row}")
+        _money(sheet, cursor, 5, _price_ref(item, compare_sheet))
         _money(sheet, cursor, 6, f"=D{cursor}*E{cursor}")
         _money(sheet, cursor, 7, 0)
         _money(sheet, cursor, 8, 0)
@@ -201,7 +181,7 @@ def write_ilwidae_sheet(
         _money(sheet, cursor, 10, 0)
         _money(sheet, cursor, 11, f"=TRUNC(E{cursor}+G{cursor}+I{cursor},2)")
         _money(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
-        _set_cell(sheet, cursor, 13, None)
+        _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
         cursor += 1
 
         fitting_row = None
@@ -283,7 +263,7 @@ def write_ilwidae_sheet(
         first_data = material_row
         last_data = cursor - 1
         sum_row = cursor
-        _set_cell(sheet, cursor, 1, " [ 합          계 ]", font=SECTION_FONT)
+        _set_cell(sheet, cursor, 1, " [ 합          계 ]", font=BODY_FONT)
         for col in range(2, 6):
             _set_cell(sheet, cursor, col, None)
         _money(sheet, cursor, 6, f"=SUM(F{first_data}:F{last_data})")
@@ -302,13 +282,12 @@ def write_ilwidae_sheet(
                 material_row=material_row,
                 sum_row=sum_row,
                 labor_rows=labor_rows,
+                pumsam_ref=ref,
             )
         )
         cursor += 2
 
     _apply_sheet_look(sheet, max(cursor, 4), 13)
-    from openpyxl.utils import get_column_letter
-
     sheet.column_dimensions["A"].width = 40
     sheet.column_dimensions["B"].width = 18
     sheet.column_dimensions["C"].width = 8

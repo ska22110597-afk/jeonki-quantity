@@ -26,9 +26,14 @@ from app.paths import assert_safe_save, build_result_path
 from app.pumsam import (
     PUMSAM_SHEET_NAME,
     PumsamRow,
+    format_pumsam_ref,
     import_pumsam_file,
+    labor_names_text,
     load_pumsam_database,
+    match_pumsam,
     merge_pumsam_rows,
+    pumsam_qty_value,
+    pumsam_rate_value,
     rows_from_grid,
     save_pumsam_database,
 )
@@ -45,9 +50,10 @@ QTY_HEADER_ROW = 2
 QTY_SUBHEADER_ROW = 3
 
 WHITE = PatternFill("solid", fgColor="FFFFFF")
-HEADER_FONT = Font(name="맑은 고딕", size=11, bold=False, color="000000")
-BODY_FONT = Font(name="맑은 고딕", size=10, bold=False, color="000000")
-SECTION_FONT = Font(name="맑은 고딕", size=10, bold=True, color="000000")
+TITLE_FONT = Font(name="굴림", size=16, bold=True, color="000000")
+HEADER_FONT = Font(name="굴림", size=11, bold=True, color="000000")
+BODY_FONT = Font(name="굴림", size=11, bold=False, color="000000")
+SECTION_FONT = Font(name="굴림", size=11, bold=False, color="000000")
 THIN = Border(
     left=Side(style="thin", color="000000"),
     right=Side(style="thin", color="000000"),
@@ -353,6 +359,7 @@ def _write_quantity_sheet(
     sheet: Worksheet,
     estimate: EstimateSheet,
     pumsam_last_row: int,
+    pumsam_rows: list[PumsamRow] | None = None,
 ) -> None:
     filled = estimate.filled
     header_idx = find_header_row(filled) if filled else 0
@@ -422,32 +429,64 @@ def _write_quantity_sheet(
             number_format=QTY_FORMAT,
         )
         lookup_last = max(pumsam_last_row, PUMSAM_DATA_START)
-        _set_cell(sheet, excel_row, 8, labor_formula(excel_row, lookup_last), align=LEFT)
-        _set_cell(
-            sheet,
-            excel_row,
-            9,
-            pumsam_formula(excel_row, lookup_last),
-            align=RIGHT,
-            number_format=PUMSAM_FORMAT,
-        )
-        _set_cell(
-            sheet,
-            excel_row,
-            10,
-            labor_rate_formula(excel_row, lookup_last),
-            align=RIGHT,
-            number_format=RATE_FORMAT,
-        )
-        _set_cell(
-            sheet,
-            excel_row,
-            11,
-            gongryang_formula(excel_row, lookup_last),
-            align=RIGHT,
-            number_format=NUMBER_FORMAT,
-        )
-        _set_cell(sheet, excel_row, 12, ref_formula(excel_row, lookup_last), align=LEFT)
+        matched = match_pumsam(name, spec, pumsam_rows or [])
+        labor_text = labor_names_text(matched)
+        if labor_text:
+            first = matched[0]
+            total_rate = sum(pumsam_qty_value(row) * pumsam_rate_value(row) for row in matched)
+            _set_cell(sheet, excel_row, 8, labor_text, align=LEFT)
+            _set_cell(
+                sheet,
+                excel_row,
+                9,
+                first.get("품셈"),
+                align=RIGHT,
+                number_format=PUMSAM_FORMAT,
+            )
+            _set_cell(
+                sheet,
+                excel_row,
+                10,
+                first.get("할증%"),
+                align=RIGHT,
+                number_format=RATE_FORMAT,
+            )
+            _set_cell(
+                sheet,
+                excel_row,
+                11,
+                f'=IF(G{excel_row}=0,"",G{excel_row}*{total_rate})',
+                align=RIGHT,
+                number_format=NUMBER_FORMAT,
+            )
+            _set_cell(sheet, excel_row, 12, format_pumsam_ref(first.get("품셈근거")), align=LEFT)
+        else:
+            _set_cell(sheet, excel_row, 8, labor_formula(excel_row, lookup_last), align=LEFT)
+            _set_cell(
+                sheet,
+                excel_row,
+                9,
+                pumsam_formula(excel_row, lookup_last),
+                align=RIGHT,
+                number_format=PUMSAM_FORMAT,
+            )
+            _set_cell(
+                sheet,
+                excel_row,
+                10,
+                labor_rate_formula(excel_row, lookup_last),
+                align=RIGHT,
+                number_format=RATE_FORMAT,
+            )
+            _set_cell(
+                sheet,
+                excel_row,
+                11,
+                gongryang_formula(excel_row, lookup_last),
+                align=RIGHT,
+                number_format=NUMBER_FORMAT,
+            )
+            _set_cell(sheet, excel_row, 12, ref_formula(excel_row, lookup_last), align=LEFT)
 
     _apply_sheet_look(sheet, last_row, QTY_LAST_COL)
     sheet.column_dimensions["A"].width = 22
@@ -496,7 +535,7 @@ def create_result_workbook(
     _write_pumsam_sheet(sheet2, rows)
 
     sheet3 = workbook.create_sheet(QUANTITY_SHEET_NAME)
-    _write_quantity_sheet(sheet3, estimate, pumsam_last)
+    _write_quantity_sheet(sheet3, estimate, pumsam_last, rows)
     return workbook
 
 

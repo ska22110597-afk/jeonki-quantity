@@ -148,8 +148,8 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert qty["F5"].value == 0
         assert qty["G5"].value == source_qty_formula("D", 5)
         assert qty["G5"].value == "='내역서'!D5"
-        assert "품셈표" in str(qty["H5"].value)
-        assert "VLOOKUP" in str(qty["I5"].value)
+        assert qty["H5"].value == "내선전공"
+        assert qty["I5"].value == 0.05 or "VLOOKUP" in str(qty["I5"].value)
         assert "G5" in str(qty["K5"].value)
         assert qty["K5"].number_format == NUMBER_FORMAT
         assert qty.row_dimensions[5].height == ROW_HEIGHT

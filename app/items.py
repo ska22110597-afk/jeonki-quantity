@@ -12,6 +12,7 @@ from app.estimate_parse import (
     find_quantity_column,
     first_data_row_number,
     header_row_span,
+    is_header_item,
     is_section_row,
     lookup_key,
     normalize_header,
@@ -27,6 +28,8 @@ class LineItem:
     qty: Any
     material_price: Any
     section: bool = False
+    price_col: int | None = None
+    qty_col: int | None = None
 
     @property
     def key(self) -> str:
@@ -39,7 +42,54 @@ def _pick(row: list[Any], index: int | None) -> Any:
     return row[index]
 
 
-def _price_column(header: list[Any], subheader: list[Any] | None) -> int | None:
+def _combined_labels(header: list[Any], subheader: list[Any] | None) -> list[str]:
+    width = max(len(header), len(subheader or []))
+    labels: list[str] = []
+    for i in range(width):
+        top = normalize_header(header[i] if i < len(header) else None)
+        bottom = normalize_header(subheader[i] if subheader and i < len(subheader) else None)
+        labels.append(bottom or top)
+    return labels
+
+
+def _numeric_count(filled: list[list[Any]], col: int, data_start: int) -> int:
+    count = 0
+    for row in filled[data_start - 1 :]:
+        value = row[col] if col < len(row) else None
+        if isinstance(value, (int, float)):
+            count += 1
+    return count
+
+
+def find_material_price_column(
+    header: list[Any],
+    subheader: list[Any] | None,
+    filled: list[list[Any]],
+    data_start: int,
+) -> int | None:
+    """재료비 단가 열. 적용단가 → 물가정보 → 재료비 순이되, 숫자가 있는 열을 고른다."""
+    labels = _combined_labels(header, subheader)
+    ranked = (
+        "적용단가",
+        "물가정보",
+        "조달청",
+        "조사가격",
+        "재료비단가",
+        "재료비",
+        "단가",
+    )
+    candidates: list[tuple[int, int, int]] = []
+    for index, label in enumerate(labels):
+        if "노무" in label or "경비" in label:
+            continue
+        for rank, token in enumerate(ranked):
+            if token in label:
+                filled_n = _numeric_count(filled, index, data_start)
+                candidates.append((0 if filled_n else 1, rank, index))
+                break
+    if candidates:
+        candidates.sort()
+        return candidates[0][2]
     idx = find_column_index(header, "단가")
     if idx is not None:
         return idx
@@ -47,10 +97,6 @@ def _price_column(header: list[Any], subheader: list[Any] | None) -> int | None:
         idx = find_column_index(subheader, "단가")
         if idx is not None:
             return idx
-    for i, cell in enumerate(header):
-        token = normalize_header(cell)
-        if "재료" in token and "금액" not in token:
-            return i
     return 4 if len(header) > 4 else None
 
 
@@ -66,8 +112,8 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
     spec_idx = find_column_index(header, "규격")
     unit_idx = find_column_index(header, "단위")
     qty_idx = find_quantity_column(header)
-    price_idx = _price_column(header, subheader)
     data_start = first_data_row_number(filled)
+    price_idx = find_material_price_column(header, subheader, filled, data_start)
     items: list[LineItem] = []
     for excel_row in range(data_start, len(filled) + 1):
         row = filled[excel_row - 1]
@@ -76,16 +122,21 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
         unit = _pick(row, unit_idx)
         if name is None and spec is None:
             continue
+        if is_header_item(name, spec, unit):
+            continue
         section = is_section_row(name, spec, unit)
+        qty = None if section or qty_idx is None else _pick(row, qty_idx)
         items.append(
             LineItem(
                 excel_row=excel_row,
                 name=name,
                 spec=spec,
                 unit=unit,
-                qty=None if section else _pick(row, qty_idx),
+                qty=qty,
                 material_price=None if section else _pick(row, price_idx),
                 section=section,
+                price_col=price_idx,
+                qty_col=qty_idx,
             )
         )
     return items
