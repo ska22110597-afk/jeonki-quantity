@@ -48,11 +48,12 @@ MergeRange = tuple[int, int, int, int]
 
 @dataclass
 class EstimateSheet:
-    """원본 행 번호를 유지한 내역서. 병합은 메모리에서만 채운다."""
+    """원본 행 번호를 유지한 내역서·일위대가목록. 병합은 메모리에서만 채운다."""
 
     filled: SheetRows
     raw: SheetRows
     merges: list[MergeRange] = field(default_factory=list)
+    title: str = ""
 
     @property
     def max_row(self) -> int:
@@ -200,19 +201,39 @@ def _raw_grid_from_sheet(sheet: Any) -> SheetRows:
     return grid
 
 
-def _pick_estimate_sheet(workbook: Any) -> Any:
+_SKIP_QTY_SHEETS = {"품셈표", "노임단가", "공량산출서"}
+
+
+def list_sheet_titles(source_path: Path) -> list[str]:
+    workbook = _open_workbook(source_path)
+    try:
+        return [str(sheet.title) for sheet in workbook.worksheets]
+    finally:
+        workbook.close()
+
+
+def _pick_estimate_sheet(workbook: Any, preferred_title: str | None = None) -> Any:
     if not workbook.worksheets:
         raise ValueError("엑셀에 시트가 없습니다.")
-    sheet = workbook.worksheets[0]
+    if preferred_title:
+        for candidate in workbook.worksheets:
+            if str(candidate.title) == preferred_title:
+                return candidate
+    by_title = {str(sheet.title): sheet for sheet in workbook.worksheets}
+    for name in ("내역서", "일위대가목록"):
+        if name in by_title:
+            return by_title[name]
     for candidate in workbook.worksheets:
-        title = str(candidate.title)
-        if "내역" in title:
+        if "내역" in str(candidate.title):
             return candidate
     for candidate in workbook.worksheets:
         title = str(candidate.title)
-        if "단가" in title:
-            return candidate
-    return sheet
+        if title in _SKIP_QTY_SHEETS:
+            continue
+        if title in {"단가대비표", "일위대가"}:
+            continue
+        return candidate
+    return workbook.worksheets[0]
 
 
 def _trim_trailing(grid: SheetRows) -> SheetRows:
@@ -276,11 +297,18 @@ def _apply_cached_over_external(formula_grid: SheetRows, cached_grid: SheetRows)
     return out
 
 
-def load_estimate_sheet(source_path: Path) -> EstimateSheet:
+def load_named_sheet(source_path: Path, title: str) -> EstimateSheet | None:
+    titles = list_sheet_titles(source_path)
+    if title not in titles:
+        return None
+    return load_estimate_sheet(source_path, preferred_title=title)
+
+
+def load_estimate_sheet(source_path: Path, preferred_title: str | None = None) -> EstimateSheet:
     """병합을 채운 전체 격자. 제목 행을 버리지 않아 원본 행 번호를 유지한다."""
     workbook = _open_workbook(source_path)
     try:
-        sheet = _pick_estimate_sheet(workbook)
+        sheet = _pick_estimate_sheet(workbook, preferred_title)
         sheet_title = str(sheet.title)
         merges = collect_merge_ranges(sheet)
         raw = _trim_trailing(_raw_grid_from_sheet(sheet))
@@ -310,7 +338,7 @@ def load_estimate_sheet(source_path: Path) -> EstimateSheet:
         raw.append([None] * width)
     while len(filled) < len(raw):
         filled.append([None] * width)
-    return EstimateSheet(filled=filled, raw=raw, merges=merges)
+    return EstimateSheet(filled=filled, raw=raw, merges=merges, title=sheet_title)
 
 
 def read_full_grid(source_path: Path) -> SheetRows:

@@ -19,7 +19,7 @@ RESULT_FOLDER_NAME = "전기공사_공량산출_결과"
 WINDOWS_RESULT_DIR = Path(r"C:\전기공사_공량산출_결과")
 RESULT_FILENAME_PREFIX = "공량산출_결과_"
 RESULT_FILENAME_PREFIX_BY_MODE = {
-    "forward": "내역서_결과_",
+    "forward": "일위대가목록_결과_",
     "reverse": "단가대비표_결과_",
     "quantity": "공량산출_결과_",
 }
@@ -178,6 +178,20 @@ def app_icon_path() -> Path:
         if path.is_file():
             return path
     return here / "app.ico"
+
+
+def ui_background_path() -> Path:
+    """화면 바탕 그림. exe로 묶이면 해제 폴더의 assets 를 본다."""
+    extract = bundle_extract_dir()
+    here = Path(__file__).resolve().parent.parent / "assets"
+    candidates = []
+    if extract is not None:
+        candidates.append(extract / "assets" / "ui_bg.png")
+    candidates.append(here / "ui_bg.png")
+    for path in candidates:
+        if path.is_file():
+            return path
+    return here / "ui_bg.png"
 
 
 def is_allowed_excel(path: Path) -> bool:

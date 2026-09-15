@@ -7,6 +7,7 @@ from openpyxl import Workbook, load_workbook
 from app.excel_io import (
     COMPARE_SHEET_NAME,
     ESTIMATE_SHEET_NAME,
+    ILWIDAE_LIST_SHEET_NAME,
     ILWIDAE_SHEET_NAME,
     QUANTITY_SHEET_NAME,
     save_result_workbook,
@@ -54,10 +55,12 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
     dest = save_result_workbook(unit_price_path=source, dest_dir=tmp_path / "out")
     result = load_workbook(dest, data_only=False)
     try:
-        assert dest.name.startswith("내역서_결과_")
+        assert dest.name.startswith("일위대가목록_결과_")
         assert result.sheetnames[0] == COMPARE_SHEET_NAME
         assert ILWIDAE_SHEET_NAME in result.sheetnames
-        assert ESTIMATE_SHEET_NAME in result.sheetnames
+        assert ESTIMATE_SHEET_NAME not in result.sheetnames
+        assert ILWIDAE_LIST_SHEET_NAME in result.sheetnames
+        assert QUANTITY_SHEET_NAME not in result.sheetnames
         assert QUANTITY_SHEET_NAME not in result.sheetnames
         assert PUMSAM_SHEET_NAME in result.sheetnames
         assert WAGES_SHEET_NAME in result.sheetnames
@@ -111,20 +114,19 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert any("'노임단가'" in str(ilwidae.cell(r, 7).value or "") for r in range(5, 20))
         assert ilwidae.row_dimensions[1].height == 30
 
-        estimate = result[ESTIMATE_SHEET_NAME]
-        assert estimate["A1"].value == "[내역서 ]"
+        estimate = result[ILWIDAE_LIST_SHEET_NAME]
+        assert estimate["A1"].value == "[일위대가목록]"
         assert estimate["A3"].value == "명칭"
-        assert estimate["A5"].value == "1. 전기공사"
-        assert estimate["A6"].value == "경질비닐전선관_지중"
-        assert estimate["D6"].value == 100
-        assert estimate["E6"].value in (None, "")
-        assert "일위대가" in str(estimate["F6"].value)
-        assert "F6" in str(estimate["F6"].value)
-        assert estimate["G6"].value in (None, "")
-        assert estimate["H6"].value in (None, "")
-        assert "TRUNC" in str(estimate["L6"].value)
-        assert estimate["L6"].number_format == "#,##0.0"
-        assert estimate.row_dimensions[6].height == 30
+        assert estimate["A5"].value == "경질비닐전선관_지중"
+        assert estimate["D5"].value == 100
+        assert estimate["E5"].value in (None, "")
+        assert "일위대가" in str(estimate["F5"].value)
+        assert "F6" in str(estimate["F5"].value)
+        assert estimate["G5"].value in (None, "")
+        assert estimate["H5"].value in (None, "")
+        assert "TRUNC" in str(estimate["L5"].value)
+        assert estimate["L5"].number_format == "#,##0.0"
+        assert estimate.row_dimensions[5].height == 30
         estimate_names = [estimate.cell(r, 1).value for r in range(1, 40)]
         assert any("배관" in str(value or "") and "부속" in str(value or "") for value in estimate_names)
         assert any("소모" in str(value or "") and "잡자" in str(value or "") for value in estimate_names)
@@ -189,7 +191,7 @@ def test_sample_unit_price_skips_header_and_empty_qty(tmp_path: Path) -> None:
         assert all("품 명" not in title and "품명" not in title.replace(" ", "") for title in titles)
         assert "강제전선관" in titles[0]
         assert all("전기" not in title for title in titles)
-        estimate = result[ESTIMATE_SHEET_NAME]
+        estimate = result[ILWIDAE_LIST_SHEET_NAME]
         compare = result[COMPARE_SHEET_NAME]
         assert all(
             "코드" not in str(compare.cell(3, col).value or "").replace(" ", "")
@@ -204,11 +206,11 @@ def test_sample_unit_price_skips_header_and_empty_qty(tmp_path: Path) -> None:
         ]
         assert name_merges == []
         assert compare["E5"].value == 1202
-        assert estimate["A6"].value == "강제전선관"
-        assert estimate["D6"].value in (None, "")
-        assert estimate["C6"].value == "M"
-        assert estimate["E6"].value in (None, "")
-        assert "일위대가" in str(estimate["F6"].value or "")
+        assert estimate["A5"].value == "강제전선관"
+        assert estimate["D5"].value in (None, "")
+        assert estimate["C5"].value == "M"
+        assert estimate["E5"].value in (None, "")
+        assert "일위대가" in str(estimate["F5"].value or "")
     finally:
         result.close()
 
@@ -244,7 +246,7 @@ def test_reverse_estimate_builds_unit_price(tmp_path: Path) -> None:
     try:
         assert dest.name.startswith("단가대비표_결과_")
         assert result.sheetnames[0] == COMPARE_SHEET_NAME
-        assert ESTIMATE_SHEET_NAME in result.sheetnames
+        assert ILWIDAE_LIST_SHEET_NAME in result.sheetnames
         assert QUANTITY_SHEET_NAME not in result.sheetnames
         compare = result[COMPARE_SHEET_NAME]
         assert compare["A1"].value == "단 가 대 비 표"
@@ -372,9 +374,9 @@ def test_compare_keeps_page_and_pps_prices(tmp_path: Path) -> None:
         assert compare.cell(d30, 4).value in (None, "")
         assert compare.cell(d30, 6).value == 14350
         assert compare.cell(d30, 12).value == 14350
-        estimate = result[ESTIMATE_SHEET_NAME]
-        assert estimate["E6"].value in (None, "")
-        assert "일위대가" in str(estimate["F6"].value)
+        estimate = result[ILWIDAE_LIST_SHEET_NAME]
+        assert estimate["E5"].value in (None, "")
+        assert "일위대가" in str(estimate["F5"].value)
     finally:
         result.close()
 
@@ -499,6 +501,29 @@ def test_quantity_skips_sundry_form_formulas(tmp_path: Path) -> None:
         assert qty["H9"].value in (None, "")
         assert qty["B10"].value == "( 합 계 )"
         assert qty["H10"].value in (None, "")
+    finally:
+        result.close()
+
+
+def test_quantity_keeps_compare_and_ilwidae_from_forward_result(tmp_path: Path) -> None:
+    source = tmp_path / "단가대비표.xlsx"
+    _write_compare(source)
+    forward = save_result_workbook(unit_price_path=source, dest_dir=tmp_path / "fwd")
+    dest = save_result_workbook(estimate_path=forward, dest_dir=tmp_path / "qty", mode="quantity")
+    result = load_workbook(dest, data_only=False)
+    try:
+        assert dest.name.startswith("공량산출_결과_")
+        assert COMPARE_SHEET_NAME in result.sheetnames
+        assert ILWIDAE_SHEET_NAME in result.sheetnames
+        assert ILWIDAE_LIST_SHEET_NAME in result.sheetnames
+        assert QUANTITY_SHEET_NAME in result.sheetnames
+        qty = result[QUANTITY_SHEET_NAME]
+        assert qty["B5"].value == "경질비닐전선관_지중"
+        assert "일위대가목록" in str(qty["G5"].value)
+        compare = result[COMPARE_SHEET_NAME]
+        assert compare["A5"].value == "경질비닐전선관_지중"
+        ilwidae = result[ILWIDAE_SHEET_NAME]
+        assert any("호표" in str(ilwidae.cell(r, 1).value or "") for r in range(1, 20))
     finally:
         result.close()
 

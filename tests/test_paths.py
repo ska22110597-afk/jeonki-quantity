@@ -30,17 +30,18 @@ def test_windows_result_dir_is_c_drive_local() -> None:
 
 
 def test_app_icon_file_exists() -> None:
-    from app.paths import app_icon_path
+    from app.paths import app_icon_path, ui_background_path
 
     path = app_icon_path()
     assert path.is_file()
     assert path.suffix.lower() in {".ico", ".png"}
+    assert ui_background_path().is_file()
 
 
 def test_result_filename_uses_timestamp() -> None:
     stamp = datetime(2026, 9, 15, 9, 30, 7)
     assert build_result_filename(stamp) == "공량산출_결과_20260915_093007.xlsx"
-    assert build_result_filename(stamp, mode="forward") == "내역서_결과_20260915_093007.xlsx"
+    assert build_result_filename(stamp, mode="forward") == "일위대가목록_결과_20260915_093007.xlsx"
     assert build_result_filename(stamp, mode="reverse") == "단가대비표_결과_20260915_093007.xlsx"
     assert build_result_filename(stamp, mode="quantity") == "공량산출_결과_20260915_093007.xlsx"
 

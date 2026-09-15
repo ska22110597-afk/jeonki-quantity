@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -30,96 +30,85 @@ from app.drop_zone import DropZone
 from app.excel_io import (
     COMPARE_SHEET_NAME,
     ESTIMATE_SHEET_NAME,
+    ILWIDAE_LIST_SHEET_NAME,
     ILWIDAE_SHEET_NAME,
     QUANTITY_SHEET_NAME,
     save_result_workbook,
 )
-from app.paths import ResultDirectoryError, WINDOWS_RESULT_DIR, app_icon_path, display_result_directory, is_windows
+from app.paths import (
+    ResultDirectoryError,
+    WINDOWS_RESULT_DIR,
+    app_icon_path,
+    display_result_directory,
+    is_windows,
+    ui_background_path,
+)
 from app.pumsam import PUMSAM_SHEET_NAME
 from app.version import APP_TAGLINE, APP_TITLE
 from app.wages import WAGES_SHEET_NAME
 
 APP_STYLESHEET = """
-QMainWindow, QWidget#root {
-    background: #F3F4F6;
-    color: #243040;
+QMainWindow {
+    background: #F4EFE4;
+    color: #2C281F;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif;
+    font-size: 13px;
+}
+QWidget#root {
+    background: transparent;
+    color: #2C281F;
     font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans CJK KR", sans-serif;
     font-size: 13px;
 }
 QFrame#hero {
-    background: #1C2B3A;
+    background: rgba(44, 40, 31, 0.88);
     border: none;
 }
 QLabel#appTitle {
     color: #F7F3EA;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
 }
 QLabel#appSubtitle {
-    color: #B4C2CF;
+    color: #D8CFC0;
     font-size: 12px;
     font-weight: 400;
-    letter-spacing: 0.2px;
 }
-QFrame#laneForward {
-    background: #C5D6E6;
-    border: 2px solid #4A7190;
-    border-radius: 12px;
-}
-QFrame#laneReverse {
-    background: #E8D0C9;
-    border: 2px solid #8B4A42;
-    border-radius: 12px;
-}
-QFrame#laneQty {
-    background: #D5E4D0;
-    border: 2px solid #4F7F62;
-    border-radius: 12px;
-}
-QLabel#laneQtyTitle {
-    color: #2F5D3F;
+QFrame#laneForward, QFrame#laneReverse, QFrame#laneQty, QFrame#card, QFrame#partCard {
+    background: rgba(255, 252, 246, 0.92);
+    border: 1px solid #D4B896;
+    border-radius: 8px;
 }
 QLabel#laneTitle {
     font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.3px;
+    color: #5C4A32;
 }
-QLabel#laneForwardTitle {
-    color: #2C4A63;
-}
-QLabel#laneReverseTitle {
-    color: #6B322C;
-}
-QFrame#card {
-    background: #FFFFFF;
-    border: 1px solid #D5DDE4;
-    border-radius: 12px;
-}
-QLabel#sectionLabel {
-    color: #5A6A78;
+QLabel#sectionLabel, QLabel#partCaption {
+    color: #7A6A52;
     font-size: 12px;
     font-weight: 700;
 }
 QLineEdit {
-    background: #F7F9FB;
-    border: 1px solid #D5DDE4;
-    border-radius: 8px;
+    background: #FFFcf7;
+    border: 1px solid #D4B896;
+    border-radius: 6px;
     padding: 6px 10px;
     min-height: 22px;
-    color: #243040;
+    color: #2C281F;
     font-size: 13px;
-    selection-background-color: #1C2B3A;
+    selection-background-color: #5C4A32;
 }
 QLineEdit#pathEdit {
     font-size: 13px;
     padding: 6px 10px;
 }
 QLineEdit:read-only {
-    color: #334155;
+    color: #4A4338;
 }
 QCheckBox {
-    color: #243040;
+    color: #2C281F;
     spacing: 10px;
     font-size: 13px;
 }
@@ -127,31 +116,31 @@ QCheckBox::indicator {
     width: 18px;
     height: 18px;
 }
-QLabel#confirmNote {
-    color: #5A6A78;
+QLabel#confirmNote, QLabel#partFileHint, QLabel#dropHint {
+    color: #7A6A52;
     font-size: 12px;
 }
 QPushButton#runButton {
-    background: #C45911;
-    color: #FFFFFF;
+    background: #5C4A32;
+    color: #F7F3EA;
     border: none;
-    border-radius: 8px;
-    padding: 14px 22px;
+    border-radius: 6px;
+    padding: 12px 20px;
     font-size: 15px;
     font-weight: 700;
 }
 QPushButton#runButton:hover {
-    background: #A3470C;
+    background: #3F3424;
 }
 QPushButton#runButton:disabled {
-    background: #C9B8AE;
+    background: #C9B8A0;
     color: #F4EDE8;
 }
 QPushButton#browseButton {
-    background: #1C2B3A;
-    color: #FFFFFF;
+    background: #2C281F;
+    color: #F7F3EA;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     padding: 6px 16px;
     font-size: 13px;
     font-weight: 700;
@@ -159,13 +148,13 @@ QPushButton#browseButton {
     min-width: 104px;
 }
 QPushButton#browseButton:hover {
-    background: #2A4054;
+    background: #4A4338;
 }
 QPushButton#resetButton {
-    background: #EEF3F7;
-    color: #2C4A63;
-    border: 1px solid #8AA0B3;
-    border-radius: 8px;
+    background: #FFFcf7;
+    color: #5C4A32;
+    border: 1px solid #D4B896;
+    border-radius: 6px;
     padding: 6px 18px;
     font-size: 13px;
     font-weight: 700;
@@ -173,127 +162,82 @@ QPushButton#resetButton {
     min-width: 120px;
 }
 QPushButton#resetButton:hover {
-    background: #D9E4EE;
+    background: #F0E6D6;
 }
 QTextEdit#log {
-    background: #121C28;
-    color: #D3DFEA;
-    border: none;
-    border-radius: 8px;
+    background: rgba(44, 40, 31, 0.90);
+    color: #E8DFD0;
+    border: 1px solid #D4B896;
+    border-radius: 6px;
     padding: 12px;
     font-family: "Malgun Gothic", "Noto Sans CJK KR", sans-serif;
     font-size: 12px;
 }
-QFrame#dropZoneForward {
-    background: #D4E3EE;
-    border: 2px dashed #4A7190;
-    border-radius: 10px;
+QFrame#dropZoneForward, QFrame#dropZoneReverse, QFrame#dropZoneQty {
+    background: rgba(255, 252, 246, 0.75);
+    border: 1px dashed #C4A574;
+    border-radius: 6px;
 }
-QFrame#dropZoneForward[hover="true"] {
-    background: #C0D4E4;
-    border: 2px dashed #2C4A63;
+QFrame#dropZoneForward[hover="true"], QFrame#dropZoneReverse[hover="true"], QFrame#dropZoneQty[hover="true"] {
+    background: #F3E7D4;
+    border: 1px dashed #5C4A32;
 }
-QFrame#dropZoneForward[loaded="true"] {
-    background: #E7F2EA;
-    border: 2px solid #4F7F62;
-}
-QFrame#dropZoneReverse {
-    background: #EDD4CE;
-    border: 2px dashed #8B4A42;
-    border-radius: 10px;
-}
-QFrame#dropZoneReverse[hover="true"] {
-    background: #E4C4BC;
-    border: 2px dashed #6B322C;
-}
-QFrame#dropZoneReverse[loaded="true"] {
-    background: #E7F2EA;
-    border: 2px solid #4F7F62;
-}
-QFrame#dropZoneQty {
-    background: #E3EFE0;
-    border: 2px dashed #4F7F62;
-    border-radius: 10px;
-}
-QFrame#dropZoneQty[hover="true"] {
-    background: #D5E4D0;
-    border: 2px dashed #2F5D3F;
-}
-QFrame#dropZoneQty[loaded="true"] {
-    background: #E7F2EA;
-    border: 2px solid #4F7F62;
-}
-QFrame#dropZoneQty QLabel#dropTitle {
-    color: #2F5D3F;
+QFrame#dropZoneForward[loaded="true"], QFrame#dropZoneReverse[loaded="true"], QFrame#dropZoneQty[loaded="true"] {
+    background: #EFE6D4;
+    border: 1px solid #8A7349;
 }
 QLabel#dropTitle {
     font-size: 13px;
     font-weight: 700;
-}
-QFrame#dropZoneForward QLabel#dropTitle {
-    color: #2C4A63;
-}
-QFrame#dropZoneReverse QLabel#dropTitle {
-    color: #6B322C;
-}
-QLabel#dropHint {
-    color: #667888;
-    font-size: 12px;
-}
-QLabel#badge {
-    background: #2A4054;
-    color: #FFFFFF;
-    border-radius: 4px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 700;
-}
-QFrame#partCard {
-    background: #FFFFFF;
-    border: 1px solid #D5DDE4;
-    border-radius: 12px;
-}
-QLabel#partCaption {
-    color: #5A6A78;
-    font-size: 12px;
-    font-weight: 700;
-}
-QLabel#partFileHint {
-    color: #667888;
-    font-size: 12px;
+    color: #5C4A32;
 }
 QPushButton#partElectric, QPushButton#partTelecom {
-    min-height: 48px;
-    border-radius: 8px;
+    min-height: 44px;
+    border-radius: 6px;
     font-size: 16px;
     font-weight: 700;
     letter-spacing: 1px;
+    background: #FFFcf7;
+    border: 1px solid #D4B896;
+    color: #5C4A32;
 }
-QPushButton#partElectric {
-    background: #EEF3F7;
-    border: 2px solid #8AA0B3;
-    color: #3E5B70;
-}
-QPushButton#partElectric:checked {
-    background: #3E5B70;
-    color: #FFFFFF;
-    border: 2px solid #3E5B70;
-}
-QPushButton#partTelecom {
-    background: #F6F1EE;
-    border: 2px solid #C4A199;
-    color: #7A534C;
-}
-QPushButton#partTelecom:checked {
-    background: #7A534C;
-    color: #FFFFFF;
-    border: 2px solid #7A534C;
+QPushButton#partElectric:checked, QPushButton#partTelecom:checked {
+    background: #5C4A32;
+    color: #F7F3EA;
+    border: 1px solid #5C4A32;
 }
 QStatusBar {
-    background: #E8EDF2;
-    color: #5A6A78;
+    background: #EBE3D4;
+    color: #7A6A52;
 }
 """
+
+
+class PaperRoot(QWidget):
+    """전기 선화 그림을 바탕에 깔아 둔 화면 바탕."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("root")
+        bg = ui_background_path()
+        self._bg = QPixmap(str(bg)) if bg.is_file() else QPixmap()
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.fillRect(self.rect(), QColor("#F4EFE4"))
+        if not self._bg.isNull():
+            pix = self._bg.scaled(
+                self.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - pix.width()) // 2
+            y = (self.height() - pix.height()) // 2
+            painter.setOpacity(0.32)
+            painter.drawPixmap(x, y, pix)
+        painter.end()
+        super().paintEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -324,8 +268,7 @@ class MainWindow(QMainWindow):
         return display_result_directory()
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        root.setObjectName("root")
+        root = PaperRoot()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -391,9 +334,8 @@ class MainWindow(QMainWindow):
         forward_layout = QVBoxLayout(forward_lane)
         forward_layout.setContentsMargins(12, 10, 12, 12)
         forward_layout.setSpacing(8)
-        forward_title = QLabel("정방향  ·  단가대비표 → 내역서")
+        forward_title = QLabel("정방향  ·  단가대비표 → 일위대가목록")
         forward_title.setObjectName("laneTitle")
-        forward_title.setStyleSheet("color: #2C4A63;")
         forward_title.setWordWrap(True)
         forward_layout.addWidget(forward_title)
 
@@ -416,9 +358,9 @@ class MainWindow(QMainWindow):
         forward_layout.addWidget(self.ilwidae_drop)
 
         self.forward_estimate_drop = DropZone(
-            title="내역서",
-            hint="이미 있는 내역서가 있으면 놓습니다  ·  없으면 프로그램이 작성",
-            dialog_title="내역서 엑셀 선택",
+            title="일위대가목록",
+            hint="이미 있는 목록이 있으면 놓습니다  ·  없으면 프로그램이 작성",
+            dialog_title="일위대가목록 엑셀 선택",
             tone="forward",
         )
         self.forward_estimate_drop.file_dropped.connect(self._on_fwd_estimate_dropped)
@@ -433,16 +375,15 @@ class MainWindow(QMainWindow):
         reverse_layout = QVBoxLayout(reverse_lane)
         reverse_layout.setContentsMargins(12, 10, 12, 12)
         reverse_layout.setSpacing(8)
-        reverse_title = QLabel("역방향  ·  내역서 → 단가대비표")
+        reverse_title = QLabel("역방향  ·  일위대가목록 → 단가대비표")
         reverse_title.setObjectName("laneTitle")
-        reverse_title.setStyleSheet("color: #6B322C;")
         reverse_title.setWordWrap(True)
         reverse_layout.addWidget(reverse_title)
 
         self.drop_zone = DropZone(
-            title="내역서",
-            hint="이미 있는 내역서를 놓으면 단가대비표를 만듭니다",
-            dialog_title="내역서 엑셀 선택",
+            title="일위대가목록",
+            hint="이미 있는 일위대가목록을 놓으면 단가대비표를 만듭니다",
+            dialog_title="일위대가목록 엑셀 선택",
             tone="reverse",
         )
         self.drop_zone.file_dropped.connect(self._on_rev_estimate_dropped)
@@ -469,12 +410,11 @@ class MainWindow(QMainWindow):
         qty_layout.setSpacing(8)
         qty_title = QLabel("공량산출  ·  내역서 → 공량산출서")
         qty_title.setObjectName("laneTitle")
-        qty_title.setStyleSheet("color: #2F5D3F;")
         qty_title.setWordWrap(True)
         qty_layout.addWidget(qty_title)
         self.quantity_drop = DropZone(
             title="내역서",
-            hint="1. 전열설비공사처럼 파트를 나눈 내역서를 놓으면 그 구분 그대로 공량산출서를 만듭니다",
+            hint="파트를 나눈 내역서를 놓습니다. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트도 남깁니다",
             dialog_title="공량산출용 내역서 엑셀 선택",
             tone="quantity",
         )
@@ -597,21 +537,21 @@ class MainWindow(QMainWindow):
     def _write_startup_log(self) -> None:
         self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
-        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 · 내역서 → 내역서")
-        self._append_log("오른쪽(역방향): 내역서 · 일위대가 → 단가대비표")
-        self._append_log("아래(공량산출): 파트별로 나눈 내역서 → 공량산출서")
+        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 · 일위대가목록 → 일위대가목록")
+        self._append_log("오른쪽(역방향): 일위대가목록 · 일위대가 → 단가대비표")
+        self._append_log("아래(공량산출): 파트별로 나눈 내역서 → 공량산출서. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트를 남깁니다.")
         self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
         self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
 
     def _refresh_filename_hint(self) -> None:
         if self._has_forward() and not self._has_reverse() and not self._has_quantity():
-            name = "내역서_결과_날짜시간.xlsx"
+            name = "일위대가목록_결과_날짜시간.xlsx"
         elif self._has_reverse() and not self._has_forward() and not self._has_quantity():
             name = "단가대비표_결과_날짜시간.xlsx"
         elif self._has_quantity() and not self._has_forward() and not self._has_reverse():
             name = "공량산출_결과_날짜시간.xlsx"
         else:
-            name = "내역서_결과_날짜시간.xlsx"
+            name = "일위대가목록_결과_날짜시간.xlsx"
         text = f"원본은 그대로 두고, {name} 새 파일로만 저장합니다."
         if not is_windows():
             text += f"  (이 환경 기본 폴더: {display_result_directory()})"
@@ -668,9 +608,9 @@ class MainWindow(QMainWindow):
         if self._fwd_ilwidae_path is not None:
             parts.append(f"정·일위대가: {self._fwd_ilwidae_path}")
         if self._fwd_estimate_path is not None:
-            parts.append(f"정·내역서: {self._fwd_estimate_path}")
+            parts.append(f"정·일위대가목록: {self._fwd_estimate_path}")
         if self._rev_estimate_path is not None:
-            parts.append(f"역·내역서: {self._rev_estimate_path}")
+            parts.append(f"역·일위대가목록: {self._rev_estimate_path}")
         if self._rev_ilwidae_path is not None:
             parts.append(f"역·일위대가: {self._rev_ilwidae_path}")
         if self._qty_estimate_path is not None:
@@ -716,8 +656,8 @@ class MainWindow(QMainWindow):
         self._fwd_estimate_path = path
         self.forward_estimate_drop.set_loaded(path.name)
         self._sync_source_edit()
-        self.statusBar().showMessage(f"정방향 내역서 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"정방향 내역서 로드 대기: {path}")
+        self.statusBar().showMessage(f"정방향 일위대가목록 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"정방향 일위대가목록 로드 대기: {path}")
         self._refresh_run_enabled()
 
     def _on_rev_estimate_dropped(self, path_text: str) -> None:
@@ -725,8 +665,8 @@ class MainWindow(QMainWindow):
         self._rev_estimate_path = path
         self.drop_zone.set_loaded(path.name)
         self._sync_source_edit()
-        self.statusBar().showMessage(f"역방향 내역서 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"역방향 내역서 로드 대기: {path}")
+        self.statusBar().showMessage(f"역방향 일위대가목록 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"역방향 일위대가목록 로드 대기: {path}")
         self._refresh_run_enabled()
 
     def _on_rev_ilwidae_dropped(self, path_text: str) -> None:
@@ -758,7 +698,7 @@ class MainWindow(QMainWindow):
 
     def _on_run(self) -> None:
         if not self._has_input():
-            QMessageBox.warning(self, "파일 없음", "단가대비표 또는 내역서를 먼저 놓아 주세요.")
+            QMessageBox.warning(self, "파일 없음", "단가대비표 또는 일위대가목록·내역서를 먼저 놓아 주세요.")
             return
         if not self.confirm_box.isChecked():
             QMessageBox.warning(self, "저장 경로 미확인", "저장 확인란을 선택해 주세요.")
@@ -841,11 +781,11 @@ class MainWindow(QMainWindow):
         self._append_log(f"새 파일 저장: {dest}")
         self.statusBar().showMessage(f"저장 완료 — {dest.name}")
         if mode == "forward":
-            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_SHEET_NAME} · {ESTIMATE_SHEET_NAME}"
+            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_SHEET_NAME} · {ILWIDAE_LIST_SHEET_NAME}"
         elif mode == "reverse":
-            sheets_line = f"{COMPARE_SHEET_NAME} · {ESTIMATE_SHEET_NAME}"
+            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_LIST_SHEET_NAME}"
         else:
-            sheets_line = f"{ESTIMATE_SHEET_NAME} · {QUANTITY_SHEET_NAME}"
+            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_SHEET_NAME} · {ILWIDAE_LIST_SHEET_NAME} · {ESTIMATE_SHEET_NAME} · {QUANTITY_SHEET_NAME}"
         QMessageBox.information(
             self,
             "저장 완료",

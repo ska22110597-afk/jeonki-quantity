@@ -36,6 +36,7 @@ from app.pumsam import (
 )
 
 ESTIMATE_SHEET_NAME = "내역서"
+ILWIDAE_LIST_SHEET_NAME = "일위대가목록"
 QUANTITY_SHEET_NAME = "공량산출서"
 COMPARE_SHEET_NAME = "단가대비표"
 ILWIDAE_SHEET_NAME = "일위대가"
@@ -86,9 +87,10 @@ def decided_qty_formula(row: int) -> str:
     return f"=TRUNC(G{row}*(1+F{row}),0)"
 
 
-def source_qty_formula(source_col_letter: str, row: int) -> str:
-    """산출수량 = 같은 행의 내역서 수량. 샘플 G열."""
-    return f"='{ESTIMATE_SHEET_NAME}'!{source_col_letter}{row}"
+def source_qty_formula(source_col_letter: str, row: int, sheet_name: str | None = None) -> str:
+    """산출수량 = 같은 행의 내역서(또는 일위대가목록) 수량."""
+    name = sheet_name or ESTIMATE_SHEET_NAME
+    return f"='{name}'!{source_col_letter}{row}"
 
 
 def gongryang_formula(row: int, last_row: int | None = None) -> str:
@@ -266,6 +268,8 @@ def _set_cell(
 
 
 def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
+    if estimate.title:
+        sheet.title = estimate.title
     filled = estimate.filled
     raw = estimate.raw
     max_row = estimate.max_row
@@ -470,6 +474,7 @@ def _write_quantity_sheet(
     estimate: EstimateSheet,
     pumsam_last_row: int,
     pumsam_rows: list[PumsamRow] | None = None,
+    source_sheet_name: str | None = None,
 ) -> None:
     _unmerge_all(sheet)
     filled = estimate.filled
@@ -481,6 +486,7 @@ def _write_quantity_sheet(
     qty_idx = find_quantity_column(header)
     qty_letter = get_column_letter(qty_idx + 1) if qty_idx is not None else "D"
     data_start = first_data_row_number(filled) if filled else 4
+    qty_source = source_sheet_name or estimate.title or ESTIMATE_SHEET_NAME
 
     if data_start >= 5:
         write_title_banner(sheet, "공 량 산 출 서", QTY_LAST_COL)
@@ -546,7 +552,7 @@ def _write_quantity_sheet(
             sheet,
             excel_row,
             7,
-            source_qty_formula(qty_letter, excel_row),
+            source_qty_formula(qty_letter, excel_row, qty_source),
             align=RIGHT,
             number_format=QTY_FORMAT,
         )
@@ -629,7 +635,13 @@ def create_result_workbook(
     _write_pumsam_sheet(sheet2, rows)
 
     sheet3 = workbook.create_sheet(QUANTITY_SHEET_NAME)
-    _write_quantity_sheet(sheet3, estimate, pumsam_last, rows)
+    _write_quantity_sheet(
+        sheet3,
+        estimate,
+        pumsam_last,
+        rows,
+        source_sheet_name=estimate.title or ESTIMATE_SHEET_NAME,
+    )
     return workbook
 
 

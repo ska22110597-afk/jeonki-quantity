@@ -1,4 +1,4 @@
-"""단가대비표 → 일위대가 → 내역서 → 공량산출서 파이프라인."""
+"""단가대비표 → 일위대가 → 일위대가목록 → 공량산출서 파이프라인."""
 
 from __future__ import annotations
 
@@ -10,7 +10,13 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.discipline import normalize_discipline
-from app.estimate_parse import EstimateSheet, load_estimate_sheet, normalize_header
+from app.estimate_parse import (
+    EstimateSheet,
+    list_sheet_titles,
+    load_estimate_sheet,
+    load_named_sheet,
+    normalize_header,
+)
 from app.excel_io import (
     AMOUNT_FORMAT,
     BODY_FONT,
@@ -21,13 +27,13 @@ from app.excel_io import (
     ESTIMATE_SHEET_NAME,
     FORM_ROW_HEIGHT,
     HEADER_FONT,
+    ILWIDAE_LIST_SHEET_NAME,
     ILWIDAE_SHEET_NAME,
     PAGE_FORMAT,
     PRICE_FORMAT,
     PUMSAM_DATA_START,
     QUANTITY_SHEET_NAME,
     RIGHT,
-    SECTION_FONT,
     _apply_sheet_look,
     _set_cell,
     _write_estimate_sheet,
@@ -387,10 +393,10 @@ def _write_generated_estimate(
     items: list[LineItem],
     blocks: list[IlwidaeBlock],
 ) -> EstimateSheet:
-    """내역서 품목은 일위대가 재료비 금액만 연결한다. 부가세·노무는 아래 양식에서 합친다."""
-    sheet.title = ESTIMATE_SHEET_NAME
+    """일위대가목록 품목은 일위대가 재료비 금액만 연결한다. 부가세·노무는 아래 양식에서 합친다."""
+    sheet.title = ILWIDAE_LIST_SHEET_NAME
     last_col = 13
-    write_title_banner(sheet, "[내역서 ]", last_col)
+    write_title_banner(sheet, "[일위대가목록]", last_col)
     headers = {
         1: "명칭",
         2: "규격",
@@ -428,7 +434,7 @@ def _write_generated_estimate(
 
     block_by_key = {block.item.key: block for block in blocks}
     filled: list[list[Any]] = [[None] * last_col for _ in range(4)]
-    filled[0][0] = "[내역서 ]"
+    filled[0][0] = "[일위대가목록]"
     filled[2][0] = "명칭"
     filled[2][1] = "규격"
     filled[2][2] = "단위"
@@ -438,21 +444,8 @@ def _write_generated_estimate(
     filled[3][5] = "금액"
 
     excel_row = 5
-    has_sections = any(item.section for item in items)
-    if not has_sections and any(not item.section for item in items):
-        _set_cell(sheet, excel_row, 1, "1. 전기공사", font=SECTION_FONT)
-        for col in range(2, last_col + 1):
-            _set_cell(sheet, excel_row, col, None)
-        filled.append(["1. 전기공사"] + [None] * (last_col - 1))
-        excel_row += 1
-
     for item in items:
         if item.section:
-            _set_cell(sheet, excel_row, 1, item.name, font=SECTION_FONT)
-            for col in range(2, last_col + 1):
-                _set_cell(sheet, excel_row, col, None)
-            filled.append([item.name] + [None] * (last_col - 1))
-            excel_row += 1
             continue
         block = block_by_key.get(item.key)
         _set_cell(sheet, excel_row, 1, item.name, font=BODY_FONT)
@@ -514,7 +507,7 @@ def _write_generated_estimate(
     sheet.column_dimensions["D"].width = 10
     for col in range(5, last_col + 1):
         sheet.column_dimensions[get_column_letter(col)].width = 12
-    return EstimateSheet(filled=filled, raw=filled, merges=[])
+    return EstimateSheet(filled=filled, raw=filled, merges=[], title=ILWIDAE_LIST_SHEET_NAME)
 
 
 def _load_optional(path: Path | None) -> EstimateSheet | None:
@@ -568,6 +561,7 @@ def build_result_workbook(
     discipline: str | None = None,
     mode: str = "forward",
     dropped_ilwidae: EstimateSheet | None = None,
+    companion_sheets: dict[str, EstimateSheet] | None = None,
 ) -> Workbook:
     workbook = Workbook()
     sheets = _SheetFactory(workbook)
@@ -586,20 +580,45 @@ def build_result_workbook(
         compare_sheet = sheets.take(COMPARE_SHEET_NAME)
         _write_compare_from_items(compare_sheet, compare_items)
         if estimate is not None:
-            copied = sheets.take(ESTIMATE_SHEET_NAME)
+            copied = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_estimate_sheet(copied, estimate)
+            copied.title = ILWIDAE_LIST_SHEET_NAME
         if dropped_ilwidae is not None:
             copied_ilwidae = sheets.take(ILWIDAE_SHEET_NAME)
             _write_estimate_sheet(copied_ilwidae, dropped_ilwidae)
             copied_ilwidae.title = ILWIDAE_SHEET_NAME
     elif mode == "quantity":
         if estimate is None:
-            raise ValueError("공량산출을 하려면 파트별로 나눈 내역서를 놓아 주세요.")
-        copied = sheets.take(ESTIMATE_SHEET_NAME)
-        _write_estimate_sheet(copied, estimate)
+            raise ValueError("공량산출을 하려면 내역서 또는 일위대가목록이 있는 엑셀을 놓아 주세요.")
+        companions = companion_sheets or {}
+        copied_names: list[str] = []
+        for name in (
+            COMPARE_SHEET_NAME,
+            ILWIDAE_SHEET_NAME,
+            ILWIDAE_LIST_SHEET_NAME,
+            ESTIMATE_SHEET_NAME,
+        ):
+            data = companions.get(name)
+            if data is None:
+                continue
+            copied = sheets.take(name)
+            _write_estimate_sheet(copied, data)
+            copied.title = name
+            copied_names.append(name)
+        qty_title = estimate.title or ESTIMATE_SHEET_NAME
+        if qty_title not in copied_names:
+            copied = sheets.take(qty_title)
+            _write_estimate_sheet(copied, estimate)
+            copied.title = qty_title
         pumsam_last = PUMSAM_DATA_START + len(pumsam_rows) - 1 if pumsam_rows else PUMSAM_DATA_START
         qty = sheets.take(QUANTITY_SHEET_NAME)
-        _write_quantity_sheet(qty, estimate, pumsam_last, pumsam_rows)
+        _write_quantity_sheet(
+            qty,
+            estimate,
+            pumsam_last,
+            pumsam_rows,
+            source_sheet_name=qty_title,
+        )
     else:
         if compare is not None:
             items = parse_line_items(compare)
@@ -621,10 +640,11 @@ def build_result_workbook(
                 discipline=discipline,
             )
         if estimate is not None:
-            copied = sheets.take(ESTIMATE_SHEET_NAME)
+            copied = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_estimate_sheet(copied, estimate)
+            copied.title = ILWIDAE_LIST_SHEET_NAME
         elif items:
-            generated = sheets.take(ESTIMATE_SHEET_NAME)
+            generated = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_generated_estimate(generated, items, blocks)
 
     pumsam_sheet = sheets.take(PUMSAM_SHEET_NAME)
@@ -650,7 +670,7 @@ def run_pipeline(
     disc = normalize_discipline(discipline)
     primary = unit_price_path or ilwidae_path or estimate_path
     if primary is None and estimate_rows is None:
-        raise ValueError("단가대비표, 일위대가, 내역서 중 하나를 놓아 주세요.")
+        raise ValueError("단가대비표, 일위대가, 일위대가목록, 내역서 중 하나를 놓아 주세요.")
 
     if mode is None:
         if unit_price_path is not None:
@@ -664,6 +684,26 @@ def run_pipeline(
         estimate = EstimateSheet(filled=estimate_rows, raw=estimate_rows, merges=[])
     else:
         estimate = _load_optional(Path(estimate_path) if estimate_path else None)
+
+    companion_sheets: dict[str, EstimateSheet] = {}
+    if mode == "quantity" and estimate_path is not None:
+        source = Path(estimate_path)
+        titles = list_sheet_titles(source)
+        for name in (
+            COMPARE_SHEET_NAME,
+            ILWIDAE_SHEET_NAME,
+            ILWIDAE_LIST_SHEET_NAME,
+            ESTIMATE_SHEET_NAME,
+        ):
+            if name not in titles:
+                continue
+            loaded = load_named_sheet(source, name)
+            if loaded is not None:
+                companion_sheets[name] = loaded
+        if ESTIMATE_SHEET_NAME in companion_sheets:
+            estimate = companion_sheets[ESTIMATE_SHEET_NAME]
+        elif ILWIDAE_LIST_SHEET_NAME in companion_sheets:
+            estimate = companion_sheets[ILWIDAE_LIST_SHEET_NAME]
 
     if compare is None and dropped_ilwidae is not None and estimate is None and mode == "forward":
         compare = dropped_ilwidae
@@ -692,6 +732,7 @@ def run_pipeline(
         discipline=disc,
         mode=mode,
         dropped_ilwidae=dropped_ilwidae,
+        companion_sheets=companion_sheets or None,
     )
     try:
         workbook.save(dest)

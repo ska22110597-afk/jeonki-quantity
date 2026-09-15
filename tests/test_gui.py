@@ -30,7 +30,7 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.reset_button.minimumWidth() >= 120
         assert window.findChild(QLabel, "badge") is None
         assert window.findChild(QFrame, "laneReverse") is not None
-        assert "내역서_결과_" in window.confirm_note.text()
+        assert "일위대가목록_결과_" in window.confirm_note.text()
         assert window.ilwidae_drop is not None
         assert window.forward_estimate_drop is not None
         assert window.drop_zone is not None
@@ -54,7 +54,7 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         window.confirm_box.setChecked(True)
         assert window.run_button.isEnabled() is True
         assert window._chosen_dest_dir() == chosen
-        assert "내역서_결과_날짜시간.xlsx" in window.confirm_note.text()
+        assert "일위대가목록_결과_날짜시간.xlsx" in window.confirm_note.text()
 
         window._on_reset()
         assert window._fwd_compare_path is None
