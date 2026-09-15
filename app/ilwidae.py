@@ -32,7 +32,7 @@ from app.pumsam import (
     pumsam_qty_value,
     pumsam_rate_value,
 )
-from app.wages import WageRow
+from app.wages import WAGES_SHEET_NAME, WageRow
 
 CONDUIT_FITTING_RATE = 0.15
 SUNDRY_RATE = 0.02
@@ -276,8 +276,14 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 2, "일반공사 직종", font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
             _set_cell(sheet, cursor, 4, labor_qty_formula(labor), font=BODY_FONT, align=RIGHT, number_format="0.000")
+            job_lit = str(job).replace('"', '""')
             _idle_material_expense(sheet, cursor)
-            _price(sheet, cursor, 7, f'=IFERROR(VLOOKUP("{job}",노임단가!A:B,2,FALSE),0)')
+            _price(
+                sheet,
+                cursor,
+                7,
+                f"=IFERROR(VLOOKUP(\"{job_lit}\",'{WAGES_SHEET_NAME}'!A:B,2,FALSE),0)",
+            )
             _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
             _cost_totals(sheet, cursor)
             _set_cell(sheet, cursor, 13, None)

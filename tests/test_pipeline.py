@@ -111,7 +111,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert "SUM" in str(ilwidae.cell(sum_rows[0], 6).value)
         assert ilwidae["E6"].number_format == "#,##0.00"
         assert ilwidae["F6"].number_format == "#,##0.0"
-        assert any(str(ilwidae.cell(r, 7).value or "").find("노임단가") >= 0 for r in range(5, 20))
+        assert any("'노임단가'" in str(ilwidae.cell(r, 7).value or "") for r in range(5, 20))
         assert ilwidae.row_dimensions[1].height == 30
 
         estimate = result[ESTIMATE_SHEET_NAME]
@@ -422,6 +422,27 @@ def test_quantity_keeps_sheet_with_overlapping_source_merges(tmp_path: Path) -> 
             for i, left in enumerate(ranges):
                 for right in ranges[i + 1 :]:
                     assert not _merged_overlap(left, right), f"{sheet.title}: {left} vs {right}"
+    finally:
+        result.close()
+
+
+def test_quantity_strips_external_workbook_formulas(tmp_path: Path) -> None:
+    sample = Path("/home/ubuntu/.cursor/projects/workspace/uploads/_______d25a.xlsx")
+    if not sample.exists():
+        return
+    dest = save_result_workbook(estimate_path=sample, dest_dir=tmp_path / "out", mode="quantity")
+    result = load_workbook(dest, data_only=False)
+    try:
+        estimate = result[ESTIMATE_SHEET_NAME]
+        assert QUANTITY_SHEET_NAME in result.sheetnames
+        for row in estimate.iter_rows():
+            for cell in row:
+                value = cell.value
+                if isinstance(value, str) and value.startswith("="):
+                    assert "[" not in value
+                    assert "노임산출서" not in value
+        assert estimate["F5"].value == "=D5*E5"
+        assert estimate["D214"].value in (0, None)
     finally:
         result.close()
 

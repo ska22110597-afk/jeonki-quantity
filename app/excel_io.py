@@ -17,6 +17,7 @@ from app.estimate_parse import (
     find_quantity_column,
     first_data_row_number,
     is_merge_top_left,
+    is_external_formula,
     is_section_row,
     load_estimate_sheet,
     read_named_sheet_rows,
@@ -323,6 +324,8 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
                 filled_value = filled_row[c_idx - 1]
                 if isinstance(filled_value, str) and filled_value.startswith("="):
                     value = filled_value
+            if is_external_formula(value):
+                value = None
             font = HEADER_FONT if is_header else (SECTION_FONT if section and c_idx == 1 else BODY_FONT)
             align = CENTER if is_header or c_idx in (3, 4) else LEFT
             number_format = None

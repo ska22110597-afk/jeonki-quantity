@@ -225,7 +225,20 @@ def _trim_trailing(grid: SheetRows) -> SheetRows:
     return clipped
 
 
-def _open_workbook(source_path: Path):
+def is_external_formula(value: Any) -> bool:
+    """다른 통합문서(`[1]파일명`)를 가리키는 수식. 결과 파일에 그대로 두면 엑셀이 복구 창을 띄운다."""
+    if not isinstance(value, str) or not value.startswith("="):
+        return False
+    return "[" in value
+
+
+def sanitize_copied_value(value: Any, cached: Any = None) -> Any:
+    if is_external_formula(value):
+        return cached
+    return value
+
+
+def _open_workbook(source_path: Path, *, data_only: bool = False):
     from openpyxl import load_workbook
 
     path = Path(source_path)
@@ -234,7 +247,23 @@ def _open_workbook(source_path: Path):
     if not is_allowed_excel(path):
         raise ValueError("xlsx 또는 xlsm 파일만 읽을 수 있습니다.")
     with path.open("rb") as handle:
-        return load_workbook(filename=handle, data_only=False, keep_vba=False)
+        return load_workbook(filename=handle, data_only=data_only, keep_vba=False)
+
+
+def _apply_cached_over_external(formula_grid: SheetRows, cached_grid: SheetRows) -> SheetRows:
+    height = len(formula_grid)
+    width = max((len(row) for row in formula_grid), default=0)
+    out: SheetRows = []
+    for r_idx in range(height):
+        formula_row = formula_grid[r_idx] if r_idx < len(formula_grid) else []
+        cached_row = cached_grid[r_idx] if r_idx < len(cached_grid) else []
+        row: list[Any] = []
+        for c_idx in range(width):
+            value = formula_row[c_idx] if c_idx < len(formula_row) else None
+            cached = cached_row[c_idx] if c_idx < len(cached_row) else None
+            row.append(sanitize_copied_value(value, cached))
+        out.append(row)
+    return out
 
 
 def load_estimate_sheet(source_path: Path) -> EstimateSheet:
@@ -242,11 +271,24 @@ def load_estimate_sheet(source_path: Path) -> EstimateSheet:
     workbook = _open_workbook(source_path)
     try:
         sheet = _pick_estimate_sheet(workbook)
+        sheet_title = str(sheet.title)
         merges = collect_merge_ranges(sheet)
         raw = _trim_trailing(_raw_grid_from_sheet(sheet))
         filled = _trim_trailing(fill_merged_values(sheet))
     finally:
         workbook.close()
+    cached_wb = _open_workbook(source_path, data_only=True)
+    try:
+        cached_sheet = None
+        for candidate in cached_wb.worksheets:
+            if str(candidate.title) == sheet_title:
+                cached_sheet = candidate
+                break
+        cached_grid = _trim_trailing(_raw_grid_from_sheet(cached_sheet)) if cached_sheet is not None else []
+    finally:
+        cached_wb.close()
+    raw = _apply_cached_over_external(raw, cached_grid)
+    filled = _apply_cached_over_external(filled, cached_grid)
     if not filled:
         raise ValueError("내역서에 읽을 수 있는 데이터가 없습니다.")
     width = max(len(row) for row in filled)

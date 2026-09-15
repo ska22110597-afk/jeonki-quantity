@@ -105,15 +105,15 @@ QLineEdit {
     background: #F7F9FB;
     border: 1px solid #D5DDE4;
     border-radius: 8px;
-    padding: 10px 14px;
-    min-height: 26px;
+    padding: 6px 10px;
+    min-height: 22px;
     color: #243040;
     font-size: 13px;
     selection-background-color: #1C2B3A;
 }
 QLineEdit#pathEdit {
     font-size: 13px;
-    padding: 4px 10px;
+    padding: 6px 10px;
 }
 QLineEdit:read-only {
     color: #334155;
@@ -152,12 +152,11 @@ QPushButton#browseButton {
     color: #FFFFFF;
     border: none;
     border-radius: 8px;
-    padding: 6px 14px;
+    padding: 6px 16px;
     font-size: 13px;
     font-weight: 700;
-    min-height: 0px;
-    max-height: 40px;
-    min-width: 88px;
+    min-height: 34px;
+    min-width: 104px;
 }
 QPushButton#browseButton:hover {
     background: #2A4054;
@@ -167,12 +166,11 @@ QPushButton#resetButton {
     color: #2C4A63;
     border: 1px solid #8AA0B3;
     border-radius: 8px;
-    padding: 6px 14px;
+    padding: 6px 18px;
     font-size: 13px;
     font-weight: 700;
-    min-height: 0px;
-    max-height: 40px;
-    min-width: 88px;
+    min-height: 34px;
+    min-width: 120px;
 }
 QPushButton#resetButton:hover {
     background: #D9E4EE;
@@ -229,7 +227,7 @@ QFrame#dropZoneQty QLabel#dropTitle {
     color: #2F5D3F;
 }
 QLabel#dropTitle {
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 700;
 }
 QFrame#dropZoneForward QLabel#dropTitle {
@@ -391,12 +389,12 @@ class MainWindow(QMainWindow):
         forward_lane = QFrame()
         forward_lane.setObjectName("laneForward")
         forward_layout = QVBoxLayout(forward_lane)
-        forward_layout.setContentsMargins(16, 14, 16, 20)
-        forward_layout.setSpacing(10)
-        forward_title = QLabel("정방향  ·  단가대비표 · 일위대가 · 내역서  →  내역서")
+        forward_layout.setContentsMargins(12, 10, 12, 12)
+        forward_layout.setSpacing(8)
+        forward_title = QLabel("정방향  ·  단가대비표 → 내역서")
         forward_title.setObjectName("laneTitle")
-        forward_title.setProperty("class", "laneForwardTitle")
         forward_title.setStyleSheet("color: #2C4A63;")
+        forward_title.setWordWrap(True)
         forward_layout.addWidget(forward_title)
 
         self.compare_drop = DropZone(
@@ -426,19 +424,19 @@ class MainWindow(QMainWindow):
         self.forward_estimate_drop.file_dropped.connect(self._on_fwd_estimate_dropped)
         forward_layout.addWidget(self.forward_estimate_drop)
         for zone in (self.compare_drop, self.ilwidae_drop, self.forward_estimate_drop):
-            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-            zone.setMinimumHeight(64)
+            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         forward_layout.addStretch(1)
         lanes.addWidget(forward_lane, 1)
 
         reverse_lane = QFrame()
         reverse_lane.setObjectName("laneReverse")
         reverse_layout = QVBoxLayout(reverse_lane)
-        reverse_layout.setContentsMargins(16, 14, 16, 20)
-        reverse_layout.setSpacing(10)
-        reverse_title = QLabel("역방향  ·  내역서 · 일위대가  →  단가대비표")
+        reverse_layout.setContentsMargins(12, 10, 12, 12)
+        reverse_layout.setSpacing(8)
+        reverse_title = QLabel("역방향  ·  내역서 → 단가대비표")
         reverse_title.setObjectName("laneTitle")
         reverse_title.setStyleSheet("color: #6B322C;")
+        reverse_title.setWordWrap(True)
         reverse_layout.addWidget(reverse_title)
 
         self.drop_zone = DropZone(
@@ -459,8 +457,7 @@ class MainWindow(QMainWindow):
         self.reverse_ilwidae_drop.file_dropped.connect(self._on_rev_ilwidae_dropped)
         reverse_layout.addWidget(self.reverse_ilwidae_drop)
         for zone in (self.drop_zone, self.reverse_ilwidae_drop):
-            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
-            zone.setMinimumHeight(64)
+            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         reverse_layout.addStretch(1)
         lanes.addWidget(reverse_lane, 1)
         body_layout.addLayout(lanes)
@@ -468,11 +465,12 @@ class MainWindow(QMainWindow):
         qty_lane = QFrame()
         qty_lane.setObjectName("laneQty")
         qty_layout = QVBoxLayout(qty_lane)
-        qty_layout.setContentsMargins(16, 12, 16, 12)
+        qty_layout.setContentsMargins(12, 10, 12, 10)
         qty_layout.setSpacing(8)
-        qty_title = QLabel("공량산출  ·  파트별로 나눈 내역서  →  공량산출서")
+        qty_title = QLabel("공량산출  ·  내역서 → 공량산출서")
         qty_title.setObjectName("laneTitle")
         qty_title.setStyleSheet("color: #2F5D3F;")
+        qty_title.setWordWrap(True)
         qty_layout.addWidget(qty_title)
         self.quantity_drop = DropZone(
             title="내역서",
@@ -480,7 +478,8 @@ class MainWindow(QMainWindow):
             dialog_title="공량산출용 내역서 엑셀 선택",
             tone="quantity",
         )
-        self.quantity_drop.setMinimumHeight(64)
+        self.quantity_drop.setMaximumHeight(64)
+        self.quantity_drop.setMinimumHeight(56)
         self.quantity_drop.file_dropped.connect(self._on_qty_estimate_dropped)
         qty_layout.addWidget(self.quantity_drop)
         body_layout.addWidget(qty_lane)
@@ -500,50 +499,39 @@ class MainWindow(QMainWindow):
         self.reset_button = QPushButton("새로고침")
         self.reset_button.setObjectName("resetButton")
         self.reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.reset_button.setFixedSize(96, 36)
+        self.reset_button.setMinimumSize(120, 34)
         self.reset_button.clicked.connect(self._on_reset)
         source_head.addWidget(self.reset_button)
         path_layout.addLayout(source_head)
         self.source_edit = QLineEdit()
         self.source_edit.setObjectName("pathEdit")
         self.source_edit.setReadOnly(True)
-        self.source_edit.setFixedHeight(40)
+        self.source_edit.setFixedHeight(36)
         self.source_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.source_edit.setPlaceholderText("아직 파일이 없습니다. 정방향·역방향·공량 칸에 엑셀을 놓아 주세요.")
         path_layout.addWidget(self.source_edit)
 
-        dest_head = QHBoxLayout()
-        dest_head.setContentsMargins(0, 2, 0, 0)
-        dest_head.setSpacing(10)
         dest_label = QLabel("결과 저장 폴더")
         dest_label.setObjectName("sectionLabel")
-        dest_head.addWidget(dest_label)
-        dest_head.addStretch(1)
-        badge = QLabel("가능하면 OneDrive 제외")
-        badge.setObjectName("badge")
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        dest_head.addWidget(badge)
-        path_layout.addLayout(dest_head)
+        path_layout.addWidget(dest_label)
 
-        dest_row_host = QWidget()
-        dest_row_host.setFixedHeight(40)
-        dest_row = QHBoxLayout(dest_row_host)
+        dest_row = QHBoxLayout()
         dest_row.setContentsMargins(0, 0, 0, 0)
         dest_row.setSpacing(10)
         self.dest_edit = QLineEdit(self._saved_dest_dir())
         self.dest_edit.setObjectName("pathEdit")
         self.dest_edit.setReadOnly(False)
-        self.dest_edit.setFixedHeight(40)
+        self.dest_edit.setFixedHeight(36)
         self.dest_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.dest_edit.setPlaceholderText(str(WINDOWS_RESULT_DIR))
         dest_row.addWidget(self.dest_edit, 1)
         self.browse_button = QPushButton("폴더 찾기")
         self.browse_button.setObjectName("browseButton")
         self.browse_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.browse_button.setFixedSize(96, 40)
+        self.browse_button.setMinimumSize(104, 36)
         self.browse_button.clicked.connect(self._on_browse_dest)
         dest_row.addWidget(self.browse_button, 0)
-        path_layout.addWidget(dest_row_host)
+        path_layout.addLayout(dest_row)
 
         self.confirm_note = QLabel("")
         self.confirm_note.setObjectName("confirmNote")
@@ -623,8 +611,8 @@ class MainWindow(QMainWindow):
         elif self._has_quantity() and not self._has_forward() and not self._has_reverse():
             name = "공량산출_결과_날짜시간.xlsx"
         else:
-            name = "내역서_결과_ · 단가대비표_결과_ · 공량산출_결과_ + 날짜시간.xlsx"
-        text = f"파일명 {name}  ·  원본은 그대로 둡니다."
+            name = "내역서_결과_날짜시간.xlsx"
+        text = f"원본은 그대로 두고, {name} 새 파일로만 저장합니다."
         if not is_windows():
             text += f"  (이 환경 기본 폴더: {display_result_directory()})"
         self.confirm_note.setText(text)

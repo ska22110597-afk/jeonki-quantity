@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication, QFrame
+from PyQt6.QtWidgets import QApplication, QFrame, QLabel
 
 from app.main_window import MainWindow
 from app.paths import display_result_directory
@@ -27,6 +27,8 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.windowTitle().startswith("제작자_박남석")
         assert "v1." in window.windowTitle()
         assert window.reset_button.text() == "새로고침"
+        assert window.reset_button.minimumWidth() >= 120
+        assert window.findChild(QLabel, "badge") is None
         assert window.findChild(QFrame, "laneReverse") is not None
         assert "내역서_결과_" in window.confirm_note.text()
         assert window.ilwidae_drop is not None
