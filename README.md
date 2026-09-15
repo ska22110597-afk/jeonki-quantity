@@ -117,6 +117,26 @@ py -3 -m PyInstaller --noconsole --onefile --clean --name "전기공사_공량�
 
 빌드가 끝나면 `dist\전기공사_공량산출.exe` 를 USB 등으로 복사해 사용합니다. 대상 PC에 파이썬을 설치할 필요는 없습니다.
 
+### 다른 Windows PC가 없을 때 (클라우드)
+
+exe는 **Windows에서만** 만들 수 있습니다.
+
+| 환경 | Windows exe 가능? |
+| --- | --- |
+| 구글 콜랩, Cloud Shell, 리눅스 VM | 불가 |
+| GitHub Actions (`windows-latest`) | 가능 (추천, 보통 무료) |
+| 구글클라우드 **Windows** 가상 PC + 원격데스크톱 | 가능 (과금·카드 등록) |
+
+**GitHub에 이 프로젝트를 올린 뒤**
+
+1. 저장소에서 **Actions** 탭을 엽니다.
+2. 왼쪽에서 **Build Windows EXE** 를 고릅니다.
+3. **Run workflow** → **Run workflow** 를 누릅니다.
+4. 초록 체크가 끝나면 해당 실행 화면에서 **Artifacts** 의 `jeonki-quantity-exe` 를 받습니다.
+5. 압축을 풀면 `전기공사_공량산출.exe` 가 있습니다. 이걸 사무컴으로 복사하세요.
+
+구글클라우드를 쓰려면 Compute Engine에서 **Windows Server** VM을 만들고, 원격데스크톱으로 접속한 뒤 이 폴더에서 `build_exe.bat` 을 실행하면 됩니다. 리눅스 VM이나 콜랩은 안 됩니다.
+
 ### 3) exe에서도 C드라이브 저장이 되는 이유
 
 `--onefile` exe는 실행 시 임시 폴더(`sys._MEIPASS`)에 풀립니다. 이 프로그램은 그 임시 경로를 저장 위치로 쓰지 않고, 항상 `C:\전기공사_공량산출_결과` 절대 경로를 만든 뒤 쓰기 권한을 확인합니다. 폴더 생성·쓰기가 막히면 한글 오류 메시지로 알려 줍니다.

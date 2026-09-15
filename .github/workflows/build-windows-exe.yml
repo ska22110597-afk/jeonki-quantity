@@ -1,0 +1,43 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pyqt6 pandas openpyxl
+
+      - name: Build EXE
+        run: >
+          python -m PyInstaller --noconsole --onefile --clean
+          --name "전기공사_공량산출"
+          --collect-all PyQt6
+          --hidden-import openpyxl
+          --hidden-import pandas
+          --hidden-import app
+          --hidden-import app.excel_io
+          --hidden-import app.paths
+          --hidden-import app.merge_parse
+          --hidden-import app.main_window
+          --hidden-import app.drop_zone
+          main.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: jeonki-quantity-exe
+          path: dist/*.exe
+          if-no-files-found: error
