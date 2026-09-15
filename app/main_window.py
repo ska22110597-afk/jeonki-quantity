@@ -61,13 +61,13 @@ QLabel#appSubtitle {
     letter-spacing: 0.2px;
 }
 QFrame#laneForward {
-    background: #E7EEF4;
-    border: 1px solid #B7C7D4;
+    background: #C5D6E6;
+    border: 2px solid #4A7190;
     border-radius: 12px;
 }
 QFrame#laneReverse {
-    background: #F3EBE8;
-    border: 1px solid #D2B8B1;
+    background: #E4C4BC;
+    border: 2px solid #8B4A42;
     border-radius: 12px;
 }
 QLabel#laneTitle {
@@ -76,10 +76,10 @@ QLabel#laneTitle {
     letter-spacing: 0.3px;
 }
 QLabel#laneForwardTitle {
-    color: #3E5B70;
+    color: #2C4A63;
 }
 QLabel#laneReverseTitle {
-    color: #7A534C;
+    color: #6B322C;
 }
 QFrame#card {
     background: #FFFFFF;
@@ -143,11 +143,11 @@ QPushButton#browseButton {
     color: #FFFFFF;
     border: none;
     border-radius: 8px;
-    padding: 12px 18px;
+    padding: 8px 16px;
     font-size: 13px;
     font-weight: 700;
-    min-height: 44px;
-    min-width: 96px;
+    min-height: 34px;
+    min-width: 88px;
 }
 QPushButton#browseButton:hover {
     background: #2A4054;
@@ -162,40 +162,40 @@ QTextEdit#log {
     font-size: 12px;
 }
 QFrame#dropZoneForward {
-    background: #F4F8FB;
-    border: 2px dashed #8AA0B3;
+    background: #D4E3EE;
+    border: 2px dashed #4A7190;
     border-radius: 10px;
 }
 QFrame#dropZoneForward[hover="true"] {
-    background: #E4EDF4;
-    border: 2px dashed #5D7A90;
+    background: #C0D4E4;
+    border: 2px dashed #2C4A63;
 }
 QFrame#dropZoneForward[loaded="true"] {
     background: #E7F2EA;
     border: 2px solid #4F7F62;
 }
 QFrame#dropZoneReverse {
-    background: #F8F3F1;
-    border: 2px dashed #C4A199;
+    background: #EDD4CE;
+    border: 2px dashed #8B4A42;
     border-radius: 10px;
 }
 QFrame#dropZoneReverse[hover="true"] {
-    background: #F0E4E0;
-    border: 2px dashed #A0756C;
+    background: #E4C4BC;
+    border: 2px dashed #6B322C;
 }
 QFrame#dropZoneReverse[loaded="true"] {
     background: #E7F2EA;
     border: 2px solid #4F7F62;
 }
 QLabel#dropTitle {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
 }
 QFrame#dropZoneForward QLabel#dropTitle {
-    color: #3E5B70;
+    color: #2C4A63;
 }
 QFrame#dropZoneReverse QLabel#dropTitle {
-    color: #7A534C;
+    color: #6B322C;
 }
 QLabel#dropHint {
     color: #667888;
@@ -261,14 +261,16 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.setMinimumSize(1080, 900)
-        self.resize(1180, 980)
+        self.setMinimumSize(1100, 940)
+        self.resize(1200, 1040)
         self.setStyleSheet(APP_STYLESHEET)
 
         self._settings = QSettings("전기공사공량산출", "GongryangCalc")
-        self._unit_price_path: Path | None = None
-        self._ilwidae_path: Path | None = None
-        self._source_path: Path | None = None
+        self._fwd_compare_path: Path | None = None
+        self._fwd_ilwidae_path: Path | None = None
+        self._fwd_estimate_path: Path | None = None
+        self._rev_estimate_path: Path | None = None
+        self._rev_ilwidae_path: Path | None = None
         self._build_ui()
         self._refresh_run_enabled()
 
@@ -346,10 +348,10 @@ class MainWindow(QMainWindow):
         forward_layout = QVBoxLayout(forward_lane)
         forward_layout.setContentsMargins(16, 14, 16, 16)
         forward_layout.setSpacing(10)
-        forward_title = QLabel("정방향  ·  단가대비표 → 일위대가 → 내역서 → 공량")
+        forward_title = QLabel("정방향  ·  단가대비표 · 일위대가 · 내역서  →  공량산출서")
         forward_title.setObjectName("laneTitle")
         forward_title.setProperty("class", "laneForwardTitle")
-        forward_title.setStyleSheet("color: #3E5B70;")
+        forward_title.setStyleSheet("color: #2C4A63;")
         forward_layout.addWidget(forward_title)
 
         self.compare_drop = DropZone(
@@ -358,19 +360,26 @@ class MainWindow(QMainWindow):
             dialog_title="단가대비표 엑셀 선택",
             tone="forward",
         )
-        self.compare_drop.setMinimumHeight(72)
-        self.compare_drop.file_dropped.connect(self._on_unit_price_dropped)
+        self.compare_drop.file_dropped.connect(self._on_fwd_compare_dropped)
         forward_layout.addWidget(self.compare_drop)
 
         self.ilwidae_drop = DropZone(
-            title="일위대가 (선택)",
-            hint="이미 만든 호표가 있을 때만 놓습니다",
+            title="일위대가",
+            hint="이미 만든 호표가 있으면 놓습니다  ·  없으면 프로그램이 작성",
             dialog_title="일위대가 엑셀 선택",
             tone="forward",
         )
-        self.ilwidae_drop.setMinimumHeight(72)
-        self.ilwidae_drop.file_dropped.connect(self._on_ilwidae_dropped)
+        self.ilwidae_drop.file_dropped.connect(self._on_fwd_ilwidae_dropped)
         forward_layout.addWidget(self.ilwidae_drop)
+
+        self.forward_estimate_drop = DropZone(
+            title="내역서",
+            hint="이미 있는 내역서가 있으면 놓습니다  ·  없으면 프로그램이 작성",
+            dialog_title="내역서 엑셀 선택",
+            tone="forward",
+        )
+        self.forward_estimate_drop.file_dropped.connect(self._on_fwd_estimate_dropped)
+        forward_layout.addWidget(self.forward_estimate_drop)
         lanes.addWidget(forward_lane, 1)
 
         reverse_lane = QFrame()
@@ -378,20 +387,28 @@ class MainWindow(QMainWindow):
         reverse_layout = QVBoxLayout(reverse_lane)
         reverse_layout.setContentsMargins(16, 14, 16, 16)
         reverse_layout.setSpacing(10)
-        reverse_title = QLabel("역방향  ·  내역서 → 단가대비표")
+        reverse_title = QLabel("역방향  ·  내역서 · 일위대가  →  단가대비표")
         reverse_title.setObjectName("laneTitle")
-        reverse_title.setStyleSheet("color: #7A534C;")
+        reverse_title.setStyleSheet("color: #6B322C;")
         reverse_layout.addWidget(reverse_title)
 
         self.drop_zone = DropZone(
             title="내역서",
-            hint="이미 있는 내역서를 놓으면 단가대비표와 공량산출서를 만듭니다",
+            hint="이미 있는 내역서를 놓으면 단가대비표를 만듭니다",
             dialog_title="내역서 엑셀 선택",
             tone="reverse",
         )
-        self.drop_zone.setMinimumHeight(160)
-        self.drop_zone.file_dropped.connect(self._on_file_dropped)
-        reverse_layout.addWidget(self.drop_zone, 1)
+        self.drop_zone.file_dropped.connect(self._on_rev_estimate_dropped)
+        reverse_layout.addWidget(self.drop_zone)
+
+        self.reverse_ilwidae_drop = DropZone(
+            title="일위대가",
+            hint="이미 만든 호표가 있으면 함께 넣습니다",
+            dialog_title="일위대가 엑셀 선택",
+            tone="reverse",
+        )
+        self.reverse_ilwidae_drop.file_dropped.connect(self._on_rev_ilwidae_dropped)
+        reverse_layout.addWidget(self.reverse_ilwidae_drop)
         lanes.addWidget(reverse_lane, 1)
         body_layout.addLayout(lanes)
 
@@ -415,44 +432,39 @@ class MainWindow(QMainWindow):
         dest_label.setObjectName("sectionLabel")
         dest_head = QHBoxLayout()
         dest_head.setContentsMargins(0, 4, 0, 0)
+        dest_head.setSpacing(10)
         dest_head.addWidget(dest_label)
         dest_head.addStretch(1)
         badge = QLabel("가능하면 OneDrive 제외")
         badge.setObjectName("badge")
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dest_head.addWidget(badge)
+        self.browse_button = QPushButton("폴더 찾기")
+        self.browse_button.setObjectName("browseButton")
+        self.browse_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.browse_button.setMinimumWidth(96)
+        self.browse_button.clicked.connect(self._on_browse_dest)
+        dest_head.addWidget(self.browse_button)
         path_layout.addLayout(dest_head)
 
-        dest_pick = QHBoxLayout()
-        dest_pick.setSpacing(10)
         self.dest_edit = QLineEdit(self._saved_dest_dir())
         self.dest_edit.setObjectName("pathEdit")
         self.dest_edit.setReadOnly(False)
         self.dest_edit.setMinimumHeight(46)
         self.dest_edit.setPlaceholderText(str(WINDOWS_RESULT_DIR))
-        self.browse_button = QPushButton("폴더 찾기")
-        self.browse_button.setObjectName("browseButton")
-        self.browse_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.browse_button.clicked.connect(self._on_browse_dest)
-        dest_pick.addWidget(self.dest_edit, 1)
-        dest_pick.addWidget(self.browse_button)
-        path_layout.addLayout(dest_pick)
+        path_layout.addWidget(self.dest_edit)
 
-        confirm_row = QHBoxLayout()
-        confirm_row.setSpacing(10)
-        confirm_row.setContentsMargins(2, 6, 2, 2)
         self.confirm_box = QCheckBox("이 폴더에 새 파일로 저장")
         self.confirm_box.toggled.connect(self._refresh_run_enabled)
+        path_layout.addWidget(self.confirm_box)
         confirm_note = QLabel("파일명 공량산출_결과_날짜시간.xlsx  ·  원본은 그대로 둡니다.")
         confirm_note.setObjectName("confirmNote")
         confirm_note.setWordWrap(True)
-        confirm_row.addWidget(self.confirm_box, 0, Qt.AlignmentFlag.AlignTop)
-        confirm_row.addWidget(confirm_note, 1)
         if not is_windows():
             confirm_note.setText(
                 confirm_note.text() + f"  (이 환경 기본 폴더: {display_result_directory()})"
             )
-        path_layout.addLayout(confirm_row)
+        path_layout.addWidget(confirm_note)
         body_layout.addWidget(path_card)
 
         self.run_button = QPushButton("산출 및 저장")
@@ -478,8 +490,8 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status)
         self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
-        self._append_log("왼쪽(정방향): 단가대비표 → 일위대가 → 내역서 → 공량산출서")
-        self._append_log("오른쪽(역방향): 내역서 → 단가대비표 · 공량산출서")
+        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 · 내역서 → 공량산출서")
+        self._append_log("오른쪽(역방향): 내역서 · 일위대가 → 단가대비표")
         self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
         self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
 
@@ -517,16 +529,26 @@ class MainWindow(QMainWindow):
         self.run_button.setEnabled(ready)
 
     def _has_input(self) -> bool:
-        return any([self._unit_price_path, self._ilwidae_path, self._source_path])
+        return self._has_forward() or self._has_reverse()
+
+    def _has_forward(self) -> bool:
+        return any([self._fwd_compare_path, self._fwd_ilwidae_path, self._fwd_estimate_path])
+
+    def _has_reverse(self) -> bool:
+        return any([self._rev_estimate_path, self._rev_ilwidae_path])
 
     def _sync_source_edit(self) -> None:
         parts: list[str] = []
-        if self._unit_price_path is not None:
-            parts.append(f"단가대비표: {self._unit_price_path}")
-        if self._ilwidae_path is not None:
-            parts.append(f"일위대가: {self._ilwidae_path}")
-        if self._source_path is not None:
-            parts.append(f"내역서: {self._source_path}")
+        if self._fwd_compare_path is not None:
+            parts.append(f"정·단가대비표: {self._fwd_compare_path}")
+        if self._fwd_ilwidae_path is not None:
+            parts.append(f"정·일위대가: {self._fwd_ilwidae_path}")
+        if self._fwd_estimate_path is not None:
+            parts.append(f"정·내역서: {self._fwd_estimate_path}")
+        if self._rev_estimate_path is not None:
+            parts.append(f"역·내역서: {self._rev_estimate_path}")
+        if self._rev_ilwidae_path is not None:
+            parts.append(f"역·일위대가: {self._rev_ilwidae_path}")
         self.source_edit.setText("   |   ".join(parts))
 
     def _on_browse_dest(self) -> None:
@@ -544,32 +566,59 @@ class MainWindow(QMainWindow):
             return None
         return Path(text)
 
-    def _on_unit_price_dropped(self, path_text: str) -> None:
+    def _on_fwd_compare_dropped(self, path_text: str) -> None:
         path = Path(path_text)
-        self._unit_price_path = path
+        self._fwd_compare_path = path
         self.compare_drop.set_loaded(path.name)
         self._sync_source_edit()
-        self.statusBar().showMessage(f"단가대비표 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"단가대비표 로드 대기: {path}")
+        self.statusBar().showMessage(f"정방향 단가대비표 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"정방향 단가대비표 로드 대기: {path}")
         self._refresh_run_enabled()
 
-    def _on_ilwidae_dropped(self, path_text: str) -> None:
+    def _on_fwd_ilwidae_dropped(self, path_text: str) -> None:
         path = Path(path_text)
-        self._ilwidae_path = path
+        self._fwd_ilwidae_path = path
         self.ilwidae_drop.set_loaded(path.name)
         self._sync_source_edit()
-        self.statusBar().showMessage(f"일위대가 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"일위대가 로드 대기: {path}")
+        self.statusBar().showMessage(f"정방향 일위대가 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"정방향 일위대가 로드 대기: {path}")
         self._refresh_run_enabled()
 
-    def _on_file_dropped(self, path_text: str) -> None:
+    def _on_fwd_estimate_dropped(self, path_text: str) -> None:
         path = Path(path_text)
-        self._source_path = path
+        self._fwd_estimate_path = path
+        self.forward_estimate_drop.set_loaded(path.name)
+        self._sync_source_edit()
+        self.statusBar().showMessage(f"정방향 내역서 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"정방향 내역서 로드 대기: {path}")
+        self._refresh_run_enabled()
+
+    def _on_rev_estimate_dropped(self, path_text: str) -> None:
+        path = Path(path_text)
+        self._rev_estimate_path = path
         self.drop_zone.set_loaded(path.name)
         self._sync_source_edit()
-        self.statusBar().showMessage(f"내역서 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"내역서 로드 대기: {path}")
+        self.statusBar().showMessage(f"역방향 내역서 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"역방향 내역서 로드 대기: {path}")
         self._refresh_run_enabled()
+
+    def _on_rev_ilwidae_dropped(self, path_text: str) -> None:
+        path = Path(path_text)
+        self._rev_ilwidae_path = path
+        self.reverse_ilwidae_drop.set_loaded(path.name)
+        self._sync_source_edit()
+        self.statusBar().showMessage(f"역방향 일위대가 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"역방향 일위대가 로드 대기: {path}")
+        self._refresh_run_enabled()
+
+    def _on_unit_price_dropped(self, path_text: str) -> None:
+        self._on_fwd_compare_dropped(path_text)
+
+    def _on_ilwidae_dropped(self, path_text: str) -> None:
+        self._on_fwd_ilwidae_dropped(path_text)
+
+    def _on_file_dropped(self, path_text: str) -> None:
+        self._on_rev_estimate_dropped(path_text)
 
     def _on_run(self) -> None:
         if not self._has_input():
@@ -590,13 +639,25 @@ class MainWindow(QMainWindow):
         discipline = self._selected_discipline()
         self._append_log(f"원본 읽기 전용 · {pumsam_filename(discipline)} · 노임단가 결합 · 결과 엑셀 생성")
 
+        if self._has_forward():
+            mode = "forward"
+            unit_price_path = self._fwd_compare_path
+            ilwidae_path = self._fwd_ilwidae_path
+            estimate_path = self._fwd_estimate_path
+        else:
+            mode = "reverse"
+            unit_price_path = None
+            ilwidae_path = self._rev_ilwidae_path
+            estimate_path = self._rev_estimate_path
+
         try:
             dest = save_result_workbook(
                 dest_dir=dest_dir,
-                unit_price_path=self._unit_price_path,
-                ilwidae_path=self._ilwidae_path,
-                estimate_path=self._source_path,
+                unit_price_path=unit_price_path,
+                ilwidae_path=ilwidae_path,
+                estimate_path=estimate_path,
                 discipline=discipline,
+                mode=mode,
             )
         except ResultDirectoryError as exc:
             self._append_log(f"저장 폴더 오류: {exc}")
@@ -611,7 +672,17 @@ class MainWindow(QMainWindow):
             self._refresh_run_enabled()
             return
 
-        originals = [p for p in (self._unit_price_path, self._ilwidae_path, self._source_path) if p is not None]
+        originals = [
+            p
+            for p in (
+                self._fwd_compare_path,
+                self._fwd_ilwidae_path,
+                self._fwd_estimate_path,
+                self._rev_estimate_path,
+                self._rev_ilwidae_path,
+            )
+            if p is not None
+        ]
         for original in originals:
             self._append_log(f"원본 보존 확인: {original}")
         self._append_log(f"새 파일 저장: {dest}")

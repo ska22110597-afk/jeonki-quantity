@@ -27,7 +27,9 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert "v1." in window.windowTitle()
         assert window.compare_drop is not None
         assert window.ilwidae_drop is not None
+        assert window.forward_estimate_drop is not None
         assert window.drop_zone is not None
+        assert window.reverse_ilwidae_drop is not None
         assert window.electric_button.isChecked() is True
         assert window.telecom_button.isChecked() is False
         window.telecom_button.click()

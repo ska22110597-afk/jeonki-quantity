@@ -6,6 +6,7 @@ from openpyxl import Workbook, load_workbook
 
 from app.excel_io import (
     ESTIMATE_SHEET_NAME,
+    FORM_ROW_HEIGHT,
     NUMBER_FORMAT,
     QUANTITY_SHEET_NAME,
     ROW_HEIGHT,
@@ -107,7 +108,7 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
     source = tmp_path / "내역서.xlsx"
     _write_estimate(source)
     dest_dir = tmp_path / "결과"
-    dest = save_result_workbook(source, dest_dir=dest_dir)
+    dest = save_result_workbook(source, dest_dir=dest_dir, mode="forward")
 
     assert dest.name.startswith("공량산출_결과_")
     assert dest.parent == dest_dir
@@ -123,21 +124,22 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert estimate["A2"].value == "명칭"
         assert estimate["D5"].value == 10
         assert estimate["F5"].value == "=D5*E5"
-        assert estimate.row_dimensions[5].height == ROW_HEIGHT
+        assert estimate.row_dimensions[5].height == FORM_ROW_HEIGHT
         assert estimate["A5"].alignment.wrap_text is not True
         assert "FFFFFF" in _fill_rgb(estimate["A2"])
         assert str(estimate.sheet_properties.tabColor.rgb).upper().endswith("FFFFFF")
 
         pumsam = result[PUMSAM_SHEET_NAME]
-        assert pumsam["A1"].value == "품목"
-        assert pumsam["E2"].value == "명칭"
-        assert pumsam["B3"].value == "경질비닐전선관_지중"
-        assert str(pumsam["A3"].value).startswith("=CONCATENATE")
-        assert pumsam.row_dimensions[3].height == ROW_HEIGHT
-        assert "FFFFFF" in _fill_rgb(pumsam["A1"])
+        assert pumsam["A1"].value == "품 셈 표"
+        assert pumsam["A3"].value == "품목"
+        assert pumsam["E4"].value == "명칭"
+        assert pumsam["B5"].value == "경질비닐전선관_지중"
+        assert str(pumsam["A5"].value).startswith("=CONCATENATE")
+        assert pumsam.row_dimensions[5].height == ROW_HEIGHT
+        assert "FFFFFF" in _fill_rgb(pumsam["A3"])
 
         qty = result[QUANTITY_SHEET_NAME]
-        assert qty["A1"].value is None
+        assert qty["A1"].value == "공 량 산 출 서"
         assert qty["B2"].value == "명칭"
         assert qty["E3"].value == "결정수량"
         assert qty["B4"].value == "1. 옥외전기공사"
@@ -166,7 +168,7 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
 def test_merged_source_does_not_error(tmp_path: Path) -> None:
     source = tmp_path / "내역서_병합.xlsx"
     _write_estimate(source, with_merge=True)
-    dest = save_result_workbook(source, dest_dir=tmp_path / "out")
+    dest = save_result_workbook(source, dest_dir=tmp_path / "out", mode="forward")
     result = load_workbook(dest, data_only=False)
     try:
         qty = result[QUANTITY_SHEET_NAME]

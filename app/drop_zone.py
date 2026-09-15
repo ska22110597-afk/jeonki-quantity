@@ -26,7 +26,7 @@ class DropZone(QFrame):
         self.setObjectName("dropZoneForward" if tone == "forward" else "dropZoneReverse")
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(92)
+        self.setMinimumHeight(56)
         self._idle_title = title
         self._idle_hint = hint
         self._dialog_title = dialog_title
@@ -41,7 +41,7 @@ class DropZone(QFrame):
         self._hint.setWordWrap(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setContentsMargins(12, 8, 12, 8)
         layout.addStretch(1)
         layout.addWidget(self._title)
         layout.addWidget(self._hint)

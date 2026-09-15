@@ -62,8 +62,15 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert WAGES_SHEET_NAME in result.sheetnames
 
         compare = result[COMPARE_SHEET_NAME]
-        assert compare["A4"].value == "경질비닐전선관_지중"
-        assert compare["E4"].value == 200
+        assert compare["A1"].value == "단 가 대 비 표"
+        assert "품" in str(compare["A3"].value or "").replace(" ", "")
+        assert all(
+            "코드" not in str(compare.cell(3, col).value or "").replace(" ", "")
+            for col in range(1, 22)
+        )
+        assert compare["A5"].value == "경질비닐전선관_지중"
+        assert compare["D5"].value == 200
+        assert compare["L5"].value == 200
 
         ilwidae = result[ILWIDAE_SHEET_NAME]
         names = [ilwidae.cell(r, 1).value for r in range(1, 40)]
@@ -72,20 +79,30 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert "공구손료" in names
         assert "내선전공" in names
         assert "보통인부" in names
-        assert ilwidae["E6"].value == "='단가대비표'!E4"
+        assert ilwidae["A1"].value == "일 위 대 가"
+        assert ilwidae["E6"].value == "='단가대비표'!D5"
         assert "0.15" in str(ilwidae["F7"].value)
         assert any(str(ilwidae.cell(r, 7).value or "").find("노임단가") >= 0 for r in range(5, 20))
+        assert ilwidae.row_dimensions[1].height == 30
 
         estimate = result[ESTIMATE_SHEET_NAME]
-        assert estimate["A5"].value == "경질비닐전선관_지중"
-        assert "단가대비표" in str(estimate["D5"].value)
-        assert "일위대가" in str(estimate["G5"].value)
+        assert estimate["A1"].value == "[내역서 ]"
+        assert estimate["A3"].value == "명칭"
+        assert estimate["A5"].value == "1. 전기공사"
+        assert estimate["A6"].value == "경질비닐전선관_지중"
+        assert estimate["D6"].value == 100
+        assert "단가대비표" in str(estimate["E6"].value)
+        assert "D5" in str(estimate["E6"].value)
+        assert "일위대가" in str(estimate["G6"].value)
+        assert estimate.row_dimensions[6].height == 30
 
         qty = result[QUANTITY_SHEET_NAME]
-        assert qty["B5"].value == "경질비닐전선관_지중"
-        assert qty["G5"].value == "='내역서'!D5"
-        assert qty["H5"].value == "내선전공"
-        assert "전기" in str(qty["L5"].value or "")
+        assert qty["A1"].value == "공 량 산 출 서"
+        assert qty["B6"].value == "경질비닐전선관_지중"
+        assert qty["G6"].value == "='내역서'!D6"
+        assert qty["H6"].value == "내선전공"
+        assert "전기" in str(qty["L6"].value or "")
+        assert qty.column_dimensions["A"].width >= 36
         titles = [
             ilwidae.cell(r, 1).value
             for r in range(1, 40)
@@ -141,15 +158,27 @@ def test_sample_unit_price_skips_header_and_empty_qty(tmp_path: Path) -> None:
         assert "강제전선관" in titles[0]
         assert all("전기" not in title for title in titles)
         estimate = result[ESTIMATE_SHEET_NAME]
-        assert estimate["A5"].value == "강제전선관"
-        assert estimate["D5"].value in (None, "")
-        assert estimate["C5"].value == "M"
+        compare = result[COMPARE_SHEET_NAME]
+        assert all(
+            "코드" not in str(compare.cell(3, col).value or "").replace(" ", "")
+            for col in range(1, 22)
+        )
+        assert compare["A5"].value == "강제전선관"
+        merged = {
+            str(range_)
+            for range_ in compare.merged_cells.ranges
+            if range_.min_col == 1 and range_.min_row >= 5
+        }
+        assert any(":A" in item or item.startswith("A") for item in merged)
+        assert estimate["A6"].value == "강제전선관"
+        assert estimate["D6"].value in (None, "")
+        assert estimate["C6"].value == "M"
         qty = result[QUANTITY_SHEET_NAME]
-        assert qty["B5"].value == "강제전선관"
-        assert qty["H8"].value == "내선전공" or qty["H5"].value in (None, "", "내선전공")
+        assert qty["B6"].value == "강제전선관"
+        assert qty["H6"].value == "내선전공" or qty["H9"].value == "내선전공"
         hi_rows = [
             r
-            for r in range(4, 20)
+            for r in range(4, 22)
             if qty.cell(r, 2).value == "경질비닐전선관" and str(qty.cell(r, 3).value or "").startswith("HI 16")
         ]
         assert hi_rows
@@ -187,18 +216,20 @@ def test_reverse_estimate_builds_unit_price(tmp_path: Path) -> None:
     dest = save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out")
     result = load_workbook(dest, data_only=False)
     try:
-        assert result.sheetnames[0] == ESTIMATE_SHEET_NAME
-        assert COMPARE_SHEET_NAME in result.sheetnames
+        assert result.sheetnames[0] == COMPARE_SHEET_NAME
+        assert ESTIMATE_SHEET_NAME in result.sheetnames
+        assert QUANTITY_SHEET_NAME not in result.sheetnames
         compare = result[COMPARE_SHEET_NAME]
         assert compare["A1"].value == "단 가 대 비 표"
-        assert compare["B3"].value is not None
-        assert "품" in str(compare["B3"].value).replace(" ", "")
-        assert compare["A5"].value in (None, "")
-        assert compare["B5"].value == "강제전선관"
-        assert compare["E5"].value == 3374
-        assert compare["M5"].value == 3374
-        qty = result[QUANTITY_SHEET_NAME]
-        assert qty["B5"].value == "강제전선관"
+        assert "품" in str(compare["A3"].value or "").replace(" ", "")
+        assert all(
+            "코드" not in str(compare.cell(3, col).value or "").replace(" ", "")
+            for col in range(1, 22)
+        )
+        assert compare["A5"].value == "강제전선관"
+        assert compare["D5"].value == 3374
+        assert compare["L5"].value == 3374
+        assert compare.row_dimensions[5].height == 30
     finally:
         result.close()
 
@@ -228,7 +259,7 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
         assert "통신내선공" in names
         assert "내선전공" not in names
         qty = result[QUANTITY_SHEET_NAME]
-        assert qty["H5"].value == "통신내선공"
+        assert qty["H6"].value == "통신내선공"
         remarks = [ilwidae.cell(r, 13).value for r in range(5, 40)]
         assert any(str(value or "").replace(" ", "") == "전기5-1" for value in remarks)
     finally:

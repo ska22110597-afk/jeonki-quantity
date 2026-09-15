@@ -13,12 +13,13 @@ from app.estimate_parse import normalize_header
 from app.excel_io import (
     BODY_FONT,
     CENTER,
+    FORM_ROW_HEIGHT,
     HEADER_FONT,
     ILWIDAE_SHEET_NAME,
     LEFT,
     MONEY_FORMAT,
     RIGHT,
-    TITLE_FONT,
+    write_title_banner,
     _apply_sheet_look,
     _set_cell,
 )
@@ -82,10 +83,7 @@ def labor_qty_formula(row: PumsamRow) -> str:
 
 
 def _write_ilwidae_header(sheet: Worksheet) -> None:
-    _set_cell(sheet, 1, 1, "일 위 대 가", font=TITLE_FONT, align=CENTER)
-    for col in range(2, 14):
-        _set_cell(sheet, 1, col, None, font=HEADER_FONT, align=CENTER)
-    sheet.merge_cells("A1:M1")
+    write_title_banner(sheet, "일 위 대 가", 13)
     labels = {
         1: "품      명",
         2: "규      격",
@@ -290,7 +288,7 @@ def write_ilwidae_sheet(
         )
         cursor += 2
 
-    _apply_sheet_look(sheet, max(cursor, 4), 13)
+    _apply_sheet_look(sheet, max(cursor, 4), 13, row_height=FORM_ROW_HEIGHT)
     sheet.column_dimensions["A"].width = 40
     sheet.column_dimensions["B"].width = 18
     sheet.column_dimensions["C"].width = 8

@@ -45,12 +45,15 @@ ILWIDAE_SHEET_NAME = "일위대가"
 UNIT_PRICE_SHEET_NAME = COMPARE_SHEET_NAME
 
 ROW_HEIGHT = 20
-PUMSAM_DATA_START = 3
+FORM_ROW_HEIGHT = 30
+PUMSAM_DATA_START = 5
 QTY_HEADER_ROW = 2
 QTY_SUBHEADER_ROW = 3
+COMPARE_DATA_START = 5
+COMPARE_PRICE_COL = 3  # D열 물가정보. 코드 열은 쓰지 않는다.
 
 WHITE = PatternFill("solid", fgColor="FFFFFF")
-TITLE_FONT = Font(name="굴림", size=16, bold=True, color="000000")
+TITLE_FONT = Font(name="굴림", size=16, bold=True, underline="single", color="000000")
 HEADER_FONT = Font(name="굴림", size=11, bold=True, color="000000")
 BODY_FONT = Font(name="굴림", size=11, bold=False, color="000000")
 SECTION_FONT = Font(name="굴림", size=11, bold=False, color="000000")
@@ -135,15 +138,38 @@ def gongryang_sum_formula(end_row: int) -> str:
 
 
 def first_qty_data_row_fallback() -> int:
-    return 4
+    return 5
 
 
-def _apply_sheet_look(sheet: Worksheet, max_row: int, max_col: int) -> None:
+def write_title_banner(
+    sheet: Worksheet,
+    title: str,
+    last_col: int,
+    *,
+    row_height: int = FORM_ROW_HEIGHT,
+) -> None:
+    """1~2행을 병합한 가운데 제목. 밑줄."""
+    for col in range(1, last_col + 1):
+        _set_cell(sheet, 1, col, title if col == 1 else None, font=TITLE_FONT, align=CENTER)
+        _set_cell(sheet, 2, col, None, font=TITLE_FONT, align=CENTER)
+    sheet.merge_cells(start_row=1, start_column=1, end_row=2, end_column=last_col)
+    sheet.row_dimensions[1].height = row_height
+    sheet.row_dimensions[2].height = row_height
+
+
+def _apply_sheet_look(
+    sheet: Worksheet,
+    max_row: int,
+    max_col: int,
+    *,
+    row_height: int | None = None,
+) -> None:
+    height = ROW_HEIGHT if row_height is None else row_height
     sheet.sheet_properties.tabColor = "FFFFFF"
-    sheet.sheet_format.defaultRowHeight = ROW_HEIGHT
+    sheet.sheet_format.defaultRowHeight = height
     sheet.sheet_format.customHeight = True
     for r in range(1, max(max_row, 1) + 1):
-        sheet.row_dimensions[r].height = ROW_HEIGHT
+        sheet.row_dimensions[r].height = height
         for c in range(1, max(max_col, 1) + 1):
             cell = sheet.cell(row=r, column=c)
             cell.fill = WHITE
@@ -242,7 +268,7 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
         except ValueError:
             continue
 
-    _apply_sheet_look(sheet, max_row, max_col)
+    _apply_sheet_look(sheet, max_row, max_col, row_height=FORM_ROW_HEIGHT)
     sheet.column_dimensions["A"].width = 32
     sheet.column_dimensions["B"].width = 18
     sheet.column_dimensions["C"].width = 8
@@ -253,27 +279,30 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
 
 def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
     last_col = 9
-    _set_cell(sheet, 1, 1, "품목", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 1, 2, "명칭", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 1, 3, "규격", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 1, 4, "단위", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 1, 5, "공량산출", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 1, 9, "비고", font=HEADER_FONT, align=CENTER)
+    write_title_banner(sheet, "품 셈 표", last_col)
+    header_row = 3
+    sub_row = 4
+    _set_cell(sheet, header_row, 1, "품목", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, header_row, 2, "명칭", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, header_row, 3, "규격", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, header_row, 4, "단위", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, header_row, 5, "공량산출", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, header_row, 9, "비고", font=HEADER_FONT, align=CENTER)
     for col in (6, 7, 8):
-        _set_cell(sheet, 1, col, None, font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 2, 5, "명칭", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 2, 6, "품셈", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 2, 7, "할증%", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, 2, 8, "품셈근거", font=HEADER_FONT, align=CENTER)
+        _set_cell(sheet, header_row, col, None, font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 5, "명칭", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 6, "품셈", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 7, "할증%", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 8, "품셈근거", font=HEADER_FONT, align=CENTER)
     for col in (1, 2, 3, 4, 9):
-        _set_cell(sheet, 2, col, None, font=HEADER_FONT, align=CENTER)
+        _set_cell(sheet, sub_row, col, None, font=HEADER_FONT, align=CENTER)
 
-    sheet.merge_cells("A1:A2")
-    sheet.merge_cells("B1:B2")
-    sheet.merge_cells("C1:C2")
-    sheet.merge_cells("D1:D2")
-    sheet.merge_cells("E1:H1")
-    sheet.merge_cells("I1:I2")
+    sheet.merge_cells("A3:A4")
+    sheet.merge_cells("B3:B4")
+    sheet.merge_cells("C3:C4")
+    sheet.merge_cells("D3:D4")
+    sheet.merge_cells("E3:H3")
+    sheet.merge_cells("I3:I4")
 
     last_data = PUMSAM_DATA_START - 1
     for offset, row in enumerate(rows):
@@ -309,8 +338,10 @@ def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
                 number_format=number_format,
             )
 
-    max_row = max(last_data, 2)
+    max_row = max(last_data, 4)
     _apply_sheet_look(sheet, max_row, last_col)
+    sheet.row_dimensions[1].height = FORM_ROW_HEIGHT
+    sheet.row_dimensions[2].height = FORM_ROW_HEIGHT
     sheet.column_dimensions["A"].width = 34
     sheet.column_dimensions["B"].width = 24
     sheet.column_dimensions["C"].width = 16
@@ -328,8 +359,9 @@ def _pick(row: list[Any], index: int | None) -> Any:
     return row[index]
 
 
-def _write_quantity_header(sheet: Worksheet) -> None:
-    headers_row2 = {
+def _write_quantity_header(sheet: Worksheet, header_row: int = 2) -> None:
+    sub_row = header_row + 1
+    headers = {
         2: "명칭",
         3: "규격",
         4: "단위",
@@ -338,21 +370,33 @@ def _write_quantity_header(sheet: Worksheet) -> None:
         12: "품셈근거",
     }
     for col in range(1, QTY_LAST_COL + 1):
-        _set_cell(sheet, QTY_HEADER_ROW, col, headers_row2.get(col), font=HEADER_FONT, align=CENTER)
-        _set_cell(sheet, QTY_SUBHEADER_ROW, col, None, font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 5, "결정수량", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 6, "할증", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 7, "산출수량", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 8, "명칭", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 9, "품셈", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 10, "할증%", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, QTY_SUBHEADER_ROW, 11, "공량", font=HEADER_FONT, align=CENTER)
-    sheet.merge_cells("B2:B3")
-    sheet.merge_cells("C2:C3")
-    sheet.merge_cells("D2:D3")
-    sheet.merge_cells("E2:G2")
-    sheet.merge_cells("H2:K2")
-    sheet.merge_cells("L2:L3")
+        _set_cell(sheet, header_row, col, headers.get(col), font=HEADER_FONT, align=CENTER)
+        _set_cell(sheet, sub_row, col, None, font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 5, "결정수량", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 6, "할증", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 7, "산출수량", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 8, "명칭", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 9, "품셈", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 10, "할증%", font=HEADER_FONT, align=CENTER)
+    _set_cell(sheet, sub_row, 11, "공량", font=HEADER_FONT, align=CENTER)
+    sheet.merge_cells(
+        start_row=header_row, start_column=2, end_row=sub_row, end_column=2
+    )
+    sheet.merge_cells(
+        start_row=header_row, start_column=3, end_row=sub_row, end_column=3
+    )
+    sheet.merge_cells(
+        start_row=header_row, start_column=4, end_row=sub_row, end_column=4
+    )
+    sheet.merge_cells(
+        start_row=header_row, start_column=5, end_row=header_row, end_column=7
+    )
+    sheet.merge_cells(
+        start_row=header_row, start_column=8, end_row=header_row, end_column=11
+    )
+    sheet.merge_cells(
+        start_row=header_row, start_column=12, end_row=sub_row, end_column=12
+    )
 
 
 def _write_quantity_sheet(
@@ -371,11 +415,21 @@ def _write_quantity_sheet(
     qty_letter = get_column_letter(qty_idx + 1) if qty_idx is not None else "D"
     data_start = first_data_row_number(filled) if filled else 4
 
-    _set_cell(sheet, 1, 1, None, border=False)
-    if data_start >= 4:
-        _write_quantity_header(sheet)
+    if data_start >= 5:
+        write_title_banner(sheet, "공 량 산 출 서", QTY_LAST_COL)
+        _write_quantity_header(sheet, 3)
+    elif data_start >= 4:
         for col in range(1, QTY_LAST_COL + 1):
-            _set_cell(sheet, 1, col, None, border=False)
+            _set_cell(
+                sheet,
+                1,
+                col,
+                "공 량 산 출 서" if col == 1 else None,
+                font=TITLE_FONT,
+                align=CENTER,
+            )
+        sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=QTY_LAST_COL)
+        _write_quantity_header(sheet, 2)
     else:
         labels = ["", "명칭", "규격", "단위", "결정수량", "할증", "산출수량", "명칭", "품셈", "할증%", "공량", "품셈근거"]
         for col, label in enumerate(labels, start=1):
@@ -489,7 +543,10 @@ def _write_quantity_sheet(
             _set_cell(sheet, excel_row, 12, ref_formula(excel_row, lookup_last), align=LEFT)
 
     _apply_sheet_look(sheet, last_row, QTY_LAST_COL)
-    sheet.column_dimensions["A"].width = 22
+    if data_start >= 5:
+        sheet.row_dimensions[1].height = FORM_ROW_HEIGHT
+        sheet.row_dimensions[2].height = FORM_ROW_HEIGHT
+    sheet.column_dimensions["A"].width = 42
     sheet.column_dimensions["B"].width = 32
     sheet.column_dimensions["C"].width = 18
     sheet.column_dimensions["D"].width = 8
@@ -550,6 +607,7 @@ def save_result_workbook(
     ilwidae_path: Path | None = None,
     estimate_path: Path | None = None,
     discipline: str | None = None,
+    mode: str | None = None,
 ) -> Path:
     """드롭한 원본은 읽기만 하고, 결과 엑셀만 새로 저장한다."""
     from app.pipeline import run_pipeline
@@ -565,6 +623,7 @@ def save_result_workbook(
         db_dir=db_dir,
         estimate_rows=estimate_rows,
         discipline=discipline,
+        mode=mode,
     )
 
 
