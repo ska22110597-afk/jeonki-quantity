@@ -24,6 +24,7 @@ from app.discipline import (
     normalize_discipline,
     pumsam_filename,
 )
+from app.electric_pumsam_data import ELECTRIC_RULES, ELECTRIC_TRADE_GUIDE, electric_pumsam_rows
 from app.paths import (
     bundled_data_dir,
     ensure_result_directory,
@@ -130,8 +131,16 @@ def ensure_pumsam_database(directory: Path | None = None, discipline: str | None
     disc = normalize_discipline(discipline)
     dest = pumsam_db_path(directory, disc)
     if dest.exists():
+        if disc == ELECTRIC and dest.stat().st_size < 50_000:
+            bundled = bundled_pumsam_path(disc)
+            if bundled.exists() and bundled.stat().st_size > dest.stat().st_size:
+                dest.write_bytes(bundled.read_bytes())
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
+    bundled = bundled_pumsam_path(disc)
+    if bundled.exists():
+        dest.write_bytes(bundled.read_bytes())
+        return dest
     if disc == ELECTRIC:
         shared = user_database_dir(directory) / PUMSAM_DB_FILENAME
         if shared.exists() and shared != dest:
@@ -146,16 +155,12 @@ def ensure_pumsam_database(directory: Path | None = None, discipline: str | None
         if legacy.exists():
             dest.write_bytes(legacy.read_bytes())
             return dest
-    bundled = bundled_pumsam_path(disc)
-    if bundled.exists():
-        dest.write_bytes(bundled.read_bytes())
-        return dest
     save_pumsam_database(default_pumsam_rows(disc), directory, discipline=disc)
     return dest
 
 
 def ensure_all_pumsam_databases(directory: Path | None = None) -> None:
-    """전기·통신 표준품셈 파일이 없으면 씨앗으로 만든다. 있는 파일은 덮어쓰지 않는다."""
+    """전기·통신 표준품셈 파일이 없으면 씨앗으로 만든다. 아주 작은 옛 전기 씨앗은 새 베이스로 바꾼다."""
     for disc in (ELECTRIC, TELECOM):
         ensure_pumsam_database(directory, disc)
 
@@ -240,33 +245,34 @@ def _conduit_seed_rows(labor: str, extra_labor: str | None = None) -> list[Pumsa
 def default_pumsam_rows(discipline: str | None = None) -> list[PumsamRow]:
     """선택한 파트의 씨앗 품셈. 전기와 통신을 섞지 않는다."""
     disc = normalize_discipline(discipline)
+    if disc == ELECTRIC:
+        return electric_pumsam_rows()
     labor = default_labor_name(disc)
-    rows = _conduit_seed_rows(labor, extra_labor="보통인부")
-    if disc == TELECOM:
-        rows.extend(
-            [
-                {
-                    "검색키": lookup_key("UTP케이블", "CAT.6"),
-                    "명칭": "UTP케이블",
-                    "규격": "CAT.6",
-                    "단위": "M",
-                    "노무명칭": "통신내선공",
-                    "품셈": 0.040,
-                    "할증%": 100,
-                    "품셈근거": "통신4-1",
-                },
-                {
-                    "검색키": lookup_key("광케이블", "SM 4C"),
-                    "명칭": "광케이블",
-                    "규격": "SM 4C",
-                    "단위": "M",
-                    "노무명칭": "통신케이블공",
-                    "품셈": 0.080,
-                    "할증%": 100,
-                    "품셈근거": "통신4-2",
-                },
-            ]
-        )
+    rows = _conduit_seed_rows(labor)
+    rows.extend(
+        [
+            {
+                "검색키": lookup_key("UTP케이블", "CAT.6"),
+                "명칭": "UTP케이블",
+                "규격": "CAT.6",
+                "단위": "M",
+                "노무명칭": "통신내선공",
+                "품셈": 0.040,
+                "할증%": 100,
+                "품셈근거": "통신4-1",
+            },
+            {
+                "검색키": lookup_key("광케이블", "SM 4C"),
+                "명칭": "광케이블",
+                "규격": "SM 4C",
+                "단위": "M",
+                "노무명칭": "통신케이블공",
+                "품셈": 0.080,
+                "할증%": 100,
+                "품셈근거": "통신4-2",
+            },
+        ]
+    )
     return rows
 
 
@@ -421,7 +427,8 @@ def save_pumsam_database(
     directory: Path | None = None,
     discipline: str | None = None,
 ) -> Path:
-    path = pumsam_db_path(directory, discipline)
+    disc = normalize_discipline(discipline)
+    path = pumsam_db_path(directory, disc)
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     sheet = workbook.active
@@ -429,6 +436,17 @@ def save_pumsam_database(
     sheet.append(PUMSAM_HEADERS)
     for row in rows:
         sheet.append([row.get(col) for col in PUMSAM_HEADERS])
+    if disc == ELECTRIC:
+        rules = workbook.create_sheet("적용기준")
+        rules.append(["적용 기준"])
+        for line in ELECTRIC_RULES:
+            rules.append([line])
+        trades = workbook.create_sheet("공종별인부")
+        for guide_row in ELECTRIC_TRADE_GUIDE:
+            trades.append(list(guide_row))
+        rules.column_dimensions["A"].width = 90
+        for col, width in enumerate([28, 14, 28, 12, 18, 12, 48], start=1):
+            trades.column_dimensions[chr(64 + col)].width = width
     workbook.save(path)
     workbook.close()
     return path

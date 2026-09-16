@@ -12,7 +12,7 @@ from app.excel_io import (
     QUANTITY_SHEET_NAME,
     save_result_workbook,
 )
-from app.ilwidae import is_conduit_name, labor_qty_formula, match_pumsam
+from app.ilwidae import labor_qty_formula, match_pumsam
 from app.items import LineItem
 from app.pumsam import PUMSAM_SHEET_NAME, default_pumsam_rows
 from app.wages import WAGES_SHEET_NAME, default_wage_rows
@@ -45,6 +45,11 @@ def _write_compare(path: Path) -> None:
     sheet["C5"] = "M"
     sheet["D5"] = 40
     sheet["E5"] = 151
+    sheet["A6"] = "배선용단자함"
+    sheet["B6"] = "10 P 이하"
+    sheet["C6"] = "대"
+    sheet["D6"] = 1
+    sheet["E6"] = 50000
     workbook.save(path)
     workbook.close()
 
@@ -167,18 +172,43 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
 
 
 def test_match_pumsam_keeps_two_labors() -> None:
-    item = LineItem(excel_row=5, name="경질비닐전선관_노출", spec="HI 104 mm", unit="M", qty=1, material_price=1)
+    item = LineItem(excel_row=5, name="배선용단자함", spec="10 P 이하", unit="대", qty=1, material_price=1)
     matched = match_pumsam(item, default_pumsam_rows())
     jobs = [row.get("노무명칭") for row in matched]
     assert "내선전공" in jobs
     assert "보통인부" in jobs
-    assert is_conduit_name(item.name)
-    assert "*1.2" in labor_qty_formula(matched[0]) or "*120" in labor_qty_formula(matched[0])
+    assert len(matched) == 2
 
 
 def test_unmatched_pumsam_does_not_use_similar_names() -> None:
-    item = LineItem(excel_row=5, name="경질비닐전선관", spec="HI 28 mm", unit="M", qty=1, material_price=1)
+    item = LineItem(excel_row=5, name="특수커넥터함", spec="일반", unit="개", qty=1, material_price=1)
     assert match_pumsam(item, default_pumsam_rows()) == []
+
+
+def test_bare_conduit_uses_maip_not_exposed() -> None:
+    rows = default_pumsam_rows()
+    matched = match_pumsam(
+        LineItem(excel_row=5, name="경질비닐전선관", spec="HI 28 mm", unit="M", qty=1, material_price=1),
+        rows,
+    )
+    assert len(matched) == 1
+    assert matched[0]["노무명칭"] == "내선전공"
+    assert matched[0]["품셈"] == 0.08
+    assert matched[0]["할증%"] == 100
+    exposed = match_pumsam(
+        LineItem(excel_row=6, name="경질비닐전선관_노출", spec="HI 28 mm", unit="M", qty=1, material_price=1),
+        rows,
+    )
+    assert len(exposed) == 1
+    assert exposed[0]["할증%"] == 120
+    assert "*1.2" in labor_qty_formula(exposed[0])
+    buried = match_pumsam(
+        LineItem(excel_row=7, name="경질비닐전선관_지중", spec="HI 16 mm", unit="M", qty=1, material_price=1),
+        rows,
+    )
+    assert len(buried) == 1
+    assert buried[0]["할증%"] == 70
+    assert buried[0]["품셈"] == 0.05
 
 
 def test_unmatched_item_gets_one_fallback_labor(tmp_path: Path) -> None:
@@ -190,9 +220,9 @@ def test_unmatched_item_gets_one_fallback_labor(tmp_path: Path) -> None:
     sheet["B3"] = "규격"
     sheet["C3"] = "단위"
     sheet["D3"] = "수량"
-    sheet["A5"] = "경질비닐전선관"
-    sheet["B5"] = "HI 28 mm"
-    sheet["C5"] = "M"
+    sheet["A5"] = "특수커넥터함"
+    sheet["B5"] = "일반"
+    sheet["C5"] = "개"
     sheet["L5"] = 1021
     source = tmp_path / "단가대비표.xlsx"
     workbook.save(source)

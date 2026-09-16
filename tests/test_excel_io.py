@@ -137,7 +137,9 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert pumsam["A1"].value == "품 셈 표"
         assert pumsam["A3"].value == "품목"
         assert pumsam["E4"].value == "명칭"
-        assert pumsam["B5"].value == "경질비닐전선관_지중"
+        assert pumsam["B5"].value
+        names = [pumsam.cell(r, 2).value for r in range(5, pumsam.max_row + 1)]
+        assert "경질비닐전선관_지중" in names
         assert str(pumsam["A5"].value).startswith("=CONCATENATE")
         assert pumsam.row_dimensions[5].height == ROW_HEIGHT
         assert "FFFFFF" in _fill_rgb(pumsam["A3"])
