@@ -18,6 +18,7 @@ from app.estimate_parse import (
     lookup_key,
     normalize_header,
 )
+from app.pumsam_aliases import alias_names
 from app.pumsam_text import display_spec, lookup_measure
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.discipline import (
@@ -255,19 +256,24 @@ def _match_pumsam_same_size(name: Any, spec: Any, rows: list[PumsamRow]) -> list
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """같은 명칭·규격의 인부 행을 모두 반환한다. 지중/노출처럼 비슷한 이름은 끌어오지 않는다.
 
-    글자가 똑같으면 그걸 쓴다. 아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면
-    같은 크기로 맞춘다. 그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 쓴다.
+    글자가 똑같으면 그걸 쓴다. 후강전선관 = 강제전선관처럼 같은 품 묶음이면 그 이름으로도 찾는다.
+    아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춘다.
+    그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 쓴다.
     """
-    key = lookup_key(name, spec)
-    if not key:
+    if not lookup_key(name, spec):
         return []
-    exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
-    if exact:
-        return exact
-    same_size = _match_pumsam_same_size(name, spec, rows)
-    if same_size:
-        return same_size
-    return _match_pumsam_ceiling(name, spec, rows)
+    for candidate in alias_names(name):
+        key = lookup_key(candidate, spec)
+        exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
+        if exact:
+            return exact
+        same_size = _match_pumsam_same_size(candidate, spec, rows)
+        if same_size:
+            return same_size
+        ceiling = _match_pumsam_ceiling(candidate, spec, rows)
+        if ceiling:
+            return ceiling
+    return []
 
 
 def surcharge_percent_text(row: PumsamRow) -> str:
@@ -550,7 +556,10 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
         def pick(index: int | None) -> Any:
             if index is None or index >= len(source):
                 return None
-            return source[index]
+            value = source[index]
+            if isinstance(value, str) and not value.strip():
+                return None
+            return value
 
         name = pick(name_idx)
         spec = pick(spec_idx)
@@ -652,6 +661,36 @@ def _style_plain_sheet(sheet, widths: list[int]) -> None:
         sheet.column_dimensions[get_column_letter(col_idx)].width = width
 
 
+def _pumsam_item_key(row: PumsamRow) -> tuple[str, str]:
+    return lookup_key(row.get("명칭"), ""), lookup_key("", row.get("규격"))
+
+
+def _sort_pumsam_rows(rows: list[PumsamRow]) -> list[PumsamRow]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("품셈근거") or ""),
+            str(row.get("명칭") or ""),
+            str(row.get("규격") or ""),
+            str(row.get("노무명칭") or ""),
+        ),
+    )
+
+
+def _sheet_values(row: PumsamRow, *, hide_item: bool) -> list[Any]:
+    spec = display_spec(row.get("규격") or "") or row.get("규격")
+    return [
+        None if hide_item else display_keyword(row.get("명칭"), row.get("규격")),
+        None if hide_item else row.get("명칭"),
+        None if hide_item else spec,
+        row.get("단위"),
+        row.get("노무명칭"),
+        row.get("품셈"),
+        row.get("할증%"),
+        row.get("품셈근거"),
+    ]
+
+
 def save_pumsam_database(
     rows: list[PumsamRow],
     directory: Path | None = None,
@@ -664,16 +703,12 @@ def save_pumsam_database(
     sheet = workbook.active
     sheet.title = PUMSAM_SHEET_NAME
     sheet.append(list(PUMSAM_DISPLAY_HEADERS))
-    for row in rows:
-        values = []
-        for col in PUMSAM_HEADERS:
-            if col == "검색키":
-                values.append(display_keyword(row.get("명칭"), row.get("규격")))
-            elif col == "규격":
-                values.append(display_spec(row.get("규격") or "") or row.get("규격"))
-            else:
-                values.append(row.get(col))
-        sheet.append(values)
+    prev_key: tuple[str, str] | None = None
+    for row in _sort_pumsam_rows(rows):
+        key = _pumsam_item_key(row)
+        hide_item = prev_key == key and all(key)
+        sheet.append(_sheet_values(row, hide_item=hide_item))
+        prev_key = key
     _style_pumsam_sheet(sheet)
     if disc == ELECTRIC:
         rules = workbook.create_sheet("적용기준")

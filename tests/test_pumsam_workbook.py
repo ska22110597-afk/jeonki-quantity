@@ -91,3 +91,62 @@ def test_bundled_pumsam_keyword_uses_square_mm() -> None:
         assert all("mm2" not in str(value or "").lower() for value in keywords)
     finally:
         workbook.close()
+
+
+def test_same_spec_extra_labor_blanks_name_cells_but_keeps_rows(tmp_path: Path) -> None:
+    from app.pumsam import import_pumsam_file
+
+    rows = [
+        {
+            "명칭": "관로 청소 및 도통시험",
+            "규격": "150 이하",
+            "단위": "km",
+            "노무명칭": "보통인부",
+            "품셈": 9.7,
+            "할증%": 100,
+            "품셈근거": "전기2-11-1",
+        },
+        {
+            "명칭": "관로 청소 및 도통시험",
+            "규격": "150 이하",
+            "단위": "km",
+            "노무명칭": "특고압케이블전공",
+            "품셈": 7.28,
+            "할증%": 100,
+            "품셈근거": "전기2-11-1",
+        },
+        {
+            "명칭": "관로 청소 및 도통시험",
+            "규격": "300 이하",
+            "단위": "km",
+            "노무명칭": "보통인부",
+            "품셈": 1.0,
+            "할증%": 100,
+            "품셈근거": "전기2-11-1",
+        },
+    ]
+    path = save_pumsam_database(rows, directory=tmp_path, discipline="전기")
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook["품셈표"]
+        assert sheet["B2"].value == "관로 청소 및 도통시험"
+        assert "150" in str(sheet["C2"].value or "")
+        assert sheet["E2"].value == "보통인부"
+        assert sheet["A3"].value in (None, "")
+        assert sheet["B3"].value in (None, "")
+        assert sheet["C3"].value in (None, "")
+        assert sheet["D3"].value == "km"
+        assert sheet["E3"].value == "특고압케이블전공"
+        assert sheet["F3"].value == 7.28
+        assert sheet["B4"].value == "관로 청소 및 도통시험"
+        assert "300" in str(sheet["C4"].value or "")
+        assert sheet["E4"].value == "보통인부"
+    finally:
+        workbook.close()
+
+    loaded = import_pumsam_file(path)
+    by_job = {row.get("노무명칭"): row for row in loaded if "150" in str(row.get("규격") or "")}
+    assert by_job["보통인부"]["품셈"] == 9.7
+    assert by_job["특고압케이블전공"]["품셈"] == 7.28
+    assert "관로" in str(by_job["특고압케이블전공"]["명칭"])
+    assert "150" in str(by_job["특고압케이블전공"]["규격"])

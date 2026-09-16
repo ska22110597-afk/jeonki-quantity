@@ -57,6 +57,8 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
   --hidden-import app.merge_parse ^
   --hidden-import app.estimate_parse ^
   --hidden-import app.pumsam ^
+  --hidden-import app.pumsam_aliases ^
+  --hidden-import app.pumsam_text ^
   --hidden-import app.electric_pumsam_data ^
   --hidden-import app.wages ^
   --hidden-import app.official_wages ^

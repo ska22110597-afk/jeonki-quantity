@@ -152,6 +152,44 @@ def test_galvanized_spec_matches_plain_or_g_size() -> None:
     assert seed[0]["노무명칭"] == "내선전공"
 
 
+def test_name_aliases_treat_steel_and_resin_as_same_family() -> None:
+    """후강전선관 = 강제전선관, HI관 = 경질비닐전선관. 지중/노출은 그대로 구분."""
+    steel_only = [
+        {"명칭": "강제전선관", "규격": "16 mm", "노무명칭": "내선전공", "품셈": 0.08, "할증%": 100, "품셈근거": "전기5-1"},
+        {"명칭": "강제전선관_지중", "규격": "16 mm", "노무명칭": "내선전공", "품셈": 0.056, "할증%": 70, "품셈근거": "전기5-1"},
+        {"명칭": "가요전선관", "규격": "16 mm", "노무명칭": "내선전공", "품셈": 0.044, "할증%": 100, "품셈근거": "전기5-1"},
+    ]
+    by_alias = match_pumsam("후강전선관", "아연도 16 mm", steel_only)
+    assert len(by_alias) == 1
+    assert by_alias[0]["명칭"] == "강제전선관"
+    assert by_alias[0]["품셈"] == 0.08
+    buried = match_pumsam("후강전선관_지중", "16 mm", steel_only)
+    assert buried[0]["품셈"] == 0.056
+    assert buried[0]["할증%"] == 70
+    assert match_pumsam("후강전선관_지중", "16 mm", steel_only[:1]) == []
+
+    resin_only = [
+        {"명칭": "경질비닐전선관", "규격": "HI 28 mm", "노무명칭": "내선전공", "품셈": 0.08, "할증%": 100},
+        {"명칭": "경질비닐전선관_노출", "규격": "HI 28 mm", "노무명칭": "내선전공", "품셈": 0.08, "할증%": 120},
+    ]
+    hi = match_pumsam("HI관", "28 mm", resin_only)
+    assert hi[0]["품셈"] == 0.08
+    assert hi[0]["할증%"] == 100
+    exposed = match_pumsam("합성수지전선관_노출", "HI 28 mm", resin_only)
+    assert exposed[0]["할증%"] == 120
+
+    hiv_only = [
+        {"명칭": "HIV전선", "규격": "6 ㎟ 이하", "노무명칭": "내선전공", "품셈": 0.010, "할증%": 100},
+        {"명칭": "CV케이블", "규격": "16 ㎟ 이하×1C", "노무명칭": "저압케이블전공", "품셈": 0.023, "할증%": 100},
+    ]
+    hfix = match_pumsam("HFIX전선", "4 ㎟", hiv_only)
+    assert hfix[0]["품셈"] == 0.010
+    power = match_pumsam("전력케이블", "14 ㎟×1C", hiv_only)
+    assert power[0]["노무명칭"] == "저압케이블전공"
+    assert power[0]["품셈"] == 0.023
+    assert match_pumsam("후강전선관", "16 mm", resin_only) == []
+
+
 def test_ceiling_3mm2_and_6mm2_bands_pick_nearest_이상_이하() -> None:
     rows = [
         {"명칭": "시험전선", "규격": "3 ㎟ 이하", "노무명칭": "내선전공", "품셈": 0.01, "할증%": 100},
