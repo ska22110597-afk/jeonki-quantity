@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.discipline import ELECTRIC, TELECOM, normalize_discipline, pumsam_filename
+from app.estimate_parse import list_sheet_titles
 
 from app.drop_zone import DropZone
 from app.excel_io import (
@@ -214,7 +215,7 @@ QStatusBar {
 
 
 class PaperRoot(QWidget):
-    """전기 선화 그림을 바탕에 깔아 둔 화면 바탕."""
+    """금색 문장을 베이지 바탕 위에 옅게 깔아 둔 화면."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -234,7 +235,7 @@ class PaperRoot(QWidget):
             )
             x = (self.width() - pix.width()) // 2
             y = (self.height() - pix.height()) // 2
-            painter.setOpacity(0.32)
+            painter.setOpacity(0.26)
             painter.drawPixmap(x, y, pix)
         painter.end()
         super().paintEvent(event)
@@ -400,14 +401,14 @@ class MainWindow(QMainWindow):
         qty_layout = QVBoxLayout(qty_lane)
         qty_layout.setContentsMargins(12, 10, 12, 10)
         qty_layout.setSpacing(8)
-        qty_title = QLabel("공량산출  ·  내역서 → 공량산출서")
+        qty_title = QLabel("공량산출  ·  일위대가목록 → 공량산출서")
         qty_title.setObjectName("laneTitle")
         qty_title.setWordWrap(True)
         qty_layout.addWidget(qty_title)
         self.quantity_drop = DropZone(
-            title="내역서",
-            hint="파트를 나눈 내역서를 놓습니다. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트도 남깁니다",
-            dialog_title="공량산출용 내역서 엑셀 선택",
+            title="일위대가목록",
+            hint="일위대가목록 시트가 있는 엑셀을 놓으면 공량산출서를 만듭니다. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트도 남깁니다",
+            dialog_title="공량산출용 일위대가목록 엑셀 선택",
             tone="quantity",
         )
         self.quantity_drop.setMaximumHeight(64)
@@ -531,7 +532,7 @@ class MainWindow(QMainWindow):
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
         self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 → 일위대가목록")
         self._append_log("오른쪽(역방향): 일위대가목록 · 일위대가 → 단가대비표")
-        self._append_log("아래(공량산출): 파트별로 나눈 내역서 → 공량산출서. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트를 남깁니다.")
+        self._append_log("아래(공량산출): 일위대가목록 시트가 있는 엑셀 → 공량산출서. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트를 남깁니다.")
         self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
         self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
 
@@ -603,7 +604,7 @@ class MainWindow(QMainWindow):
         if self._rev_ilwidae_path is not None:
             parts.append(f"역·일위대가: {self._rev_ilwidae_path}")
         if self._qty_estimate_path is not None:
-            parts.append(f"공량·내역서: {self._qty_estimate_path}")
+            parts.append(f"공량·일위대가목록: {self._qty_estimate_path}")
         self.source_edit.setText("   |   ".join(parts))
         self._refresh_filename_hint()
 
@@ -673,16 +674,29 @@ class MainWindow(QMainWindow):
 
     def _on_qty_estimate_dropped(self, path_text: str) -> None:
         path = Path(path_text)
+        try:
+            titles = list_sheet_titles(path)
+        except Exception as exc:  # noqa: BLE001 — 잘못된 파일은 창으로 알린다.
+            QMessageBox.warning(self, "파일을 열 수 없음", str(exc))
+            return
+        if ILWIDAE_LIST_SHEET_NAME not in titles:
+            QMessageBox.warning(
+                self,
+                "시트 없음",
+                "일위대가목록 시트가 없습니다.\n해당 시트가 있는 엑셀을 놓아 주세요.",
+            )
+            self._append_log(f"공량산출 거부: 일위대가목록 시트 없음 ({path.name})")
+            return
         self._qty_estimate_path = path
         self.quantity_drop.set_loaded(path.name)
         self._sync_source_edit()
-        self.statusBar().showMessage(f"공량산출용 내역서 선택됨 (읽기 전용): {path.name}")
-        self._append_log(f"공량산출 내역서 로드 대기: {path}")
+        self.statusBar().showMessage(f"공량산출용 일위대가목록 선택됨 (읽기 전용): {path.name}")
+        self._append_log(f"공량산출 일위대가목록 로드 대기: {path}")
         self._refresh_run_enabled()
 
     def _on_run(self) -> None:
         if not self._has_input():
-            QMessageBox.warning(self, "파일 없음", "단가대비표 또는 일위대가목록·내역서를 먼저 놓아 주세요.")
+            QMessageBox.warning(self, "파일 없음", "단가대비표 또는 일위대가목록을 먼저 놓아 주세요.")
             return
         if not self.confirm_box.isChecked():
             QMessageBox.warning(self, "저장 경로 미확인", "저장 확인란을 선택해 주세요.")

@@ -36,6 +36,7 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.drop_zone is not None
         assert window.reverse_ilwidae_drop is not None
         assert window.quantity_drop is not None
+        assert window.quantity_drop._idle_title == "일위대가목록"
         assert window.electric_button.isChecked() is True
         assert window.telecom_button.isChecked() is False
         window.telecom_button.click()

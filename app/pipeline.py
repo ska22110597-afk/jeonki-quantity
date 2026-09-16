@@ -335,6 +335,15 @@ def _write_estimate_sundry_form(
         _set_cell(
             sheet,
             excel_row,
+            11,
+            f"=TRUNC(E{excel_row}+G{excel_row}+I{excel_row},2)",
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=PRICE_FORMAT,
+        )
+        _set_cell(
+            sheet,
+            excel_row,
             12,
             _line_total(excel_row),
             font=BODY_FONT,
@@ -497,16 +506,20 @@ def _write_generated_estimate(
             align=RIGHT,
             number_format=AMOUNT_FORMAT,
         )
-        if block:
-            total_price = f"='{ILWIDAE_SHEET_NAME}'!L{block.sum_row}"
-        else:
-            total_price = "=0"
-        _set_cell(sheet, excel_row, 11, total_price, font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+        _set_cell(
+            sheet,
+            excel_row,
+            11,
+            f"=TRUNC(E{excel_row}+G{excel_row}+I{excel_row},2)",
+            font=BODY_FONT,
+            align=RIGHT,
+            number_format=PRICE_FORMAT,
+        )
         _set_cell(
             sheet,
             excel_row,
             12,
-            f"=TRUNC(K{excel_row}*D{excel_row},1)",
+            f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},1)",
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,
@@ -621,7 +634,7 @@ def build_result_workbook(
             copied_ilwidae.title = ILWIDAE_SHEET_NAME
     elif mode == "quantity":
         if estimate is None:
-            raise ValueError("공량산출을 하려면 내역서 또는 일위대가목록이 있는 엑셀을 놓아 주세요.")
+            raise ValueError("공량산출을 하려면 일위대가목록 시트가 있는 엑셀을 놓아 주세요.")
         companions = companion_sheets or {}
         copied_names: list[str] = []
         for name in (
@@ -637,7 +650,7 @@ def build_result_workbook(
             _write_estimate_sheet(copied, data)
             copied.title = name
             copied_names.append(name)
-        qty_title = estimate.title or ESTIMATE_SHEET_NAME
+        qty_title = estimate.title or ILWIDAE_LIST_SHEET_NAME
         if qty_title not in copied_names:
             copied = sheets.take(qty_title)
             _write_estimate_sheet(copied, estimate)
@@ -721,6 +734,8 @@ def run_pipeline(
     if mode == "quantity" and estimate_path is not None:
         source = Path(estimate_path)
         titles = list_sheet_titles(source)
+        if ILWIDAE_LIST_SHEET_NAME not in titles:
+            raise ValueError("일위대가목록 시트가 없습니다. 해당 시트가 있는 엑셀을 놓아 주세요.")
         for name in (
             COMPARE_SHEET_NAME,
             ILWIDAE_SHEET_NAME,
@@ -732,10 +747,7 @@ def run_pipeline(
             loaded = load_named_sheet(source, name)
             if loaded is not None:
                 companion_sheets[name] = loaded
-        if ESTIMATE_SHEET_NAME in companion_sheets:
-            estimate = companion_sheets[ESTIMATE_SHEET_NAME]
-        elif ILWIDAE_LIST_SHEET_NAME in companion_sheets:
-            estimate = companion_sheets[ILWIDAE_LIST_SHEET_NAME]
+        estimate = companion_sheets[ILWIDAE_LIST_SHEET_NAME]
 
     if compare is None and dropped_ilwidae is not None and estimate is None and mode == "forward":
         compare = dropped_ilwidae

@@ -5,8 +5,8 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 from app.excel_io import (
-    ESTIMATE_SHEET_NAME,
     FORM_ROW_HEIGHT,
+    ILWIDAE_LIST_SHEET_NAME,
     NUMBER_FORMAT,
     QUANTITY_SHEET_NAME,
     ROW_HEIGHT,
@@ -23,8 +23,8 @@ from app.pumsam import PUMSAM_SHEET_NAME, import_pumsam_file
 def _write_estimate(path: Path, *, with_merge: bool = False) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "내역서"
-    sheet["A1"] = "[내역서 ]"
+    sheet.title = "일위대가목록"
+    sheet["A1"] = "[일위대가목록]"
     sheet["A2"] = "명칭"
     sheet["B2"] = "규격"
     sheet["C2"] = "단위"
@@ -102,7 +102,7 @@ def test_full_grid_keeps_original_row_numbers(tmp_path: Path) -> None:
     source = tmp_path / "내역서.xlsx"
     _write_estimate(source)
     estimate = load_estimate_sheet(source)
-    assert estimate.filled[0][0] == "[내역서 ]"
+    assert estimate.filled[0][0] == "[일위대가목록]"
     assert first_data_row_number(estimate.filled) == 4
     assert estimate.filled[4][0] == "경질비닐전선관_지중"
     assert estimate.filled[4][3] == 10
@@ -119,12 +119,12 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
 
     result = load_workbook(dest, data_only=False)
     try:
-        assert ESTIMATE_SHEET_NAME in result.sheetnames
+        assert ILWIDAE_LIST_SHEET_NAME in result.sheetnames
         assert PUMSAM_SHEET_NAME in result.sheetnames
         assert QUANTITY_SHEET_NAME in result.sheetnames
-        assert result.sheetnames[0] == ESTIMATE_SHEET_NAME
-        estimate = result[ESTIMATE_SHEET_NAME]
-        assert estimate["A1"].value == "[내역서 ]"
+        assert result.sheetnames[0] == ILWIDAE_LIST_SHEET_NAME
+        estimate = result[ILWIDAE_LIST_SHEET_NAME]
+        assert estimate["A1"].value == "[일위대가목록]"
         assert estimate["A2"].value == "명칭"
         assert estimate["D5"].value == 10
         assert estimate["F5"].value == "=D5*E5"
@@ -152,8 +152,8 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert qty["A5"].value == concat_formula(5)
         assert qty["E5"].value == decided_qty_formula(5)
         assert qty["F5"].value == "=0"
-        assert qty["G5"].value == source_qty_formula("D", 5)
-        assert qty["G5"].value == "='내역서'!D5"
+        assert qty["G5"].value == source_qty_formula("D", 5, ILWIDAE_LIST_SHEET_NAME)
+        assert qty["G5"].value == "='일위대가목록'!D5"
         assert "VLOOKUP" in str(qty["H5"].value)
         assert "SUMPRODUCT" in str(qty["K5"].value)
         assert qty["A2"].value == "품목"
@@ -179,8 +179,8 @@ def test_merged_source_does_not_error(tmp_path: Path) -> None:
         qty = result[QUANTITY_SHEET_NAME]
         assert qty["B5"].value == "경질비닐전선관_지중"
         assert qty["B6"].value == "경질비닐전선관_지중"
-        assert qty["G6"].value == "='내역서'!D6"
-        estimate = result[ESTIMATE_SHEET_NAME]
+        assert qty["G6"].value == "='일위대가목록'!D6"
+        estimate = result[ILWIDAE_LIST_SHEET_NAME]
         assert estimate["A5"].value == "경질비닐전선관_지중"
     finally:
         result.close()

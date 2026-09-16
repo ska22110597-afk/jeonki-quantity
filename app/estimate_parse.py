@@ -220,9 +220,12 @@ def _pick_estimate_sheet(workbook: Any, preferred_title: str | None = None) -> A
             if str(candidate.title) == preferred_title:
                 return candidate
     by_title = {str(sheet.title): sheet for sheet in workbook.worksheets}
-    for name in ("내역서", "일위대가목록"):
+    for name in ("일위대가목록", "내역서"):
         if name in by_title:
             return by_title[name]
+    for candidate in workbook.worksheets:
+        if "일위대가목록" in str(candidate.title):
+            return candidate
     for candidate in workbook.worksheets:
         if "내역" in str(candidate.title):
             return candidate

@@ -141,8 +141,8 @@ def _zero_price() -> str:
 
 
 def _qty_times_price(row: int, price_col: str) -> str:
-    """재료비 금액처럼 수량×단가."""
-    return f"=D{row}*{price_col}{row}"
+    """금액 = 단가×수량, 소수 1자리."""
+    return f"=TRUNC(D{row}*{price_col}{row},1)"
 
 
 def _qty_times_price_trunc(row: int, price_col: str) -> str:

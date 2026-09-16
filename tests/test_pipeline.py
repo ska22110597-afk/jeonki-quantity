@@ -132,10 +132,8 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert f"H{sum_rows[0]}" in str(estimate["G5"].value)
         assert "G5" in str(estimate["H5"].value)
         assert "TRUNC" in str(estimate["H5"].value)
-        assert "일위대가" in str(estimate["K5"].value)
-        assert f"L{sum_rows[0]}" in str(estimate["K5"].value)
-        assert "K5" in str(estimate["L5"].value)
-        assert "TRUNC" in str(estimate["L5"].value)
+        assert estimate["K5"].value == "=TRUNC(E5+G5+I5,2)"
+        assert estimate["L5"].value == "=TRUNC(F5+H5+J5,1)"
         assert estimate["L5"].number_format == "#,##0.0"
         assert estimate.row_dimensions[5].height == 30
         estimate_names = [estimate.cell(r, 1).value for r in range(1, 40)]
@@ -311,8 +309,8 @@ def test_sample_unit_price_skips_header_and_empty_qty(tmp_path: Path) -> None:
 def test_reverse_estimate_builds_unit_price(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "내역서"
-    sheet["A1"] = "[내역서 ]"
+    sheet.title = "일위대가목록"
+    sheet["A1"] = "[일위대가목록]"
     sheet["A2"] = "명칭"
     sheet["B2"] = "규격"
     sheet["C2"] = "단위"
@@ -398,8 +396,8 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
 def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "내역서"
-    sheet["A1"] = "[내역서 ]"
+    sheet.title = "일위대가목록"
+    sheet["A1"] = "[일위대가목록]"
     sheet["A3"] = "명칭"
     sheet["B3"] = "규격"
     sheet["C3"] = "단위"
@@ -519,7 +517,7 @@ def test_quantity_keeps_sheet_with_overlapping_source_merges(tmp_path: Path) -> 
     result = load_workbook(dest, data_only=False)
     try:
         assert QUANTITY_SHEET_NAME in result.sheetnames
-        assert ESTIMATE_SHEET_NAME in result.sheetnames
+        assert ILWIDAE_LIST_SHEET_NAME in result.sheetnames
         qty = result[QUANTITY_SHEET_NAME]
         assert qty["B5"].value == "경질비닐전선관_지중"
         for sheet in result.worksheets:
@@ -532,13 +530,20 @@ def test_quantity_keeps_sheet_with_overlapping_source_merges(tmp_path: Path) -> 
 
 
 def test_quantity_strips_external_workbook_formulas(tmp_path: Path) -> None:
+    from app.estimate_parse import list_sheet_titles
+
     sample = Path("/home/ubuntu/.cursor/projects/workspace/uploads/_______d25a.xlsx")
     if not sample.exists():
+        return
+    titles = list_sheet_titles(sample)
+    if ILWIDAE_LIST_SHEET_NAME not in titles and ESTIMATE_SHEET_NAME not in titles:
+        return
+    if ILWIDAE_LIST_SHEET_NAME not in titles:
         return
     dest = save_result_workbook(estimate_path=sample, dest_dir=tmp_path / "out", mode="quantity")
     result = load_workbook(dest, data_only=False)
     try:
-        estimate = result[ESTIMATE_SHEET_NAME]
+        estimate = result[ILWIDAE_LIST_SHEET_NAME]
         assert QUANTITY_SHEET_NAME in result.sheetnames
         for row in estimate.iter_rows():
             for cell in row:
@@ -555,8 +560,8 @@ def test_quantity_strips_external_workbook_formulas(tmp_path: Path) -> None:
 def test_quantity_skips_sundry_form_formulas(tmp_path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "내역서"
-    sheet["A1"] = "[내역서 ]"
+    sheet.title = "일위대가목록"
+    sheet["A1"] = "[일위대가목록]"
     sheet["A3"] = "명칭"
     sheet["B3"] = "규격"
     sheet["C3"] = "단위"
@@ -619,4 +624,20 @@ def test_quantity_keeps_compare_and_ilwidae_from_forward_result(tmp_path: Path) 
         assert any("호표" in str(ilwidae.cell(r, 1).value or "") for r in range(1, 20))
     finally:
         result.close()
+
+
+def test_quantity_requires_ilwidae_list_sheet(tmp_path: Path) -> None:
+    import pytest
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "내역서"
+    sheet["A1"] = "[내역서]"
+    sheet["A3"] = "명칭"
+    sheet["A5"] = "강제전선관"
+    source = tmp_path / "내역서만.xlsx"
+    workbook.save(source)
+    workbook.close()
+    with pytest.raises(ValueError, match="일위대가목록 시트"):
+        save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out", mode="quantity")
 

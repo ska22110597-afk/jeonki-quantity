@@ -89,8 +89,8 @@ def decided_qty_formula(row: int) -> str:
 
 
 def source_qty_formula(source_col_letter: str, row: int, sheet_name: str | None = None) -> str:
-    """산출수량 = 같은 행의 내역서(또는 일위대가목록) 수량."""
-    name = sheet_name or ESTIMATE_SHEET_NAME
+    """산출수량 = 같은 행의 일위대가목록 수량."""
+    name = sheet_name or ILWIDAE_LIST_SHEET_NAME
     return f"='{name}'!{source_col_letter}{row}"
 
 
@@ -487,7 +487,7 @@ def _write_quantity_sheet(
     qty_idx = find_quantity_column(header)
     qty_letter = get_column_letter(qty_idx + 1) if qty_idx is not None else "D"
     data_start = first_data_row_number(filled) if filled else 4
-    qty_source = source_sheet_name or estimate.title or ESTIMATE_SHEET_NAME
+    qty_source = source_sheet_name or estimate.title or ILWIDAE_LIST_SHEET_NAME
 
     if data_start >= 5:
         write_title_banner(sheet, "공 량 산 출 서", QTY_LAST_COL)
@@ -630,7 +630,7 @@ def create_result_workbook(
 
     workbook = Workbook()
     sheet1 = workbook.active
-    sheet1.title = ESTIMATE_SHEET_NAME
+    sheet1.title = estimate.title or ILWIDAE_LIST_SHEET_NAME
     _write_estimate_sheet(sheet1, estimate)
 
     sheet2 = workbook.create_sheet(PUMSAM_SHEET_NAME)
@@ -642,7 +642,7 @@ def create_result_workbook(
         estimate,
         pumsam_last,
         rows,
-        source_sheet_name=estimate.title or ESTIMATE_SHEET_NAME,
+        source_sheet_name=estimate.title or ILWIDAE_LIST_SHEET_NAME,
     )
     return workbook
 
