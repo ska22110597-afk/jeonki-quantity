@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from app.estimate_parse import (
     find_column_index,
@@ -20,11 +22,11 @@ from app.discipline import (
     ELECTRIC,
     LEGACY_PUMSAM_FILENAME,
     TELECOM,
-    default_labor_name,
     normalize_discipline,
     pumsam_filename,
 )
 from app.electric_pumsam_data import ELECTRIC_RULES, ELECTRIC_TRADE_GUIDE, electric_pumsam_rows
+from app.telecom_pumsam_data import TELECOM_RULES, TELECOM_TRADE_GUIDE, telecom_pumsam_rows
 from app.paths import (
     bundled_data_dir,
     ensure_result_directory,
@@ -37,6 +39,20 @@ PUMSAM_SHEET_NAME = "품셈표"
 PUMSAM_DB_FILENAME = LEGACY_PUMSAM_FILENAME
 LEGACY_PUMSAM_DB_FILENAME = "품셈표_데이터베이스.xlsx"
 PUMSAM_HEADERS = ["검색키", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
+PUMSAM_DISPLAY_HEADERS = ["키워드", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
+PUMSAM_COLUMN_WIDTHS = (60, 35, 45, 5, 15, 10, 5, 15)
+PUMSAM_DATA_ALIGNS = ("left", "left", "left", "center", "center", "right", "center", "center")
+PUMSAM_ROW_HEIGHT = 20
+GULIM = Font(name="굴림", size=11)
+GULIM_HEADER = Font(name="굴림", size=11, bold=True)
+SKY_BLUE = PatternFill("solid", fgColor="B7DEE8")
+WHITE = PatternFill("solid", fgColor="FFFFFF")
+THIN = Border(
+    left=Side(style="thin", color="000000"),
+    right=Side(style="thin", color="000000"),
+    top=Side(style="thin", color="000000"),
+    bottom=Side(style="thin", color="000000"),
+)
 
 PumsamRow = dict[str, Any]
 
@@ -131,7 +147,7 @@ def ensure_pumsam_database(directory: Path | None = None, discipline: str | None
     disc = normalize_discipline(discipline)
     dest = pumsam_db_path(directory, disc)
     if dest.exists():
-        if disc == ELECTRIC and dest.stat().st_size < 50_000:
+        if dest.stat().st_size < 50_000:
             bundled = bundled_pumsam_path(disc)
             if bundled.exists() and bundled.stat().st_size > dest.stat().st_size:
                 dest.write_bytes(bundled.read_bytes())
@@ -247,33 +263,7 @@ def default_pumsam_rows(discipline: str | None = None) -> list[PumsamRow]:
     disc = normalize_discipline(discipline)
     if disc == ELECTRIC:
         return electric_pumsam_rows()
-    labor = default_labor_name(disc)
-    rows = _conduit_seed_rows(labor)
-    rows.extend(
-        [
-            {
-                "검색키": lookup_key("UTP케이블", "CAT.6"),
-                "명칭": "UTP케이블",
-                "규격": "CAT.6",
-                "단위": "M",
-                "노무명칭": "통신내선공",
-                "품셈": 0.040,
-                "할증%": 100,
-                "품셈근거": "통신4-1",
-            },
-            {
-                "검색키": lookup_key("광케이블", "SM 4C"),
-                "명칭": "광케이블",
-                "규격": "SM 4C",
-                "단위": "M",
-                "노무명칭": "통신케이블공",
-                "품셈": 0.080,
-                "할증%": 100,
-                "품셈근거": "통신4-2",
-            },
-        ]
-    )
-    return rows
+    return telecom_pumsam_rows()
 
 
 def _row_to_dict(values: list[Any]) -> PumsamRow | None:
@@ -293,7 +283,7 @@ def _row_to_dict(values: list[Any]) -> PumsamRow | None:
     }
 
 
-_HEADER_LIKE_NAMES = {"명칭", "품명", "품목", "검색키", "품목명"}
+_HEADER_LIKE_NAMES = {"명칭", "품명", "품목", "검색키", "키워드", "품목명"}
 _GROUP_TITLES = {"공량산출", "품목", "비고"}
 
 
@@ -349,6 +339,8 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
             rate_idx = i
         elif token in {"품셈근거", "근거"}:
             ref_idx = i
+        elif token in {"검색키", "키워드"}:
+            continue
     if name_idx is None:
         name_idx = find_column_index(header, "명칭")
 
@@ -422,6 +414,46 @@ def load_pumsam_database(directory: Path | None = None, discipline: str | None =
     return merge_pumsam_rows(seed, parsed)
 
 
+def _align(kind: str) -> Alignment:
+    return Alignment(horizontal=kind, vertical="center", wrap_text=False)
+
+
+def _style_pumsam_sheet(sheet) -> None:
+    last_row = max(sheet.max_row, 1)
+    last_col = len(PUMSAM_DISPLAY_HEADERS)
+    for row_idx in range(1, last_row + 1):
+        sheet.row_dimensions[row_idx].height = PUMSAM_ROW_HEIGHT
+        is_header = row_idx == 1
+        for col_idx in range(1, last_col + 1):
+            cell = sheet.cell(row_idx, col_idx)
+            cell.font = GULIM_HEADER if is_header else GULIM
+            cell.border = THIN
+            cell.fill = SKY_BLUE if is_header else WHITE
+            if is_header:
+                cell.alignment = _align("center")
+            else:
+                cell.alignment = _align(PUMSAM_DATA_ALIGNS[col_idx - 1])
+            if col_idx == 6 and not is_header and isinstance(cell.value, (int, float)):
+                cell.number_format = "0.000"
+    for col_idx, width in enumerate(PUMSAM_COLUMN_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(col_idx)].width = width
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{get_column_letter(last_col)}{last_row}"
+
+
+def _style_plain_sheet(sheet, widths: list[int]) -> None:
+    last_row = max(sheet.max_row, 1)
+    last_col = max(sheet.max_column, 1)
+    for row_idx in range(1, last_row + 1):
+        sheet.row_dimensions[row_idx].height = PUMSAM_ROW_HEIGHT
+        for col_idx in range(1, last_col + 1):
+            cell = sheet.cell(row_idx, col_idx)
+            cell.font = GULIM
+            cell.alignment = _align("left")
+    for col_idx, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(col_idx)].width = width
+
+
 def save_pumsam_database(
     rows: list[PumsamRow],
     directory: Path | None = None,
@@ -433,9 +465,10 @@ def save_pumsam_database(
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = PUMSAM_SHEET_NAME
-    sheet.append(PUMSAM_HEADERS)
+    sheet.append(list(PUMSAM_DISPLAY_HEADERS))
     for row in rows:
         sheet.append([row.get(col) for col in PUMSAM_HEADERS])
+    _style_pumsam_sheet(sheet)
     if disc == ELECTRIC:
         rules = workbook.create_sheet("적용기준")
         rules.append(["적용 기준"])
@@ -444,9 +477,31 @@ def save_pumsam_database(
         trades = workbook.create_sheet("공종별인부")
         for guide_row in ELECTRIC_TRADE_GUIDE:
             trades.append(list(guide_row))
-        rules.column_dimensions["A"].width = 90
-        for col, width in enumerate([28, 14, 28, 12, 18, 12, 48], start=1):
-            trades.column_dimensions[chr(64 + col)].width = width
+        _style_plain_sheet(rules, [90])
+        _style_plain_sheet(trades, [28, 14, 28, 12, 18, 12, 48])
+        trades.row_dimensions[1].height = PUMSAM_ROW_HEIGHT
+        for col_idx in range(1, 8):
+            cell = trades.cell(1, col_idx)
+            cell.font = GULIM_HEADER
+            cell.fill = SKY_BLUE
+            cell.alignment = _align("center")
+            cell.border = THIN
+    else:
+        rules = workbook.create_sheet("적용기준")
+        rules.append(["적용 기준"])
+        for line in TELECOM_RULES:
+            rules.append([line])
+        trades = workbook.create_sheet("공종별인부")
+        for guide_row in TELECOM_TRADE_GUIDE:
+            trades.append(list(guide_row))
+        _style_plain_sheet(rules, [90])
+        _style_plain_sheet(trades, [28, 14, 28, 12, 18, 12, 48])
+        for col_idx in range(1, 8):
+            cell = trades.cell(1, col_idx)
+            cell.font = GULIM_HEADER
+            cell.fill = SKY_BLUE
+            cell.alignment = _align("center")
+            cell.border = THIN
     workbook.save(path)
     workbook.close()
     return path

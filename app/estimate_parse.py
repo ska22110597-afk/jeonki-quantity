@@ -9,6 +9,7 @@ from typing import Any
 
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.paths import is_allowed_excel
+from app.pumsam_text import lookup_measure
 
 HEADER_ALIASES = {
     "명칭": ("명칭", "품명", "품목", "자재명", "항목"),
@@ -156,9 +157,9 @@ def is_section_row(name: Any, spec: Any, unit: Any) -> bool:
 
 
 def lookup_key(name: Any, spec: Any) -> str:
-    """품셈표 검색용. 공백을 없애 명칭+규격을 붙인다."""
-    left = "" if name is None else str(name)
-    right = "" if spec is None else str(spec)
+    """품셈표 검색용. 공백을 없애 명칭+규격을 붙인다. ㎟·mm2 는 같은 키로 본다."""
+    left = lookup_measure("" if name is None else str(name))
+    right = lookup_measure("" if spec is None else str(spec))
     return "".join(ch for ch in f"{left}{right}" if not ch.isspace())
 
 

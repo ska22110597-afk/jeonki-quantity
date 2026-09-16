@@ -16,6 +16,7 @@ import json
 
 from app.estimate_parse import lookup_key
 from app.paths import bundled_data_dir
+from app.pumsam_text import clean_spec_unit, display_spec
 
 PumsamRow = dict[str, object]
 
@@ -29,6 +30,8 @@ def _row(
     rate: int,
     ref: str,
 ) -> PumsamRow:
+    spec = display_spec(spec)
+    unit = display_spec(unit) if unit else unit
     return {
         "검색키": lookup_key(name, spec),
         "명칭": name,
@@ -68,12 +71,10 @@ def _hi_specs(mm: int) -> tuple[str, ...]:
 
 
 def _area_specs(label: str) -> tuple[str, ...]:
-    """mm2 표기를 단가대비표에서 자주 쓰는 ㎟·mm² 로도 넣는다."""
-    specs = [label]
-    if " mm2" in label:
-        specs.append(label.replace(" mm2", "㎟"))
-        specs.append(label.replace(" mm2", " mm²"))
-    return tuple(specs)
+    """단면적은 ㎟ 한 가지로 적는다. 검색은 mm2·mm² 도 같은 키로 맞춘다."""
+    from app.pumsam_text import display_spec
+
+    return (display_spec(label.replace(" mm2", " ㎟")),)
 
 
 # 5-1 전선관 배관. 콘크리트 매입, 내선전공 인/m.
@@ -593,18 +594,19 @@ ELECTRIC_TRADE_GUIDE = [
 
 
 def _spec_variants(spec: str) -> list[str]:
-    text = str(spec or "").strip()
+    import re
+
+    from app.pumsam_text import clean_spec_unit
+
+    text, _ = clean_spec_unit(spec, "")
     if not text:
         return []
     alts = [text]
-    swapped = (
-        text.replace("ｍ", "m")
-        .replace("㎜", "mm")
-        .replace("㎟", "mm2")
-        .replace("㎞", "km")
-    )
-    if swapped not in alts:
-        alts.append(swapped)
+    capacity = re.search(r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*kVA)", text, re.I)
+    if capacity and "이하" not in text:
+        compact = f"{capacity.group(1)} 이하"
+        if compact not in alts:
+            alts.append(compact)
     return alts
 
 
@@ -629,10 +631,11 @@ def book_pumsam_rows() -> list[PumsamRow]:
             qty_f = float(qty)
         except (TypeError, ValueError):
             continue
+        spec_text, unit = clean_spec_unit(str(item.get("규격") or ""), unit)
         for name in names:
             if not name or not labor:
                 continue
-            for spec in _spec_variants(str(item.get("규격") or "")):
+            for spec in _spec_variants(spec_text):
                 rows.append(_row(name, spec, unit, labor, qty_f, rate, ref))
     return rows
 

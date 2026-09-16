@@ -75,3 +75,46 @@ def test_exposed_conduit_keeps_base_qty_and_120_rate() -> None:
     assert matched[0]["품셈"] == 0.46
     assert matched[0]["할증%"] == 120
     assert labor_qty_formula(matched[0]) == "=0.46*1.2"
+
+
+def test_square_mm_lookup_matches_mm2_and_mm2_display_is_unified() -> None:
+    rows = default_pumsam_rows()
+    by_mark = match_pumsam("HIV전선", "14 ㎟", rows)
+    by_ascii = match_pumsam("HIV전선", "14 mm2", rows)
+    assert by_mark
+    assert by_ascii
+    assert {row["노무명칭"] for row in by_mark} == {row["노무명칭"] for row in by_ascii}
+    assert all("mm2" not in str(row.get("규격") or "").lower() for row in by_mark)
+
+
+def test_ditto_and_dash_are_interpreted_from_book() -> None:
+    rows = default_pumsam_rows()
+    buried = match_pumsam("지중 케이블 인력 설치", "154 kV OF 케이블 1200 ㎟ 이하", rows)
+    jobs = {row.get("노무명칭"): row for row in buried}
+    assert jobs["전기공사기사"]["품셈"] == 4.21
+    assert jobs["특고압케이블전공"]["품셈"] == 78.75
+    assert jobs["특별인부"]["품셈"] == 81.13
+    assert all("〃" not in str(row.get("규격")) for row in buried)
+    oil = match_pumsam("OF 케이블 급유장치 설치", "급유관 설치", rows)
+    assert oil
+    assert {row.get("노무명칭") for row in oil} == {"특고압케이블전공"}
+    assert oil[0]["단위"] == "m"
+    assert oil[0]["품셈"] == 0.19
+    assert not str(oil[0]["규격"]).endswith("-")
+
+
+def test_telecom_book_and_conduit_aliases() -> None:
+    rows = default_pumsam_rows("통신")
+    assert len(rows) > 500
+    jobs = {str(row.get("노무명칭")) for row in rows}
+    assert "통신내선공" in jobs
+    assert "통신케이블공" in jobs
+    names = {str(row.get("명칭")) for row in rows}
+    assert "합성수지 전선관" in names or "경질비닐전선관" in names
+    buried = match_pumsam("경질비닐전선관_지중", "HI 16 mm", rows)
+    assert buried
+    assert buried[0]["노무명칭"] == "통신내선공"
+    assert buried[0]["할증%"] == 70
+    utp = match_pumsam("UTP케이블", "CAT.6", rows)
+    assert utp
+    assert utp[0]["노무명칭"] == "통신내선공"

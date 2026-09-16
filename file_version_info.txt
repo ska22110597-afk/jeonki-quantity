@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-        filevers=(1, 12, 0, 0),
-    prodvers=(1, 12, 0, 0),
+        filevers=(1, 13, 0, 0),
+    prodvers=(1, 13, 0, 0),
     mask=0x3F,
     flags=0x0,
     OS=0x40004,
@@ -17,12 +17,12 @@ VSVersionInfo(
         u'041204B0',
         [StringStruct(u'CompanyName', u'박남석'),
         StringStruct(u'FileDescription', u'제작자_박남석 자동 내역서식 프로그램'),
-        StringStruct(u'FileVersion', u'1.12.0.0'),
+         StringStruct(u'FileVersion', u'1.13.0.0'),
         StringStruct(u'InternalName', u'GongryangCalc'),
         StringStruct(u'LegalCopyright', u''),
         StringStruct(u'OriginalFilename', u'GongryangCalc.exe'),
-        StringStruct(u'ProductName', u'제작자_박남석 자동 내역서식 프로그램 v1.12'),
-        StringStruct(u'ProductVersion', u'1.12.0.0')])
+         StringStruct(u'ProductName', u'제작자_박남석 자동 내역서식 프로그램 v1.13'),
+         StringStruct(u'ProductVersion', u'1.13.0.0')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [0x0412, 1200])])
   ]
