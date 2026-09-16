@@ -28,9 +28,11 @@ from app.items import LineItem
 from app.pumsam import (
     PumsamRow,
     format_pumsam_ref,
+    labor_kind_text,
     match_pumsam as match_pumsam_rows,
     pumsam_qty_value,
     pumsam_rate_value,
+    pumsam_surcharge_note,
 )
 from app.wages import WAGES_SHEET_NAME, WageRow
 
@@ -227,7 +229,7 @@ def write_ilwidae_sheet(
         for labor in labors:
             job = labor.get("노무명칭") or fallback_labor
             _set_cell(sheet, cursor, 1, job, font=BODY_FONT)
-            _set_cell(sheet, cursor, 2, "일반공사 직종", font=BODY_FONT)
+            _set_cell(sheet, cursor, 2, labor_kind_text(labor), font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
             _set_cell(sheet, cursor, 4, labor_qty_formula(labor), font=BODY_FONT, align=RIGHT, number_format="0.000")
             job_lit = str(job).replace('"', '""')
@@ -240,7 +242,7 @@ def write_ilwidae_sheet(
             )
             _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
             _cost_totals(sheet, cursor)
-            _set_cell(sheet, cursor, 13, None)
+            _set_cell(sheet, cursor, 13, pumsam_surcharge_note(labor), font=BODY_FONT, align=LEFT)
             labor_rows.append(cursor)
             cursor += 1
 
@@ -270,9 +272,10 @@ def write_ilwidae_sheet(
 
     _apply_sheet_look(sheet, max(cursor, 4), 13, row_height=FORM_ROW_HEIGHT)
     sheet.column_dimensions["A"].width = 40
-    sheet.column_dimensions["B"].width = 18
+    sheet.column_dimensions["B"].width = 28
     sheet.column_dimensions["C"].width = 8
     sheet.column_dimensions["D"].width = 11
-    for col in range(5, 14):
+    for col in range(5, 13):
         sheet.column_dimensions[get_column_letter(col)].width = 14
+    sheet.column_dimensions["M"].width = 24
     return blocks

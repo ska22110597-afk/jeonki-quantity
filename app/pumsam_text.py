@@ -67,6 +67,7 @@ def unify_square_display(text: str) -> str:
     text = text.replace("mm²", "㎟").replace("㎜²", "㎟")
     text = re.sub(r"(?i)(?<=\d)\s*mm2", " ㎟", text)
     text = re.sub(r"(?i)(?<=\d)mm2", "㎟", text)
+    text = re.sub(r"(?i)mm2", "㎟", text)
     text = re.sub(r"㎟이(?!하)", "㎟ 이하", text)
     text = re.sub(r"(\d)\s*㎟", r"\1 ㎟", text)
     text = re.sub(r"㎟(?=\S)", "㎟ ", text)

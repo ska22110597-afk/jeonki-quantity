@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from app.electric_pumsam_data import ELECTRIC_TRADE_GUIDE, _cd_qty, electric_pumsam_rows
-from app.pumsam import default_pumsam_rows, match_pumsam, pumsam_rate_value
+from app.pumsam import (
+    default_pumsam_rows,
+    match_pumsam,
+    pumsam_rate_value,
+    pumsam_surcharge_note,
+)
 from app.ilwidae import labor_qty_formula
 from app.items import LineItem
 
@@ -85,6 +90,69 @@ def test_square_mm_lookup_matches_mm2_and_mm2_display_is_unified() -> None:
     assert by_ascii
     assert {row["노무명칭"] for row in by_mark} == {row["노무명칭"] for row in by_ascii}
     assert all("mm2" not in str(row.get("규격") or "").lower() for row in by_mark)
+
+
+def test_ceiling_이하_uses_smallest_band_and_keeps_all_labors() -> None:
+    rows = default_pumsam_rows()
+    wire = match_pumsam("HIV전선", "4 ㎟", rows)
+    assert len(wire) == 1
+    assert wire[0]["노무명칭"] == "내선전공"
+    assert "6" in str(wire[0]["규격"])
+    assert "이하" in str(wire[0]["규격"])
+    assert "㎟" in str(wire[0]["규격"])
+    assert wire[0]["품셈"] == 0.010
+
+    exact = match_pumsam("HIV전선", "14 ㎟", rows)
+    assert exact
+    assert "이하" not in str(exact[0]["규격"])
+    assert "14" in str(exact[0]["규격"])
+
+    pole = match_pumsam("콘크리트전주", "7 m", rows)
+    jobs = {row.get("노무명칭") for row in pole}
+    assert "배전전공" in jobs
+    assert "보통인부" in jobs
+    assert all("8" in str(row.get("규격") or "") and "이하" in str(row.get("규격") or "") for row in pole)
+
+    power = match_pumsam("CV케이블", "14 mm2×1C", rows)
+    assert power
+    assert power[0]["노무명칭"] == "저압케이블전공"
+    assert "1C" in str(power[0]["규격"]).replace(" ", "").upper()
+    assert "3C" not in str(power[0]["규격"]).replace(" ", "").upper()
+    buried = match_pumsam("CV케이블_직매", "14 mm2×1C", rows)
+    assert buried[0]["할증%"] == 80
+    assert power[0]["할증%"] == 100
+
+    hfix = match_pumsam("HFIX전선", "4 ㎟", rows)
+    assert hfix
+    assert hfix[0]["노무명칭"] == "내선전공"
+    assert "6" in str(hfix[0]["규격"])
+    assert "이하" in str(hfix[0]["규격"])
+
+
+def test_ceiling_3mm2_and_6mm2_bands_pick_nearest_이상_이하() -> None:
+    rows = [
+        {"명칭": "시험전선", "규격": "3 ㎟ 이하", "노무명칭": "내선전공", "품셈": 0.01, "할증%": 100},
+        {"명칭": "시험전선", "규격": "3 ㎟ 이하", "노무명칭": "보통인부", "품셈": 0.02, "할증%": 100},
+        {"명칭": "시험전선", "규격": "6 ㎟ 이하", "노무명칭": "내선전공", "품셈": 0.03, "할증%": 100},
+        {"명칭": "시험전선", "규격": "6 ㎟ 이하", "노무명칭": "보통인부", "품셈": 0.04, "할증%": 100},
+    ]
+    four = match_pumsam("시험전선", "4 ㎟", rows)
+    assert {row.get("노무명칭") for row in four} == {"내선전공", "보통인부"}
+    assert all("6" in str(row.get("규격") or "") and "이하" in str(row.get("규격") or "") for row in four)
+    three = match_pumsam("시험전선", "3 ㎟", rows)
+    assert {row.get("노무명칭") for row in three} == {"내선전공", "보통인부"}
+    assert all(str(row.get("규격") or "").startswith("3") and "이하" in str(row.get("규격") or "") for row in three)
+    assert all("6" not in str(row.get("규격") or "") for row in three)
+
+
+def test_pumsam_qty_is_raw_and_surcharge_is_separate() -> None:
+    rows = default_pumsam_rows()
+    exposed = match_pumsam("경질비닐전선관_노출", "HI 104 mm", rows)
+    assert exposed[0]["품셈"] == 0.46
+    assert exposed[0]["할증%"] == 120
+    assert pumsam_rate_value(exposed[0]) == 1.2
+    assert labor_qty_formula(exposed[0]) == "=0.46*1.2"
+    assert pumsam_surcharge_note(exposed[0]) == "품셈 0.460 · 할증 120%"
 
 
 def test_ditto_and_dash_are_interpreted_from_book() -> None:

@@ -5,7 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication, QFrame, QLabel
+from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QProgressDialog
 
 from app.main_window import MainWindow
 from app.paths import display_result_directory
@@ -63,6 +63,38 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.confirm_box.isChecked() is False
         assert window.run_button.isEnabled() is False
         assert window.compare_drop._title.text() == "단가대비표"
+    finally:
+        window.close()
+        if app is not None:
+            app.processEvents()
+
+
+def test_busy_dialog_tells_user_not_to_click_again() -> None:
+    QSettings("전기공사공량산출", "GongryangCalc").clear()
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    try:
+        dialog = window._open_busy_dialog()
+        try:
+            assert isinstance(dialog, QProgressDialog)
+            assert dialog.windowTitle() == "작업 중"
+            assert "만드는 중" in dialog.labelText()
+            assert "다시 누르지" in dialog.labelText()
+            assert dialog.minimum() == 0
+            assert dialog.maximum() == 0
+        finally:
+            dialog.close()
+        window._lock_run_ui()
+        try:
+            assert window._busy is True
+            assert window.run_button.isEnabled() is False
+            assert "누르지 마세요" in window.run_button.text()
+            window._refresh_run_enabled()
+            assert window.run_button.isEnabled() is False
+        finally:
+            window._unlock_run_ui()
+        assert window._busy is False
+        assert window.run_button.text() == "산출 및 저장"
     finally:
         window.close()
         if app is not None:

@@ -7,6 +7,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPixmap
 from PyQt6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QFileDialog,
@@ -16,6 +17,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSizePolicy,
     QStatusBar,
@@ -259,6 +261,7 @@ class MainWindow(QMainWindow):
         self._rev_estimate_path: Path | None = None
         self._rev_ilwidae_path: Path | None = None
         self._qty_estimate_path: Path | None = None
+        self._busy = False
         self._build_ui()
         self._refresh_run_enabled()
 
@@ -578,8 +581,29 @@ class MainWindow(QMainWindow):
         self.log.append(message)
 
     def _refresh_run_enabled(self) -> None:
+        if self._busy:
+            self.run_button.setEnabled(False)
+            return
         ready = self._has_input() and self.confirm_box.isChecked()
         self.run_button.setEnabled(ready)
+
+    def _lock_run_ui(self) -> None:
+        self._busy = True
+        self.run_button.setEnabled(False)
+        self.run_button.setText("작업 중 — 누르지 마세요")
+        self.reset_button.setEnabled(False)
+        self.browse_button.setEnabled(False)
+        self.confirm_box.setEnabled(False)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+    def _unlock_run_ui(self) -> None:
+        QApplication.restoreOverrideCursor()
+        self.run_button.setText("산출 및 저장")
+        self.reset_button.setEnabled(True)
+        self.browse_button.setEnabled(True)
+        self.confirm_box.setEnabled(True)
+        self._busy = False
+        self._refresh_run_enabled()
 
     def _has_input(self) -> bool:
         return self._has_forward() or self._has_reverse() or self._has_quantity()
@@ -694,7 +718,30 @@ class MainWindow(QMainWindow):
         self._append_log(f"공량산출 일위대가목록 로드 대기: {path}")
         self._refresh_run_enabled()
 
+    def _open_busy_dialog(self) -> QProgressDialog:
+        dialog = QProgressDialog(
+            "산출 파일을 만드는 중입니다.\n끝날 때까지 버튼을 다시 누르지 마세요.",
+            None,
+            0,
+            0,
+            self,
+        )
+        dialog.setWindowTitle("작업 중")
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        dialog.setMinimumDuration(0)
+        dialog.setCancelButton(None)
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        QApplication.processEvents()
+        return dialog
+
     def _on_run(self) -> None:
+        if self._busy:
+            return
         if not self._has_input():
             QMessageBox.warning(self, "파일 없음", "단가대비표 또는 일위대가목록을 먼저 놓아 주세요.")
             return
@@ -719,7 +766,7 @@ class MainWindow(QMainWindow):
             if "onedrive" in str(dest_dir).lower():
                 self._append_log("알림: 선택한 폴더가 OneDrive 경로로 보입니다. 가능하면 로컬 폴더를 쓰세요.")
 
-        self.run_button.setEnabled(False)
+        self._lock_run_ui()
         self.statusBar().showMessage("산출 파일을 생성하는 중…")
         discipline = self._selected_discipline()
         self._append_log(f"원본 읽기 전용 · {pumsam_filename(discipline)} · 노임단가 결합 · 결과 엑셀 생성")
@@ -740,6 +787,10 @@ class MainWindow(QMainWindow):
             ilwidae_path = None
             estimate_path = self._qty_estimate_path
 
+        progress = self._open_busy_dialog()
+        dest = None
+        error_title = ""
+        error_text = ""
         try:
             dest = save_result_workbook(
                 dest_dir=dest_dir,
@@ -752,14 +803,20 @@ class MainWindow(QMainWindow):
         except ResultDirectoryError as exc:
             self._append_log(f"저장 폴더 오류: {exc}")
             self.statusBar().showMessage("저장 폴더 오류")
-            QMessageBox.critical(self, "저장 폴더 오류", str(exc))
-            self._refresh_run_enabled()
-            return
+            error_title, error_text = "저장 폴더 오류", str(exc)
         except Exception as exc:  # noqa: BLE001 — GUI에서 사용자 메시지로 보여 준다.
             self._append_log(f"실패: {exc}")
             self.statusBar().showMessage("실패")
-            QMessageBox.critical(self, "처리 실패", str(exc))
-            self._refresh_run_enabled()
+            error_title, error_text = "처리 실패", str(exc)
+        finally:
+            progress.close()
+            QApplication.processEvents()
+            self._unlock_run_ui()
+
+        if error_title:
+            QMessageBox.critical(self, error_title, error_text)
+            return
+        if dest is None:
             return
 
         originals = [

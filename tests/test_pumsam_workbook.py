@@ -4,6 +4,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
+from app.estimate_parse import display_keyword
 from app.pumsam import (
     PUMSAM_COLUMN_WIDTHS,
     PUMSAM_DISPLAY_HEADERS,
@@ -48,5 +49,45 @@ def test_pumsam_workbook_layout_electric_and_telecom(tmp_path: Path) -> None:
                 assert sheet.column_dimensions[letter].width == width
             assert "적용기준" in workbook.sheetnames
             assert "공종별인부" in workbook.sheetnames
+            rules = [workbook["적용기준"].cell(row, 1).value for row in range(1, 40)]
+            assert any(value and "품셈 칸은 표준품셈 원표" in str(value) for value in rules)
         finally:
             workbook.close()
+
+
+def test_keyword_column_uses_square_mm_not_ascii(tmp_path: Path) -> None:
+    assert "㎟" in display_keyword("HIV전선", "14 mm2")
+    assert "mm2" not in display_keyword("HIV전선", "14 mm2").lower()
+    rows = [row for row in default_pumsam_rows() if "HIV전선" in str(row.get("명칭") or "")][:8]
+    path = save_pumsam_database(rows, directory=tmp_path, discipline="전기")
+    workbook = load_workbook(path)
+    try:
+        sheet = workbook["품셈표"]
+        keywords = [sheet.cell(row, 1).value for row in range(2, sheet.max_row + 1)]
+        assert keywords
+        assert any("㎟" in str(value or "") for value in keywords)
+        assert all("mm2" not in str(value or "").lower() for value in keywords)
+        specs = [sheet.cell(row, 3).value for row in range(2, sheet.max_row + 1)]
+        assert all("mm2" not in str(value or "").lower() for value in specs)
+    finally:
+        workbook.close()
+
+
+def test_bundled_pumsam_keyword_uses_square_mm() -> None:
+    from app.paths import bundled_data_dir
+
+    path = bundled_data_dir() / "전기_표준품셈.xlsx"
+    if not path.exists():
+        return
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook.active
+        keywords = []
+        for row in sheet.iter_rows(min_row=2, max_col=1, values_only=True):
+            keywords.append(row[0])
+            if len(keywords) >= 400:
+                break
+        assert any("㎟" in str(value or "") for value in keywords)
+        assert all("mm2" not in str(value or "").lower() for value in keywords)
+    finally:
+        workbook.close()

@@ -11,12 +11,14 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.estimate_parse import (
+    display_keyword,
     find_column_index,
     find_header_row,
     header_row_span,
     lookup_key,
     normalize_header,
 )
+from app.pumsam_text import display_spec, lookup_measure
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.discipline import (
     ELECTRIC,
@@ -92,12 +94,121 @@ def pumsam_rate_value(row: PumsamRow) -> float:
     return number
 
 
+_SIZE_RE = re.compile(
+    r"(?P<num>\d+(?:\.\d+)?)\s*(?P<unit>mm2|cm2|kva|kv|mm|cm|m|a|p|w)\s*(?P<qual>이하|초과|미만|이상)?",
+    re.I,
+)
+_PREFERRED_SIZE_UNITS = {"mm2", "cm2", "kva", "kv", "a", "p", "mm"}
+
+
+def _compact_stem(text: str) -> str:
+    text = (
+        str(text or "")
+        .replace("×", "x")
+        .replace("✕", "x")
+        .replace("＊", "x")
+        .replace("*", "x")
+        .replace("Ｘ", "x")
+        .replace("ｘ", "x")
+    )
+    return "".join(ch for ch in text if not ch.isspace()).lower()
+
+
+def spec_match_parts(spec: Any) -> tuple[float | None, str, str, str]:
+    """규격에서 (숫자, 단위, 이하/초과, 나머지 말)을 뽑는다. 검색용 단위는 mm2."""
+    text = lookup_measure(display_spec(spec or ""))
+    matches = list(_SIZE_RE.finditer(text))
+    if not matches:
+        return None, "", "", _compact_stem(text)
+
+    chosen = None
+    for match in matches:
+        if (match.group("qual") or "") == "이하":
+            chosen = match
+            break
+    if chosen is None:
+        for match in reversed(matches):
+            if match.group("unit").lower() in _PREFERRED_SIZE_UNITS:
+                chosen = match
+                break
+    if chosen is None:
+        chosen = matches[-1]
+
+    size = float(chosen.group("num"))
+    unit = chosen.group("unit").lower()
+    qual = (chosen.group("qual") or "").strip()
+    stem = _compact_stem(text[: chosen.start()] + text[chosen.end() :])
+    return size, unit, qual, stem
+
+
+def _match_pumsam_ceiling(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """딱 맞는 규격이 없으면, 같은 명칭의 가장 작은 「이하」 구간을 쓴다. 4㎟ → 6㎟ 이하."""
+    name_key = lookup_key(name, "")
+    item_size, item_unit, _, item_stem = spec_match_parts(spec)
+    if not name_key or item_size is None or not item_unit:
+        return []
+
+    by_threshold: dict[float, dict[str, list[PumsamRow]]] = {}
+    for row in rows:
+        if lookup_key(row.get("명칭"), "") != name_key:
+            continue
+        book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
+        if book_qual != "이하" or book_size is None or book_unit != item_unit:
+            continue
+        if book_stem != item_stem:
+            continue
+        if book_size + 1e-9 < item_size:
+            continue
+        spec_key = lookup_key(row.get("명칭"), row.get("규격"))
+        by_threshold.setdefault(book_size, {}).setdefault(spec_key, []).append(row)
+
+    if not by_threshold:
+        return []
+    best_size = min(by_threshold)
+    groups = by_threshold[best_size]
+    return max(groups.values(), key=len)
+
+
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
-    """같은 명칭·규격의 인부 행만 반환한다. 비슷한 이름(지중/노출)은 끌어오지 않는다."""
+    """같은 명칭·규격의 인부 행을 모두 반환한다. 지중/노출처럼 비슷한 이름은 끌어오지 않는다.
+
+    글자가 똑같으면 그걸 쓰고, 없으면 같은 명칭에서 품목 규격 이상인 가장 작은 「이하」 구간을 쓴다.
+    """
     key = lookup_key(name, spec)
     if not key:
         return []
-    return [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
+    exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
+    if exact:
+        return exact
+    return _match_pumsam_ceiling(name, spec, rows)
+
+
+def surcharge_percent_text(row: PumsamRow) -> str:
+    """할증% 칸을 사람이 읽는 퍼센트 글자로. 품셈 숫자와 섞지 않는다."""
+    raw = row.get("할증%")
+    if raw is None or raw == "":
+        percent = 100.0
+    else:
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            percent = 100.0
+        else:
+            percent = number if number > 5 else number * 100.0
+    if float(percent).is_integer():
+        return str(int(percent))
+    return str(percent)
+
+
+def pumsam_surcharge_note(row: PumsamRow) -> str:
+    """일위대가 비고용. 품셈은 원표 숫자, 할증은 따로."""
+    qty = pumsam_qty_value(row)
+    return f"품셈 {qty:.3f} · 할증 {surcharge_percent_text(row)}%"
+
+
+def labor_kind_text(row: PumsamRow) -> str:
+    """일위대가 인부 규격 칸. 할증을 품셈과 나눠 보여 준다."""
+    return f"일반공사 직종 · 할증 {surcharge_percent_text(row)}%"
 
 
 def labor_names_text(rows: list[PumsamRow]) -> str:
@@ -467,7 +578,15 @@ def save_pumsam_database(
     sheet.title = PUMSAM_SHEET_NAME
     sheet.append(list(PUMSAM_DISPLAY_HEADERS))
     for row in rows:
-        sheet.append([row.get(col) for col in PUMSAM_HEADERS])
+        values = []
+        for col in PUMSAM_HEADERS:
+            if col == "검색키":
+                values.append(display_keyword(row.get("명칭"), row.get("규격")))
+            elif col == "규격":
+                values.append(display_spec(row.get("규격") or "") or row.get("규격"))
+            else:
+                values.append(row.get(col))
+        sheet.append(values)
     _style_pumsam_sheet(sheet)
     if disc == ELECTRIC:
         rules = workbook.create_sheet("적용기준")

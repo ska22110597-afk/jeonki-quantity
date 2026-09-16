@@ -9,7 +9,7 @@ from typing import Any
 
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.paths import is_allowed_excel
-from app.pumsam_text import lookup_measure
+from app.pumsam_text import display_spec, lookup_measure
 
 HEADER_ALIASES = {
     "명칭": ("명칭", "품명", "품목", "자재명", "항목"),
@@ -161,6 +161,14 @@ def lookup_key(name: Any, spec: Any) -> str:
     left = lookup_measure("" if name is None else str(name))
     right = lookup_measure("" if spec is None else str(spec))
     return "".join(ch for ch in f"{left}{right}" if not ch.isspace())
+
+
+def display_keyword(name: Any, spec: Any) -> str:
+    """엑셀 키워드 칸. 공백 없이 명칭+규격, 제곱밀리미터는 ㎟."""
+    left = display_spec("" if name is None else str(name))
+    right = display_spec("" if spec is None else str(spec))
+    joined = display_spec(f"{left} {right}")
+    return "".join(ch for ch in joined if not ch.isspace())
 
 
 def concat_key(name: Any, spec: Any) -> str:

@@ -32,6 +32,7 @@ from app.pumsam import (
     import_pumsam_file,
     load_pumsam_database,
     merge_pumsam_rows,
+    pumsam_surcharge_note,
     rows_from_grid,
     save_pumsam_database,
 )
@@ -398,7 +399,7 @@ def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
             row.get("품셈"),
             row.get("할증%"),
             row.get("품셈근거"),
-            None,
+            pumsam_surcharge_note(row),
         ]
         for c_idx, value in enumerate(values, start=1):
             align = CENTER if c_idx in (3, 4, 7) else LEFT
@@ -431,7 +432,7 @@ def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
     sheet.column_dimensions["F"].width = 10
     sheet.column_dimensions["G"].width = 10
     sheet.column_dimensions["H"].width = 12
-    sheet.column_dimensions["I"].width = 10
+    sheet.column_dimensions["I"].width = 28
 
 
 def _pick(row: list[Any], index: int | None) -> Any:

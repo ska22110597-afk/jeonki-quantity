@@ -180,6 +180,23 @@ def test_match_pumsam_keeps_two_labors() -> None:
     assert len(matched) == 2
 
 
+def test_write_ilwidae_puts_both_labors_and_surcharge_note() -> None:
+    from app.ilwidae import write_ilwidae_sheet
+
+    workbook = Workbook()
+    sheet = workbook.active
+    item = LineItem(excel_row=5, name="배선용단자함", spec="10 P 이하", unit="대", qty=1, material_price=1)
+    blocks = write_ilwidae_sheet(sheet, [item], default_pumsam_rows(), default_wage_rows())
+    jobs = [sheet.cell(row, 1).value for row in blocks[0].labor_rows]
+    assert "내선전공" in jobs
+    assert "보통인부" in jobs
+    notes = [str(sheet.cell(row, 13).value or "") for row in blocks[0].labor_rows]
+    assert all("품셈" in note and "할증" in note for note in notes)
+    kinds = [str(sheet.cell(row, 2).value or "") for row in blocks[0].labor_rows]
+    assert all("할증" in kind for kind in kinds)
+    workbook.close()
+
+
 def test_unmatched_pumsam_does_not_use_similar_names() -> None:
     item = LineItem(excel_row=5, name="특수커넥터함", spec="일반", unit="개", qty=1, material_price=1)
     assert match_pumsam(item, default_pumsam_rows()) == []
@@ -408,8 +425,9 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
         names = [ilwidae.cell(r, 1).value for r in range(1, 40)]
         assert "통신내선공" in names
         assert "내선전공" not in names
-        remarks = [ilwidae.cell(r, 13).value for r in range(5, 40)]
-        assert any(str(value or "").replace(" ", "") == "전기5-1" for value in remarks)
+        remarks = [str(ilwidae.cell(r, 13).value or "").replace(" ", "") for r in range(5, 40)]
+        assert any(value in {"전기5-1", "통신3-1-1"} for value in remarks)
+        assert any("할증" in str(ilwidae.cell(r, 13).value or "") for r in range(5, 40))
         assert QUANTITY_SHEET_NAME not in result.sheetnames
     finally:
         result.close()
