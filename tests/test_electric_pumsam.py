@@ -21,7 +21,30 @@ def test_electric_pumsam_covers_places_and_trades() -> None:
     assert "내선전공" in jobs
     assert "보통인부" in jobs
     assert "저압케이블전공" in jobs
+    assert "배전전공" in jobs
+    assert "변전전공" in jobs
+    assert "송전전공" in jobs
+    assert "계장공" in jobs
+    assert any("콘크리트전주" in n for n in names)
+    assert any("변압기" in n for n in names)
+    assert any(str(row.get("품셈근거") or "").startswith("전기2-") for row in rows)
+    assert any(str(row.get("품셈근거") or "").startswith("전기3-") for row in rows)
+    assert any(str(row.get("품셈근거") or "").startswith("전기4-") for row in rows)
+    assert any(str(row.get("품셈근거") or "").startswith("전기6-") for row in rows)
+    assert any(str(row.get("품셈근거") or "").startswith("전기7-") for row in rows)
     assert all(row[0] for row in ELECTRIC_TRADE_GUIDE)
+
+
+def test_distribution_pole_and_transformer_labors() -> None:
+    rows = default_pumsam_rows()
+    pole = match_pumsam("콘크리트전주", "8 m 이하", rows)
+    jobs = {row.get("노무명칭") for row in pole}
+    assert "배전전공" in jobs
+    assert "보통인부" in jobs
+    tr = match_pumsam("22 kV 변압기 설치", "100 kVA 이하", rows)
+    tr_jobs = {row.get("노무명칭") for row in tr}
+    assert "변전전공" in tr_jobs
+    assert "특별인부" in tr_jobs
 
 
 def test_cd_is_80_percent_of_resin_under_100mm() -> None:
