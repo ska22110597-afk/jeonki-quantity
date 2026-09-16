@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +41,7 @@ CD_FITTING_RATE = 0.40
 CONDUIT_FITTING_RATE = 0.15
 SUNDRY_RATE = 0.02
 TOOL_RATE = 0.03
+HO_TITLE_RE = re.compile(r"\(\s*호표\s*\d+\s*\)")
 
 
 @dataclass
@@ -83,6 +85,102 @@ def labor_qty_formula(row: PumsamRow) -> str:
     qty = pumsam_qty_value(row)
     rate = pumsam_rate_value(row)
     return f"={qty}*{rate}"
+
+
+def quantity_ilwidae_refs(blocks: list[IlwidaeBlock]) -> list[tuple[str, int, list[int]]]:
+    """공량산출서가 일위대가 호표를 찾을 때 쓰는 (키, 자재행, 인부행들)."""
+    return [(block.item.key, block.material_row, list(block.labor_rows)) for block in blocks]
+
+
+def renumber_ilwidae_ho(sheet: Worksheet) -> int:
+    """시트에 적힌 호표를 위에서부터 1, 2, 3… 순서로 다시 붙인다."""
+    count = 0
+    for row in range(1, (sheet.max_row or 1) + 1):
+        cell = sheet.cell(row, 1)
+        value = cell.value
+        if not isinstance(value, str) or "호표" not in value:
+            continue
+        count += 1
+        label = f"( 호표 {count} )"
+        if HO_TITLE_RE.search(value):
+            cell.value = HO_TITLE_RE.sub(label, value, count=1)
+        else:
+            cell.value = re.sub(r"호표\s*\d+", f"호표 {count}", value, count=1)
+    return count
+
+
+def parse_ilwidae_blocks(sheet: Worksheet) -> list[IlwidaeBlock]:
+    """이미 적힌 일위대가 시트에서 호표 구간을 읽는다."""
+    blocks: list[IlwidaeBlock] = []
+    title_row: int | None = None
+    material_row: int | None = None
+    labor_rows: list[int] = []
+    name: Any = None
+    spec: Any = None
+    ho_no = 0
+
+    def flush(sum_row: int | None = None) -> None:
+        nonlocal title_row, material_row, labor_rows, name, spec, ho_no
+        if title_row is None or material_row is None:
+            title_row = None
+            material_row = None
+            labor_rows = []
+            name = None
+            spec = None
+            return
+        ho_no += 1
+        blocks.append(
+            IlwidaeBlock(
+                item=LineItem(
+                    excel_row=material_row,
+                    name=name,
+                    spec=spec,
+                    unit=None,
+                    qty=None,
+                    material_price=None,
+                ),
+                ho_no=ho_no,
+                title_row=title_row,
+                material_row=material_row,
+                sum_row=sum_row or (labor_rows[-1] + 1 if labor_rows else material_row + 1),
+                labor_rows=list(labor_rows),
+            )
+        )
+        title_row = None
+        material_row = None
+        labor_rows = []
+        name = None
+        spec = None
+
+    for row in range(1, (sheet.max_row or 1) + 1):
+        a = sheet.cell(row, 1).value
+        b = sheet.cell(row, 2).value
+        c = sheet.cell(row, 3).value
+        a_text = str(a).strip() if a not in (None, "") else ""
+        if not a_text and b in (None, ""):
+            continue
+        compact = a_text.replace(" ", "")
+        if "호표" in a_text:
+            if title_row is not None:
+                flush()
+            title_row = row
+            continue
+        if title_row is None:
+            continue
+        if "합계" in compact:
+            flush(sum_row=row)
+            continue
+        unit = str(c).strip() if c not in (None, "") else ""
+        if unit == "인":
+            labor_rows.append(row)
+            continue
+        if material_row is None and a_text:
+            material_row = row
+            name = a
+            spec = b
+    if title_row is not None:
+        flush()
+    return blocks
 
 
 def _write_ilwidae_header(sheet: Worksheet) -> None:
@@ -230,7 +328,7 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 1, job, font=BODY_FONT)
             _set_cell(sheet, cursor, 2, labor_kind_text(labor), font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
-            _set_cell(sheet, cursor, 4, labor_qty_formula(labor), font=BODY_FONT, align=RIGHT, number_format="0.000")
+            _set_cell(sheet, cursor, 4, None, font=BODY_FONT, align=RIGHT, number_format="0.000")
             job_lit = str(job).replace('"', '""')
             _idle_material_expense(sheet, cursor)
             _price(

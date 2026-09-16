@@ -141,6 +141,14 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         names = [pumsam.cell(r, 2).value for r in range(5, pumsam.max_row + 1)]
         assert "경질비닐전선관_지중" in names
         assert str(pumsam["A5"].value).startswith("=CONCATENATE")
+        extra_labor = False
+        for row_idx in range(5, pumsam.max_row + 1):
+            if pumsam.cell(row_idx, 2).value in (None, "") and pumsam.cell(row_idx, 3).value not in (None, ""):
+                extra_labor = True
+                assert pumsam.cell(row_idx, 1).value in (None, "")
+                assert pumsam.cell(row_idx, 5).value not in (None, "")
+                break
+        assert extra_labor
         assert pumsam.row_dimensions[5].height == ROW_HEIGHT
         assert "FFFFFF" in _fill_rgb(pumsam["A3"])
 
@@ -156,8 +164,14 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert qty["F5"].value == "=0"
         assert qty["G5"].value == source_qty_formula("D", 5, ILWIDAE_LIST_SHEET_NAME)
         assert qty["G5"].value == "='일위대가목록'!D5"
-        assert "VLOOKUP" in str(qty["H5"].value)
-        assert "SUMPRODUCT" in str(qty["K5"].value)
+        assert qty["H5"].value in (None, "")
+        assert qty["I5"].value in (None, "")
+        assert qty["J5"].value == 100
+        assert qty["K5"].value == (
+            '=IF(OR(G5="",I5="",G5*I5=0),"",G5*I5*(J5/100))'
+        )
+        assert "VLOOKUP" not in str(qty["H5"].value or "")
+        assert "SUMPRODUCT" not in str(qty["K5"].value or "")
         assert qty["A2"].value == "품목"
         assert "G5" in str(qty["K5"].value)
         assert qty["K5"].number_format == NUMBER_FORMAT

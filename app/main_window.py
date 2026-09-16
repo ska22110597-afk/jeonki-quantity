@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -31,11 +32,7 @@ from app.estimate_parse import list_sheet_titles
 
 from app.drop_zone import DropZone
 from app.excel_io import (
-    COMPARE_SHEET_NAME,
-    ESTIMATE_SHEET_NAME,
     ILWIDAE_LIST_SHEET_NAME,
-    ILWIDAE_SHEET_NAME,
-    QUANTITY_SHEET_NAME,
     save_result_workbook,
 )
 from app.paths import (
@@ -213,7 +210,125 @@ QStatusBar {
     background: #EBE3D4;
     color: #7A6A52;
 }
+QDialog#doneDialog {
+    background: #F4EFE4;
+}
+QFrame#doneHeader {
+    background: #2C281F;
+    border: none;
+}
+QLabel#doneTitle {
+    color: #E8C98A;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
+QFrame#doneGoldBar {
+    background: #D4B896;
+    border: none;
+    max-height: 3px;
+}
+QFrame#doneBody {
+    background: #F4EFE4;
+}
+QLabel#doneCaption {
+    color: #8A7349;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+QLabel#donePath, QLabel#doneRef, QLabel#donePumsam {
+    color: #2C281F;
+    font-size: 13px;
+    font-weight: 600;
+}
+QLabel#doneFoot {
+    color: #7A6A52;
+    font-size: 12px;
+}
+QPushButton#doneOk {
+    background: #2C281F;
+    color: #F7F3EA;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 28px;
+    font-size: 13px;
+    font-weight: 700;
+    min-height: 34px;
+    min-width: 96px;
+}
+QPushButton#doneOk:hover {
+    background: #4A4338;
+}
 """
+
+
+class DoneDialog(QDialog):
+    """산출이 끝났을 때 띄우는 완료 창. 배전함 명판처럼 검정이랑 놋쇠색만 쓴다."""
+
+    def __init__(self, parent: QWidget | None, dest: Path, pumsam_name: str) -> None:
+        super().__init__(parent)
+        self.setObjectName("doneDialog")
+        self.setWindowTitle("서식 생성 완료")
+        self.setModal(True)
+        self.setMinimumWidth(560)
+        self.setStyleSheet(APP_STYLESHEET)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("doneHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(28, 22, 28, 16)
+        header_layout.setSpacing(12)
+        title = QLabel("서식 생성 완료!")
+        title.setObjectName("doneTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(title)
+        gold = QFrame()
+        gold.setObjectName("doneGoldBar")
+        gold.setFixedHeight(3)
+        header_layout.addWidget(gold)
+        layout.addWidget(header)
+
+        body = QFrame()
+        body.setObjectName("doneBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(28, 22, 28, 20)
+        body_layout.setSpacing(6)
+
+        def add_row(caption: str, value: str, value_name: str) -> None:
+            cap = QLabel(f"{caption} :")
+            cap.setObjectName("doneCaption")
+            val = QLabel(value)
+            val.setObjectName(value_name)
+            val.setWordWrap(True)
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            body_layout.addWidget(cap)
+            body_layout.addWidget(val)
+            body_layout.addSpacing(10)
+
+        add_row("파일 저장경로", str(dest), "donePath")
+        add_row("참고 데이터", f"{PUMSAM_SHEET_NAME}, {WAGES_SHEET_NAME}", "doneRef")
+        add_row("사용한 표준품셈", pumsam_name, "donePumsam")
+
+        foot = QLabel("표준품셈·노임단가는 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
+        foot.setObjectName("doneFoot")
+        foot.setWordWrap(True)
+        body_layout.addWidget(foot)
+        body_layout.addSpacing(12)
+
+        ok = QPushButton("확인")
+        ok.setObjectName("doneOk")
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(ok)
+        body_layout.addLayout(btn_row)
+        layout.addWidget(body)
 
 
 class PaperRoot(QWidget):
@@ -835,22 +950,5 @@ class MainWindow(QMainWindow):
             self._append_log(f"원본 보존 확인: {original}")
         self._append_log(f"새 파일 저장: {dest}")
         self.statusBar().showMessage(f"저장 완료 — {dest.name}")
-        if mode == "forward":
-            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_SHEET_NAME} · {ILWIDAE_LIST_SHEET_NAME}"
-        elif mode == "reverse":
-            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_LIST_SHEET_NAME}"
-        else:
-            sheets_line = f"{COMPARE_SHEET_NAME} · {ILWIDAE_SHEET_NAME} · {ILWIDAE_LIST_SHEET_NAME} · {ESTIMATE_SHEET_NAME} · {QUANTITY_SHEET_NAME}"
-        QMessageBox.information(
-            self,
-            "저장 완료",
-            (
-                "원본은 그대로 두었습니다.\n\n"
-                f"결과: {dest}\n\n"
-                f"{sheets_line}\n"
-                f"참고 시트: {PUMSAM_SHEET_NAME}, {WAGES_SHEET_NAME}\n"
-                f"사용한 표준품셈: {pumsam_filename(discipline)}\n"
-                "표준품셈·노임단가는 저장 폴더의 데이터베이스에서 고칠 수 있습니다."
-            ),
-        )
+        DoneDialog(self, dest, pumsam_filename(discipline)).exec()
         self._refresh_run_enabled()

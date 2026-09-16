@@ -9,6 +9,7 @@ from app.electric_pumsam_data import (
     HEAVY_STEEL,
     RESIN_CONDUIT,
     THIN_STEEL,
+    _book_qty,
     _cd_qty,
     _hi_specs,
     _place_rows,
@@ -34,7 +35,7 @@ TELECOM_RULES = [
     "6. CD관·폴리에틸렌관은 합성수지 품의 80%입니다.",
     "7. 전선관·박스·덕트·트레이 → 통신내선공. 광·시내 케이블 → 통신케이블공. 가공·전봇대 → 통신외선공.",
     "8. 명칭이 같고 규격이 같으면 그대로 붙습니다. 후강전선관 = 강제전선관, HI관 = 경질비닐전선관처럼 같은 품 묶음이면 그 이름으로도 찾습니다. 아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춥니다. 딱 맞는 규격이 없고 「이하」 구간만 있으면 품목 규격 이상인 가장 작은 이하 구간을 씁니다. 예: 4㎟ → 6㎟ 이하, 3㎟ → 3㎟ 이하. 지중/노출처럼 다른 말은 끌어오지 않습니다.",
-    "9. 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않은 값입니다. 할증은 할증% 칸에 따로 적습니다. 일위대가 인부 규격은 일반공사 직종만 적고, 비고에는 전기 5-1 같은 적용품만 적습니다. 인부 수량은 품셈×할증% 입니다.",
+    "9. 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않은 값입니다. 할증은 할증% 칸에 따로 적습니다. 일위대가 인부 규격은 일반공사 직종만 적고, 비고에는 전기 5-1 같은 적용품만 적습니다. 일위대가 인부 수량(품)은 비워 두고 엑셀에서 직접 채웁니다.",
     "10. 표에 직종이 두 개면 일위대가 호표에도 둘 다 넣습니다. 표에 없으면 통신내선공 1명만 넣습니다.",
     "11. 같은 명칭·규격에 인부가 여러 명이면 품셈표에서 아래 칸의 키워드·명칭만 비웁니다. 규격은 그대로 둡니다. 인부 행은 지우지 않습니다.",
 ]
@@ -71,13 +72,11 @@ def book_pumsam_rows() -> list[PumsamRow]:
             names.append(short)
         unit = str(item.get("단위") or "").strip() or "식"
         labor = str(item.get("노무명칭") or "").strip()
-        qty = item.get("품셈")
+        qty_f = _book_qty(item.get("품셈"))
+        if qty_f is ValueError:
+            continue
         rate = int(item.get("할증%") or 100)
         ref = str(item.get("품셈근거") or "")
-        try:
-            qty_f = float(qty)
-        except (TypeError, ValueError):
-            continue
         spec_text, unit = clean_spec_unit(str(item.get("규격") or ""), unit)
         for name in names:
             if not name or not labor:

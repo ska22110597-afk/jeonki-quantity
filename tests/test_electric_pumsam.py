@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.electric_pumsam_data import ELECTRIC_TRADE_GUIDE, _cd_qty, electric_pumsam_rows
 from app.pumsam import (
     default_pumsam_rows,
+    has_pumsam_qty,
     match_pumsam,
     pumsam_rate_value,
     pumsam_surcharge_note,
@@ -13,7 +14,7 @@ from app.items import LineItem
 
 def test_electric_pumsam_covers_places_and_trades() -> None:
     rows = electric_pumsam_rows()
-    assert len(rows) > 1000
+    assert len(rows) > 12000
     names = {str(row.get("명칭")) for row in rows}
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "경질비닐전선관" in names
@@ -242,6 +243,19 @@ def test_pumsam_qty_is_raw_and_surcharge_is_separate() -> None:
     assert pumsam_surcharge_note(exposed[0]) == "품셈 0.460 · 할증 120%"
 
 
+def test_match_pumsam_skips_dash_labor() -> None:
+    rows = [
+        {"명칭": "지중 케이블", "규격": "OF 400 ㎟ 이하", "노무명칭": "전기공사기사", "품셈": 3.49, "할증%": 100},
+        {"명칭": "지중 케이블", "규격": "OF 400 ㎟ 이하", "노무명칭": "특별인부", "품셈": None, "할증%": 100},
+        {"명칭": "지중 케이블", "규격": "OF 400 ㎟ 이하", "노무명칭": "특고압케이블전공", "품셈": "-", "할증%": 100},
+    ]
+    matched = match_pumsam("지중 케이블", "OF 400 ㎟ 이하", rows)
+    assert [row.get("노무명칭") for row in matched] == ["전기공사기사"]
+    assert has_pumsam_qty(rows[0]) is True
+    assert has_pumsam_qty(rows[1]) is False
+    assert has_pumsam_qty(rows[2]) is False
+
+
 def test_ditto_and_dash_are_interpreted_from_book() -> None:
     rows = default_pumsam_rows()
     buried = match_pumsam("지중 케이블 인력 설치", "154 kV OF 케이블 1200 ㎟ 이하", rows)
@@ -260,7 +274,7 @@ def test_ditto_and_dash_are_interpreted_from_book() -> None:
 
 def test_telecom_book_and_conduit_aliases() -> None:
     rows = default_pumsam_rows("통신")
-    assert len(rows) > 500
+    assert len(rows) > 10000
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "통신내선공" in jobs
     assert "통신케이블공" in jobs

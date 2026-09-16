@@ -82,6 +82,20 @@ def pumsam_qty_value(row: PumsamRow) -> float:
         return 0.0
 
 
+def has_pumsam_qty(row: PumsamRow) -> bool:
+    """원표에 품 숫자가 있는 인부만 일위대가에 넣는다. '-'·빈칸은 그 직종을 쓰지 않는다는 뜻."""
+    value = row.get("품셈")
+    if value is None or value == "":
+        return False
+    if isinstance(value, str) and value.strip() in {"-", "－", "—", "–"}:
+        return False
+    try:
+        float(str(value).replace(",", ""))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def pumsam_rate_value(row: PumsamRow) -> float:
     value = row.get("할증%")
     if value is None or value == "":
@@ -285,19 +299,19 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
         key = lookup_key(candidate, spec)
         exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
         if exact:
-            return exact
+            return [row for row in exact if has_pumsam_qty(row)]
         same_size = _match_pumsam_same_size(candidate, spec, rows)
         if same_size:
-            return same_size
+            return [row for row in same_size if has_pumsam_qty(row)]
         ceiling = _match_pumsam_ceiling(candidate, spec, rows)
         if ceiling:
-            return ceiling
+            return [row for row in ceiling if has_pumsam_qty(row)]
     compact = lookup_key(name, "").lower()
     if "tray" in compact or "트레이" in compact:
         for candidate in alias_names(name):
             ceiling = _match_pumsam_ceiling(candidate, "1 mm2", rows)
             if ceiling:
-                return ceiling
+                return [row for row in ceiling if has_pumsam_qty(row)]
     return []
 
 
@@ -319,7 +333,9 @@ def surcharge_percent_text(row: PumsamRow) -> str:
 
 
 def pumsam_surcharge_note(row: PumsamRow) -> str:
-    """일위대가 비고용. 품셈은 원표 숫자, 할증은 따로."""
+    """결과 품셈표 비고. 품이 없으면 적지 않는다."""
+    if not has_pumsam_qty(row):
+        return ""
     qty = pumsam_qty_value(row)
     return f"품셈 {qty:.3f} · 할증 {surcharge_percent_text(row)}%"
 
@@ -708,6 +724,18 @@ def _sort_pumsam_rows(rows: list[PumsamRow]) -> list[PumsamRow]:
     )
 
 
+def grouped_pumsam_rows(rows: list[PumsamRow]) -> list[tuple[PumsamRow, bool]]:
+    """같은 명칭·규격의 다음 인부 행은 키워드·명칭만 비운다. 규격은 그대로."""
+    grouped: list[tuple[PumsamRow, bool]] = []
+    prev_key: tuple[str, str] | None = None
+    for row in _sort_pumsam_rows(rows):
+        key = _pumsam_item_key(row)
+        hide_item = prev_key == key and all(key)
+        grouped.append((row, hide_item))
+        prev_key = key
+    return grouped
+
+
 def _sheet_values(row: PumsamRow, *, hide_item: bool) -> list[Any]:
     spec = display_spec(row.get("규격") or "") or row.get("규격")
     return [
@@ -734,12 +762,8 @@ def save_pumsam_database(
     sheet = workbook.active
     sheet.title = PUMSAM_SHEET_NAME
     sheet.append(list(PUMSAM_DISPLAY_HEADERS))
-    prev_key: tuple[str, str] | None = None
-    for row in _sort_pumsam_rows(rows):
-        key = _pumsam_item_key(row)
-        hide_item = prev_key == key and all(key)
+    for row, hide_item in grouped_pumsam_rows(rows):
         sheet.append(_sheet_values(row, hide_item=hide_item))
-        prev_key = key
     _style_pumsam_sheet(sheet)
     if disc == ELECTRIC:
         rules = workbook.create_sheet("적용기준")

@@ -26,7 +26,7 @@ def _row(
     spec: str,
     unit: str,
     labor: str,
-    qty: float,
+    qty: float | None,
     rate: int,
     ref: str,
 ) -> PumsamRow:
@@ -42,6 +42,18 @@ def _row(
         "할증%": rate,
         "품셈근거": ref,
     }
+
+
+def _book_qty(value: object) -> float | None | type[ValueError]:
+    if value is None or value == "":
+        return None
+    text = str(value).strip()
+    if text in {"-", "－", "—", "–"}:
+        return None
+    try:
+        return float(text.replace(",", ""))
+    except (TypeError, ValueError):
+        return ValueError
 
 
 def _place_rows(
@@ -555,7 +567,7 @@ ELECTRIC_RULES = [
     "12. 계기반·계기 → 계장공. 전철 강체·전차선 → 배전전공(표 기준).",
     "13. 배선용단자함·가로등기초·수평도체는 내선전공과 보통인부를 함께 넣습니다. 표에 직종이 두 개면 일위대가 호표에도 둘 다 넣습니다.",
     "14. 명칭이 같고 규격이 글자 그대로 같으면 그대로 붙습니다. 후강전선관 = 강제전선관, HI관 = 경질비닐전선관처럼 같은 품 묶음이면 그 이름으로도 찾습니다. 아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춥니다. 딱 맞는 규격이 없고 「N㎟ 이하」처럼 이하 구간만 있으면, 품목 규격 이상인 가장 작은 이하 구간을 씁니다. 예: 4㎟ → 6㎟ 이하, 3㎟ → 3㎟ 이하. 지중/노출, 1C/3C처럼 다른 말은 끌어오지 않습니다.",
-    "15. 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않은 값입니다. 할증은 할증% 칸에 따로 적습니다. 일위대가 인부 규격은 일반공사 직종만 적고, 비고에는 전기 5-1 같은 적용품만 적습니다. 인부 수량은 품셈×할증% 입니다.",
+    "15. 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않은 값입니다. 할증은 할증% 칸에 따로 적습니다. 일위대가 인부 규격은 일반공사 직종만 적고, 비고에는 전기 5-1 같은 적용품만 적습니다. 일위대가 인부 수량(품)은 비워 두고 엑셀에서 직접 채웁니다.",
     "16. 표에 없는 품목은 전기 내선전공 1명만 넣습니다.",
     "17. 같은 명칭·규격에 인부가 여러 명이면 품셈표에서 아래 칸의 키워드·명칭만 비웁니다. 규격은 그대로 둡니다. 인부 행은 지우지 않습니다.",
 ]
@@ -626,13 +638,11 @@ def book_pumsam_rows() -> list[PumsamRow]:
             names.append(short)
         unit = str(item.get("단위") or "").strip() or "식"
         labor = str(item.get("노무명칭") or "").strip()
-        qty = item.get("품셈")
+        qty_f = _book_qty(item.get("품셈"))
+        if qty_f is ValueError:
+            continue
         rate = int(item.get("할증%") or 100)
         ref = str(item.get("품셈근거") or "")
-        try:
-            qty_f = float(qty)
-        except (TypeError, ValueError):
-            continue
         spec_text, unit = clean_spec_unit(str(item.get("규격") or ""), unit)
         for name in names:
             if not name or not labor:

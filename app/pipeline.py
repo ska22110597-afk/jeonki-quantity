@@ -48,6 +48,9 @@ from app.ilwidae import (
     IlwidaeBlock,
     SUNDRY_RATE,
     TOOL_RATE,
+    parse_ilwidae_blocks,
+    quantity_ilwidae_refs,
+    renumber_ilwidae_ho,
     write_ilwidae_sheet,
 )
 from app.items import LineItem, first_filled, parse_line_items
@@ -656,6 +659,11 @@ def build_result_workbook(
             _write_estimate_sheet(copied, estimate)
             copied.title = qty_title
         pumsam_last = PUMSAM_DATA_START + len(pumsam_rows) - 1 if pumsam_rows else PUMSAM_DATA_START
+        ilwidae_refs: list[tuple[str, int, list[int]]] = []
+        if ILWIDAE_SHEET_NAME in workbook.sheetnames:
+            ilwidae_ws = workbook[ILWIDAE_SHEET_NAME]
+            renumber_ilwidae_ho(ilwidae_ws)
+            ilwidae_refs = quantity_ilwidae_refs(parse_ilwidae_blocks(ilwidae_ws))
         qty = sheets.take(QUANTITY_SHEET_NAME)
         _write_quantity_sheet(
             qty,
@@ -663,6 +671,7 @@ def build_result_workbook(
             pumsam_last,
             pumsam_rows,
             source_sheet_name=qty_title,
+            ilwidae_refs=ilwidae_refs or None,
         )
     else:
         if compare is not None:

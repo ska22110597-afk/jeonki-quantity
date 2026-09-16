@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.estimate_parse import (
     is_section_row,
     is_sundry_form_row,
     load_estimate_sheet,
+    lookup_key,
     read_named_sheet_rows,
     read_workbook_first_sheet,
 )
@@ -29,6 +31,7 @@ from app.pumsam import (
     PUMSAM_SHEET_NAME,
     PumsamRow,
     ensure_all_pumsam_databases,
+    grouped_pumsam_rows,
     import_pumsam_file,
     load_pumsam_database,
     merge_pumsam_rows,
@@ -96,17 +99,36 @@ def source_qty_formula(source_col_letter: str, row: int, sheet_name: str | None 
 
 
 def gongryang_formula(row: int, last_row: int | None = None) -> str:
-    """공량. 품셈표에 인부가 여러 명이면 품셈×할증을 모두 더한다."""
-    if last_row is None:
-        return f'=IF(G{row}*I{row}=0,"",G{row}*I{row}*(J{row}/100))'
-    start = PUMSAM_DATA_START
+    """공량 = 산출수량 × 품셈 × (할증% / 100). last_row는 예전 호출 호환."""
+    del last_row
     return (
-        f'=IF(G{row}=0,"",G{row}*SUMPRODUCT('
-        f"('{PUMSAM_SHEET_NAME}'!$B${start}:$B${last_row}=B{row})*"
-        f"('{PUMSAM_SHEET_NAME}'!$C${start}:$C${last_row}=C{row})*"
-        f"('{PUMSAM_SHEET_NAME}'!$F${start}:$F${last_row})*"
-        f"('{PUMSAM_SHEET_NAME}'!$G${start}:$G${last_row}/100)))"
+        f'=IF(OR(G{row}="",I{row}="",G{row}*I{row}=0),"",'
+        f"G{row}*I{row}*(J{row}/100))"
     )
+
+
+def ilwidae_labor_name_ref(labor_row: int, sheet_name: str = ILWIDAE_SHEET_NAME) -> str:
+    return f"='{sheet_name}'!A{labor_row}"
+
+
+def ilwidae_pumsam_ref(labor_rows: list[int], sheet_name: str = ILWIDAE_SHEET_NAME) -> str | None:
+    """일위대가 인부 수량(품)을 그대로 가져온다. 인부가 여러 명이면 더한다."""
+    if not labor_rows:
+        return None
+    return "=" + "+".join(f"'{sheet_name}'!D{r}" for r in labor_rows)
+
+
+def ilwidae_basis_ref(material_row: int, sheet_name: str = ILWIDAE_SHEET_NAME) -> str:
+    return f"='{sheet_name}'!M{material_row}"
+
+
+def _ilwidae_ref_queues(
+    refs: list[tuple[str, int, list[int]]] | None,
+) -> dict[str, deque[tuple[int, list[int]]]]:
+    queues: dict[str, deque[tuple[int, list[int]]]] = defaultdict(deque)
+    for key, material_row, labor_rows in refs or []:
+        queues[key].append((material_row, list(labor_rows)))
+    return queues
 
 
 def pumsam_vlookup(row: int, col: int, last_row: int) -> str:
@@ -387,12 +409,12 @@ def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
     sheet.merge_cells("I3:I4")
 
     last_data = PUMSAM_DATA_START - 1
-    for offset, row in enumerate(rows):
+    for offset, (row, hide_item) in enumerate(grouped_pumsam_rows(rows)):
         excel_row = PUMSAM_DATA_START + offset
         last_data = excel_row
         values = [
-            concat_formula(excel_row),
-            row.get("명칭"),
+            None if hide_item else concat_formula(excel_row),
+            None if hide_item else row.get("명칭"),
             row.get("규격"),
             row.get("단위"),
             row.get("노무명칭"),
@@ -477,6 +499,8 @@ def _write_quantity_sheet(
     pumsam_last_row: int,
     pumsam_rows: list[PumsamRow] | None = None,
     source_sheet_name: str | None = None,
+    ilwidae_refs: list[tuple[str, int, list[int]]] | None = None,
+    ilwidae_sheet_name: str | None = None,
 ) -> None:
     _unmerge_all(sheet)
     filled = estimate.filled
@@ -489,6 +513,10 @@ def _write_quantity_sheet(
     qty_letter = get_column_letter(qty_idx + 1) if qty_idx is not None else "D"
     data_start = first_data_row_number(filled) if filled else 4
     qty_source = source_sheet_name or estimate.title or ILWIDAE_LIST_SHEET_NAME
+    ilwidae_name = ilwidae_sheet_name or ILWIDAE_SHEET_NAME
+    ilwidae_queues = _ilwidae_ref_queues(ilwidae_refs)
+    _ = pumsam_last_row
+    _ = pumsam_rows
 
     if data_start >= 5:
         write_title_banner(sheet, "공 량 산 출 서", QTY_LAST_COL)
@@ -558,13 +586,25 @@ def _write_quantity_sheet(
             align=RIGHT,
             number_format=QTY_FORMAT,
         )
-        lookup_last = max(pumsam_last_row, PUMSAM_DATA_START)
-        _set_cell(sheet, excel_row, 8, labor_formula(excel_row, lookup_last), align=LEFT)
+        matched: tuple[int, list[int]] | None = None
+        queue = ilwidae_queues.get(lookup_key(name, spec))
+        if queue:
+            matched = queue.popleft()
+        labor_name = None
+        pumsam_cell = None
+        basis = None
+        if matched is not None:
+            material_row, labor_rows = matched
+            if labor_rows:
+                labor_name = ilwidae_labor_name_ref(labor_rows[0], ilwidae_name)
+                pumsam_cell = ilwidae_pumsam_ref(labor_rows, ilwidae_name)
+            basis = ilwidae_basis_ref(material_row, ilwidae_name)
+        _set_cell(sheet, excel_row, 8, labor_name, align=LEFT)
         _set_cell(
             sheet,
             excel_row,
             9,
-            pumsam_formula(excel_row, lookup_last),
+            pumsam_cell,
             align=RIGHT,
             number_format=PUMSAM_FORMAT,
         )
@@ -572,7 +612,7 @@ def _write_quantity_sheet(
             sheet,
             excel_row,
             10,
-            labor_rate_formula(excel_row, lookup_last),
+            100,
             align=RIGHT,
             number_format=RATE_FORMAT,
         )
@@ -580,11 +620,11 @@ def _write_quantity_sheet(
             sheet,
             excel_row,
             11,
-            gongryang_formula(excel_row, lookup_last),
+            gongryang_formula(excel_row),
             align=RIGHT,
             number_format=NUMBER_FORMAT,
         )
-        _set_cell(sheet, excel_row, 12, ref_formula(excel_row, lookup_last), align=LEFT)
+        _set_cell(sheet, excel_row, 12, basis, align=LEFT)
 
     _apply_sheet_look(sheet, last_row, QTY_LAST_COL)
     if data_start >= 5:

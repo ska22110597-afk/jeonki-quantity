@@ -104,8 +104,12 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert "TRUNC" in str(ilwidae["H6"].value)
         assert "G6" in str(ilwidae["H6"].value)
         labor_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "내선전공")
+        assert ilwidae.cell(labor_row, 4).value in (None, "")
         assert ilwidae.cell(labor_row, 5).value == "=0"
         assert f"E{labor_row}" in str(ilwidae.cell(labor_row, 6).value)
+        assert "VLOOKUP" in str(ilwidae.cell(labor_row, 7).value)
+        assert f"G{labor_row}" in str(ilwidae.cell(labor_row, 8).value)
+        assert f"D{labor_row}" in str(ilwidae.cell(labor_row, 8).value)
         assert labor_row == 7
         sum_rows = [
             r
@@ -198,6 +202,9 @@ def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     assert "품셈" not in material_note
     kinds = [str(sheet.cell(row, 2).value or "") for row in blocks[0].labor_rows]
     assert all(kind == "일반공사 직종" for kind in kinds)
+    assert all(sheet.cell(row, 4).value in (None, "") for row in blocks[0].labor_rows)
+    assert all("VLOOKUP" in str(sheet.cell(row, 7).value or "") for row in blocks[0].labor_rows)
+    assert all(f"D{row}" in str(sheet.cell(row, 8).value or "") for row in blocks[0].labor_rows)
     workbook.close()
 
 
@@ -263,7 +270,9 @@ def test_unmatched_item_gets_one_fallback_labor(tmp_path: Path) -> None:
         assert "보통인부" not in jobs
         labor_row = title + 2
         assert ilwidae.cell(labor_row, 1).value == "내선전공"
-        assert str(ilwidae.cell(labor_row, 4).value).startswith("=0")
+        assert ilwidae.cell(labor_row, 4).value in (None, "")
+        assert "VLOOKUP" in str(ilwidae.cell(labor_row, 7).value)
+        assert f"D{labor_row}" in str(ilwidae.cell(labor_row, 8).value)
     finally:
         result.close()
 
@@ -487,8 +496,12 @@ def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
         assert "1. 전열설비공사" in names
         assert names.index("1. 전기공사") < names.index("강제전선관") < names.index("1. 전열설비공사")
         assert qty["B8"].value == "경질비닐전선관"
-        assert "VLOOKUP" in str(qty["H8"].value)
-        assert "SUMPRODUCT" in str(qty["K8"].value)
+        assert qty["H8"].value in (None, "")
+        assert qty["I8"].value in (None, "")
+        assert qty["J8"].value == 100
+        assert "G8*I8*(J8/100)" in str(qty["K8"].value)
+        assert "VLOOKUP" not in str(qty["H8"].value or "")
+        assert "SUMPRODUCT" not in str(qty["K8"].value or "")
         assert qty["A3"].value == "품목"
     finally:
         result.close()
@@ -644,7 +657,9 @@ def test_quantity_skips_sundry_form_formulas(tmp_path: Path) -> None:
     try:
         qty = result[QUANTITY_SHEET_NAME]
         assert qty["B6"].value == "강제전선관"
-        assert "VLOOKUP" in str(qty["H6"].value)
+        assert qty["H6"].value in (None, "")
+        assert qty["I6"].value in (None, "")
+        assert "G6*I6*(J6/100)" in str(qty["K6"].value)
         assert qty["B8"].value == "[ 배관 부속재 ]"
         assert qty["C8"].value == "전선관의 15 %"
         assert qty["H8"].value in (None, "")
@@ -675,7 +690,31 @@ def test_quantity_keeps_compare_and_ilwidae_from_forward_result(tmp_path: Path) 
         compare = result[COMPARE_SHEET_NAME]
         assert compare["A5"].value == "경질비닐전선관_지중"
         ilwidae = result[ILWIDAE_SHEET_NAME]
-        assert any("호표" in str(ilwidae.cell(r, 1).value or "") for r in range(1, 20))
+        titles = [
+            str(ilwidae.cell(r, 1).value)
+            for r in range(1, 40)
+            if "호표" in str(ilwidae.cell(r, 1).value or "")
+        ]
+        assert titles
+        assert "( 호표 1 )" in titles[0]
+        assert "( 호표 2 )" in titles[1]
+        from app.ilwidae import parse_ilwidae_blocks
+
+        blocks = parse_ilwidae_blocks(ilwidae)
+        first = next(block for block in blocks if str(block.item.name) == "경질비닐전선관_지중")
+        assert first.labor_rows
+        assert qty["H5"].value == f"='일위대가'!A{first.labor_rows[0]}"
+        assert qty["I5"].value == "=" + "+".join(f"'일위대가'!D{r}" for r in first.labor_rows)
+        assert qty["J5"].value == 100
+        assert qty["L5"].value == f"='일위대가'!M{first.material_row}"
+        assert "G5*I5*(J5/100)" in str(qty["K5"].value)
+        assert all(ilwidae.cell(row, 4).value in (None, "") for row in first.labor_rows)
+        box = next(block for block in blocks if "단자함" in str(block.item.name or ""))
+        qty_row = next(r for r in range(5, 20) if qty.cell(r, 2).value == "배선용단자함")
+        assert len(box.labor_rows) == 2
+        assert qty.cell(qty_row, 9).value == "=" + "+".join(
+            f"'일위대가'!D{r}" for r in box.labor_rows
+        )
     finally:
         result.close()
 
@@ -694,4 +733,74 @@ def test_quantity_requires_ilwidae_list_sheet(tmp_path: Path) -> None:
     workbook.close()
     with pytest.raises(ValueError, match="일위대가목록 시트"):
         save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out", mode="quantity")
+
+
+def test_quantity_renumbers_ho_and_reads_pumsam_from_ilwidae(tmp_path: Path) -> None:
+    workbook = Workbook()
+    listing = workbook.active
+    listing.title = "일위대가목록"
+    listing["A1"] = "[일위대가목록]"
+    listing["A3"] = "명칭"
+    listing["B3"] = "규격"
+    listing["C3"] = "단위"
+    listing["D3"] = "수량"
+    listing["A5"] = "강제전선관"
+    listing["B5"] = "아연도 16 mm"
+    listing["C5"] = "M"
+    listing["A6"] = "경질비닐전선관"
+    listing["B6"] = "HI 16 mm"
+    listing["C6"] = "M"
+
+    ilwidae = workbook.create_sheet("일위대가")
+    ilwidae["A1"] = "일 위 대 가"
+    ilwidae["A5"] = "경질비닐전선관 HI 16 mm  ( 호표 9 )"
+    ilwidae["A6"] = "경질비닐전선관"
+    ilwidae["B6"] = "HI 16 mm"
+    ilwidae["C6"] = "M"
+    ilwidae["A7"] = "내선전공"
+    ilwidae["B7"] = "일반공사 직종"
+    ilwidae["C7"] = "인"
+    ilwidae["D7"] = 0.05
+    ilwidae["M6"] = "전기 5-1"
+    ilwidae["A8"] = " [ 합          계 ]"
+    ilwidae["A10"] = "강제전선관 아연도 16 mm  ( 호표 3 )"
+    ilwidae["A11"] = "강제전선관"
+    ilwidae["B11"] = "아연도 16 mm"
+    ilwidae["C11"] = "M"
+    ilwidae["A12"] = "내선전공"
+    ilwidae["C12"] = "인"
+    ilwidae["D12"] = 0.08
+    ilwidae["M11"] = "전기 5-1"
+    ilwidae["A13"] = " [ 합          계 ]"
+    source = tmp_path / "수동수정.xlsx"
+    workbook.save(source)
+    workbook.close()
+
+    dest = save_result_workbook(estimate_path=source, dest_dir=tmp_path / "out", mode="quantity")
+    result = load_workbook(dest, data_only=False)
+    try:
+        ilwidae = result[ILWIDAE_SHEET_NAME]
+        titles = [
+            str(ilwidae.cell(r, 1).value)
+            for r in range(1, 20)
+            if "호표" in str(ilwidae.cell(r, 1).value or "")
+        ]
+        assert titles == [
+            "경질비닐전선관 HI 16 mm  ( 호표 1 )",
+            "강제전선관 아연도 16 mm  ( 호표 2 )",
+        ]
+        qty = result[QUANTITY_SHEET_NAME]
+        assert qty["B5"].value == "강제전선관"
+        assert qty["H5"].value == "='일위대가'!A12"
+        assert qty["I5"].value == "='일위대가'!D12"
+        assert qty["L5"].value == "='일위대가'!M11"
+        assert qty["B6"].value == "경질비닐전선관"
+        assert qty["I6"].value == "='일위대가'!D7"
+        assert "품셈표" not in str(qty["I5"].value)
+        assert "VLOOKUP" not in str(qty["I5"].value)
+        assert qty["K5"].value == (
+            '=IF(OR(G5="",I5="",G5*I5=0),"",G5*I5*(J5/100))'
+        )
+    finally:
+        result.close()
 

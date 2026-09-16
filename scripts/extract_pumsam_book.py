@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import pdfplumber
@@ -193,14 +193,25 @@ def looks_like_header_piece(line: str) -> bool:
     return True
 
 
-def single_number(text: str) -> float | None:
+def parse_qty_cell(text: str) -> tuple[bool, float | None]:
+    """칸에 값이 있는지, 숫자는 얼마인지. 대시('-')는 값이 있는 빈 품으로 본다."""
     tok = normalize_spaces(text or "").replace(",", "")
-    if is_empty_qty(tok) or PERCENT.match(tok):
-        return None
+    if not tok:
+        return False, None
+    if DASH_ONLY.match(tok) or tok in {"-", "－", "—", "–"}:
+        return True, None
+    if PERCENT.match(tok):
+        return False, None
     if NUM_TOKEN.match(tok):
-        value = float(tok)
-        return value
-    return None
+        return True, float(tok)
+    return False, None
+
+
+def single_number(text: str) -> float | None:
+    present, value = parse_qty_cell(text)
+    if not present:
+        return None
+    return value
 
 
 def split_cell_lines(text: str) -> list[str]:
@@ -272,9 +283,9 @@ def short_name(title: str) -> str:
     return text.strip() or title
 
 
-def emit(rows: list[dict], title: str, spec: str, unit: str, job: str, qty: float, code: str, prefix: str) -> None:
+def emit(rows: list[dict], title: str, spec: str, unit: str, job: str, qty: float | None, code: str, prefix: str) -> None:
     title = clean_title(title)
-    if qty is None or qty <= 0:
+    if qty is not None and qty <= 0:
         return
     spec = strip_leaked_qty(spec)
     spec, unit = clean_spec_unit(spec, unit)
@@ -295,7 +306,7 @@ def emit(rows: list[dict], title: str, spec: str, unit: str, job: str, qty: floa
             "규격": spec,
             "단위": unit or "식",
             "노무명칭": job,
-            "품셈": round(qty, 4) if abs(qty) < 1000 else qty,
+            "품셈": round(qty, 4) if isinstance(qty, float) and abs(qty) < 1000 else qty,
             "할증%": 100,
             "품셈근거": f"{prefix}{code}",
         }
@@ -335,8 +346,8 @@ def parse_paired_size_table(
                 split.append("")
             for spec_col, qty_col, job, group in pairs:
                 spec = display_spec(split[spec_col])
-                qty = single_number(split[qty_col])
-                if qty is None or not spec or spec in {"-"}:
+                present, qty = parse_qty_cell(split[qty_col])
+                if not present or not spec or spec in {"-"}:
                     continue
                 if re.fullmatch(r"\d+(?:\.\d+)?", spec):
                     spec = f"{spec} mm"
@@ -437,8 +448,8 @@ def parse_labor_table(
             for col, job in job_cols:
                 if col >= len(split):
                     continue
-                qty = single_number(split[col])
-                if qty is None:
+                present, qty = parse_qty_cell(split[col])
+                if not present:
                     continue
                 emit(rows, title, spec, row_unit or unit, job, qty, code, prefix)
                 parsed = True
@@ -646,8 +657,6 @@ def extract(pdf_path: Path, discipline: str) -> list[dict]:
                 continue
             last_spec = spec
             for job, qty in zip(use_jobs, values):
-                if qty is None:
-                    continue
                 emit(rows, line_title, spec, unit, job, qty, line_code, prefix)
 
     pdf.close()
@@ -671,45 +680,66 @@ def extract(pdf_path: Path, discipline: str) -> list[dict]:
         if str(row.get("단위") or "") in {"식", ""} and ("단면적" in str(row.get("규격") or "") or "Box" in str(row.get("규격") or "")):
             row["단위"] = "개"
 
-    merged: dict[str, dict] = {}
-    scores: dict[str, int] = {}
+    return dedupe_book_rows(rows)
 
-    def spec_score(spec: str) -> int:
-        score = min(len(spec), 80)
-        if "〃" in spec:
-            score -= 80
-        if re.search(r"\d+\.\d{2}$", spec):
-            score -= 60
-        if spec.endswith("-"):
-            score -= 60
-        if "㎟" in spec or "mm" in spec or "kV" in spec:
-            score += 8
-        if any(word in spec for word in ("이하", "초과", "미만")):
-            score += 6
-        return score
 
+def spec_score(spec: str) -> int:
+    score = min(len(spec), 80)
+    if "〃" in spec:
+        score -= 80
+    if re.search(r"\d+\.\d{2}$", spec):
+        score -= 60
+    if spec.endswith("-"):
+        score -= 60
+    if "㎟" in spec or "mm" in spec or "kV" in spec:
+        score += 8
+    if any(word in spec for word in ("이하", "초과", "미만")):
+        score += 6
+    return score
+
+
+def spec_is_dirty(spec: str) -> bool:
+    text = str(spec or "")
+    if "〃" in text:
+        return True
+    if re.search(r"\d+\.\d{2}$", text):
+        return True
+    if text.endswith("-"):
+        return True
+    return False
+
+
+def identity_key(row: dict) -> str:
+    return f"{row['명칭']}|{row['규격']}|{row['노무명칭']}|{row['품셈근거']}"
+
+
+def dedupe_book_rows(rows: list[dict]) -> list[dict]:
+    """같은 칸을 여러 번 읽은 것만 합친다. 규격이 다른데 품 숫자만 같은 행은 남긴다."""
+    by_id: dict[str, dict] = {}
     for row in rows:
-        key = f"{row['명칭']}|{row['규격']}|{row['노무명칭']}|{row['품셈근거']}"
-        merged[key] = row
-        qty_key = f"{row['명칭']}|{row['노무명칭']}|{row['품셈근거']}|{row['품셈']}"
-        prev = scores.get(qty_key)
-        score = spec_score(str(row["규격"]))
-        if prev is None or score > prev:
-            scores[qty_key] = score
-            merged[qty_key] = row
+        key = identity_key(row)
+        prev = by_id.get(key)
+        if prev is None or spec_score(str(row["규격"])) > spec_score(str(prev["규격"])):
+            by_id[key] = row
 
-    # keep identity keys plus best-spec-per-qty (qty_key overwrites poorer specs)
-    by_qty: dict[str, dict] = {}
-    for row in merged.values():
+    groups: dict[str, list[dict]] = defaultdict(list)
+    kept: dict[str, dict] = {}
+    for row in by_id.values():
+        if row.get("품셈") is None:
+            kept[identity_key(row)] = row
+            continue
         qty_key = f"{row['명칭']}|{row['노무명칭']}|{row['품셈근거']}|{row['품셈']}"
-        current = by_qty.get(qty_key)
-        if current is None or spec_score(str(row["규격"])) > spec_score(str(current["규격"])):
-            by_qty[qty_key] = row
-    final: dict[str, dict] = {}
-    for row in by_qty.values():
-        key = f"{row['명칭']}|{row['규격']}|{row['노무명칭']}|{row['품셈근거']}"
-        final[key] = row
-    return list(final.values())
+        groups[qty_key].append(row)
+
+    for group in groups.values():
+        clean = [row for row in group if not spec_is_dirty(str(row["규격"]))]
+        chosen = clean if clean else [max(group, key=lambda row: spec_score(str(row["규격"])))]
+        for row in chosen:
+            key = identity_key(row)
+            prev = kept.get(key)
+            if prev is None or spec_score(str(row["규격"])) > spec_score(str(prev["규격"])):
+                kept[key] = row
+    return list(kept.values())
 
 
 def main() -> None:
