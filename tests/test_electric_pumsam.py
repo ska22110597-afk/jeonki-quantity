@@ -129,6 +129,29 @@ def test_ceiling_이하_uses_smallest_band_and_keeps_all_labors() -> None:
     assert "이하" in str(hfix[0]["규격"])
 
 
+def test_galvanized_spec_matches_plain_or_g_size() -> None:
+    """단가대비표 아연도 16 mm, 품셈 16 mm / G 16 mm 처럼 앞말만 달라도 맞춘다."""
+    rows = [
+        {"명칭": "강제전선관", "규격": "16 mm", "노무명칭": "내선전공", "품셈": 0.08, "할증%": 100, "품셈근거": "전기5-1"},
+        {"명칭": "강제전선관", "규격": "G 16 mm", "노무명칭": "내선전공", "품셈": 0.08, "할증%": 100, "품셈근거": "전기5-1"},
+        {"명칭": "강제전선관", "규격": "22 mm", "노무명칭": "내선전공", "품셈": 0.11, "할증%": 100, "품셈근거": "전기5-1"},
+        {"명칭": "가요전선관", "규격": "16 mm", "노무명칭": "내선전공", "품셈": 0.044, "할증%": 100, "품셈근거": "전기5-1"},
+    ]
+    matched = match_pumsam("강제전선관", "아연도 16 mm", rows)
+    assert len(matched) == 1
+    assert matched[0]["품셈"] == 0.08
+    assert matched[0]["노무명칭"] == "내선전공"
+    assert "22" not in str(matched[0]["규격"])
+    other = match_pumsam("강제전선관", "G-16 mm", rows)
+    assert other[0]["품셈"] == 0.08
+    flex = match_pumsam("강제전선관", "아연도 16 mm", rows)
+    assert flex[0]["명칭"] == "강제전선관"
+    seed = match_pumsam("강제전선관", "아연도 16 mm", default_pumsam_rows())
+    assert seed
+    assert seed[0]["품셈"] == 0.08
+    assert seed[0]["노무명칭"] == "내선전공"
+
+
 def test_ceiling_3mm2_and_6mm2_bands_pick_nearest_이상_이하() -> None:
     rows = [
         {"명칭": "시험전선", "규격": "3 ㎟ 이하", "노무명칭": "내선전공", "품셈": 0.01, "할증%": 100},

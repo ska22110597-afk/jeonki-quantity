@@ -32,7 +32,6 @@ from app.pumsam import (
     match_pumsam as match_pumsam_rows,
     pumsam_qty_value,
     pumsam_rate_value,
-    pumsam_surcharge_note,
 )
 from app.wages import WAGES_SHEET_NAME, WageRow
 
@@ -242,7 +241,7 @@ def write_ilwidae_sheet(
             )
             _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
             _cost_totals(sheet, cursor)
-            _set_cell(sheet, cursor, 13, pumsam_surcharge_note(labor), font=BODY_FONT, align=LEFT)
+            _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
             cursor += 1
 

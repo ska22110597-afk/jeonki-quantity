@@ -101,6 +101,36 @@ _SIZE_RE = re.compile(
 _PREFERRED_SIZE_UNITS = {"mm2", "cm2", "kva", "kv", "a", "p", "mm"}
 
 
+_SPEC_PREFIXES = (
+    "아연도강전선관",
+    "아연도강",
+    "아연도",
+    "후강전선관",
+    "후강",
+    "박강",
+    "합성수지제전선관",
+    "합성수지전선관",
+    "합성수지제",
+    "합성수지",
+    "경질비닐전선관",
+    "경질비닐",
+    "hivp전선관",
+    "hivp",
+    "hfix전선",
+    "hfix",
+    "hiv전선",
+    "hiv",
+    "hi관",
+    "cd관",
+    "pe관",
+    "ef전선관",
+    "hi",
+    "cd",
+    "pe",
+    "ef",
+)
+
+
 def _compact_stem(text: str) -> str:
     text = (
         str(text or "")
@@ -112,6 +142,26 @@ def _compact_stem(text: str) -> str:
         .replace("ｘ", "x")
     )
     return "".join(ch for ch in text if not ch.isspace()).lower()
+
+
+def _clean_stem(stem: str) -> str:
+    """아연도·G·HI 처럼 같은 관을 가리키는 앞말만 걷어, 숫자 규격으로 맞춘다."""
+    text = _compact_stem(stem).replace("-", "").replace("_", "")
+    changed = True
+    while text and changed:
+        changed = False
+        for token in _SPEC_PREFIXES:
+            if text == token or text.startswith(token):
+                text = text[len(token) :]
+                changed = True
+                break
+            if text.endswith(token):
+                text = text[: -len(token)]
+                changed = True
+                break
+    if text == "g":
+        return ""
+    return text
 
 
 def spec_match_parts(spec: Any) -> tuple[float | None, str, str, str]:
@@ -155,7 +205,7 @@ def _match_pumsam_ceiling(name: Any, spec: Any, rows: list[PumsamRow]) -> list[P
         book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
         if book_qual != "이하" or book_size is None or book_unit != item_unit:
             continue
-        if book_stem != item_stem:
+        if _clean_stem(book_stem) != _clean_stem(item_stem):
             continue
         if book_size + 1e-9 < item_size:
             continue
@@ -169,10 +219,44 @@ def _match_pumsam_ceiling(name: Any, spec: Any, rows: list[PumsamRow]) -> list[P
     return max(groups.values(), key=len)
 
 
+def _match_pumsam_same_size(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """같은 명칭에서 숫자·단위가 같고, 아연도/G/HI 앞말만 다른 규격을 같은 품으로 본다."""
+    name_key = lookup_key(name, "")
+    item_size, item_unit, _, item_stem = spec_match_parts(spec)
+    if not name_key or item_size is None or not item_unit:
+        return []
+    item_core = _clean_stem(item_stem)
+    item_stem_compact = _compact_stem(item_stem)
+
+    by_spec: dict[str, list[PumsamRow]] = {}
+    for row in rows:
+        if lookup_key(row.get("명칭"), "") != name_key:
+            continue
+        book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
+        if book_qual == "이하" or book_size is None or book_unit != item_unit:
+            continue
+        if abs(book_size - item_size) > 1e-9:
+            continue
+        if _clean_stem(book_stem) != item_core:
+            continue
+        spec_key = lookup_key(row.get("명칭"), row.get("규격"))
+        by_spec.setdefault(spec_key, []).append(row)
+    if not by_spec:
+        return []
+
+    def _rank(group: list[PumsamRow]) -> tuple[int, int]:
+        _, _, _, stem = spec_match_parts(group[0].get("규격"))
+        same_words = 1 if _compact_stem(stem) == item_stem_compact else 0
+        return (same_words, len(group))
+
+    return max(by_spec.values(), key=_rank)
+
+
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """같은 명칭·규격의 인부 행을 모두 반환한다. 지중/노출처럼 비슷한 이름은 끌어오지 않는다.
 
-    글자가 똑같으면 그걸 쓰고, 없으면 같은 명칭에서 품목 규격 이상인 가장 작은 「이하」 구간을 쓴다.
+    글자가 똑같으면 그걸 쓴다. 아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면
+    같은 크기로 맞춘다. 그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 쓴다.
     """
     key = lookup_key(name, spec)
     if not key:
@@ -180,6 +264,9 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
     exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
     if exact:
         return exact
+    same_size = _match_pumsam_same_size(name, spec, rows)
+    if same_size:
+        return same_size
     return _match_pumsam_ceiling(name, spec, rows)
 
 

@@ -160,6 +160,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert all("전기" not in str(title) for title in titles)
         remarks = [ilwidae.cell(r, 13).value for r in range(5, 40)]
         assert any(str(value or "").replace(" ", "") == "전기5-1" for value in remarks)
+        assert all("품셈" not in str(value or "") for value in remarks)
         assert ilwidae["A5"].font.name == "굴림"
         assert ilwidae["A5"].font.bold is not True
     finally:
@@ -180,7 +181,7 @@ def test_match_pumsam_keeps_two_labors() -> None:
     assert len(matched) == 2
 
 
-def test_write_ilwidae_puts_both_labors_and_surcharge_note() -> None:
+def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     from app.ilwidae import write_ilwidae_sheet
 
     workbook = Workbook()
@@ -190,8 +191,11 @@ def test_write_ilwidae_puts_both_labors_and_surcharge_note() -> None:
     jobs = [sheet.cell(row, 1).value for row in blocks[0].labor_rows]
     assert "내선전공" in jobs
     assert "보통인부" in jobs
-    notes = [str(sheet.cell(row, 13).value or "") for row in blocks[0].labor_rows]
-    assert all("품셈" in note and "할증" in note for note in notes)
+    notes = [sheet.cell(row, 13).value for row in blocks[0].labor_rows]
+    assert all(note in (None, "") for note in notes)
+    material_note = str(sheet.cell(blocks[0].material_row, 13).value or "")
+    assert material_note.replace(" ", "").startswith("전기")
+    assert "품셈" not in material_note
     kinds = [str(sheet.cell(row, 2).value or "") for row in blocks[0].labor_rows]
     assert all("할증" in kind for kind in kinds)
     workbook.close()
@@ -427,7 +431,8 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
         assert "내선전공" not in names
         remarks = [str(ilwidae.cell(r, 13).value or "").replace(" ", "") for r in range(5, 40)]
         assert any(value in {"전기5-1", "통신3-1-1"} for value in remarks)
-        assert any("할증" in str(ilwidae.cell(r, 13).value or "") for r in range(5, 40))
+        assert all("품셈" not in str(ilwidae.cell(r, 13).value or "") for r in range(5, 40))
+        assert any("할증" in str(ilwidae.cell(r, 2).value or "") for r in range(5, 40))
         assert QUANTITY_SHEET_NAME not in result.sheetnames
     finally:
         result.close()
