@@ -197,7 +197,7 @@ def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     assert material_note.replace(" ", "").startswith("전기")
     assert "품셈" not in material_note
     kinds = [str(sheet.cell(row, 2).value or "") for row in blocks[0].labor_rows]
-    assert all("할증" in kind for kind in kinds)
+    assert all(kind == "일반공사 직종" for kind in kinds)
     workbook.close()
 
 
@@ -432,7 +432,8 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
         remarks = [str(ilwidae.cell(r, 13).value or "").replace(" ", "") for r in range(5, 40)]
         assert any(value in {"전기5-1", "통신3-1-1"} for value in remarks)
         assert all("품셈" not in str(ilwidae.cell(r, 13).value or "") for r in range(5, 40))
-        assert any("할증" in str(ilwidae.cell(r, 2).value or "") for r in range(5, 40))
+        assert any(str(ilwidae.cell(r, 2).value or "") == "일반공사 직종" for r in range(5, 40))
+        assert all("할증" not in str(ilwidae.cell(r, 2).value or "") for r in range(5, 40))
         assert QUANTITY_SHEET_NAME not in result.sheetnames
     finally:
         result.close()

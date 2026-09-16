@@ -190,6 +190,32 @@ def test_name_aliases_treat_steel_and_resin_as_same_family() -> None:
     assert match_pumsam("후강전선관", "16 mm", resin_only) == []
 
 
+def test_pe_cd_paren_place_and_tray_size_match() -> None:
+    rows = default_pumsam_rows()
+    buried = match_pumsam("폴리에틸렌 전선관(지중)", "PE 16mm", rows)
+    assert buried
+    assert buried[0]["노무명칭"] == "내선전공"
+    assert buried[0]["품셈"] == 0.04
+    assert buried[0]["할증%"] == 70
+
+    cd_flex = match_pumsam("합성수지제 가요전선관", "CD-난연성 16mm", rows)
+    assert cd_flex
+    assert cd_flex[0]["노무명칭"] == "내선전공"
+    assert cd_flex[0]["품셈"] == 0.04
+    assert cd_flex[0]["할증%"] == 100
+    metal = match_pumsam("가요전선관", "16 mm", rows)
+    assert metal[0]["품셈"] == 0.044
+
+    tray = match_pumsam("Hi-Tec Tray부속(분체도장)", "JOINER SET, W300 × H100", rows)
+    assert tray
+    assert tray[0]["노무명칭"] == "내선전공"
+    assert tray[0]["품셈"] == 0.23
+    assert "30000" in str(tray[0]["규격"]).replace(",", "")
+    angle = match_pumsam("Hi-Tec Tray부속(분체도장)", "BEARING ANGLE, L370", rows)
+    assert angle
+    assert angle[0]["품셈"] == 0.18
+
+
 def test_ceiling_3mm2_and_6mm2_bands_pick_nearest_이상_이하() -> None:
     rows = [
         {"명칭": "시험전선", "규격": "3 ㎟ 이하", "노무명칭": "내선전공", "품셈": 0.01, "할증%": 100},

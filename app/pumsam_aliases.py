@@ -6,11 +6,13 @@ _지중 / _노출 / _매입 / _직매 접미사는 묶지 않고 그대로 구�
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.estimate_parse import lookup_key
 
 PLACE_SUFFIXES = ("_지중", "_노출", "_매입", "_직매", "_천장", "_벽면")
+PLACE_PAREN = re.compile(r"[\(（]\s*(지중|노출|매입|직매|천장|벽면)\s*[\)）]\s*$")
 
 # 한 묶음은 같은 표준품셈을 쓰는 이름. 다른 자재와 섞지 않는다.
 NAME_ALIAS_GROUPS: tuple[tuple[str, ...], ...] = (
@@ -45,6 +47,12 @@ NAME_ALIAS_GROUPS: tuple[tuple[str, ...], ...] = (
         "PE전선관",
         "PE관",
         "폴리에틸렌관",
+        "합성수지제가요전선관",
+        "합성수지가요전선관",
+        "난연CD관",
+        "난연성CD관",
+        "CD난연전선관",
+        "난연CD전선관",
     ),
     (
         "금속제가요전선관",
@@ -110,6 +118,13 @@ NAME_ALIAS_GROUPS: tuple[tuple[str, ...], ...] = (
         "케이블트레이",
         "케이블 트레이",
         "Cable Tray",
+        "트레이",
+        "전선트레이",
+        "트레이부속",
+        "케이블트레이부속",
+        "Tray",
+        "TRAY",
+        "Tray부속",
     ),
     (
         "배선용단자함",
@@ -143,7 +158,10 @@ def split_place_name(name: Any) -> tuple[str, str]:
     text = str(name or "").strip()
     for suffix in PLACE_SUFFIXES:
         if text.endswith(suffix):
-            return text[: -len(suffix)], suffix
+            return text[: -len(suffix)].strip(), suffix
+    matched = PLACE_PAREN.search(text)
+    if matched:
+        return text[: matched.start()].strip(), f"_{matched.group(1)}"
     return text, ""
 
 
@@ -151,10 +169,27 @@ def _group_for(base: str) -> tuple[str, ...]:
     key = lookup_key(base, "")
     if not key:
         return (base,)
+    compact = key.lower()
     for group in NAME_ALIAS_GROUPS:
-        if key in {lookup_key(item, "") for item in group}:
+        if key in {lookup_key(item, "") for item in group} or compact in {
+            lookup_key(item, "").lower() for item in group
+        }:
             return group
-    return (base,)
+    if "tray" in compact or "트레이" in compact:
+        for group in NAME_ALIAS_GROUPS:
+            if "케이블트레이" in group:
+                return group
+    best: tuple[str, ...] | None = None
+    best_len = 0
+    for group in NAME_ALIAS_GROUPS:
+        for item in group:
+            token = lookup_key(item, "").lower()
+            if len(token) < 4:
+                continue
+            if token in compact and len(token) > best_len:
+                best = group
+                best_len = len(token)
+    return best if best else (base,)
 
 
 def alias_names(name: Any) -> list[str]:

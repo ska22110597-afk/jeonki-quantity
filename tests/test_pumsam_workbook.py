@@ -134,7 +134,7 @@ def test_same_spec_extra_labor_blanks_name_cells_but_keeps_rows(tmp_path: Path) 
         assert sheet["E2"].value == "보통인부"
         assert sheet["A3"].value in (None, "")
         assert sheet["B3"].value in (None, "")
-        assert sheet["C3"].value in (None, "")
+        assert "150" in str(sheet["C3"].value or "")
         assert sheet["D3"].value == "km"
         assert sheet["E3"].value == "특고압케이블전공"
         assert sheet["F3"].value == 7.28

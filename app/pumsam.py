@@ -43,7 +43,7 @@ PUMSAM_DB_FILENAME = LEGACY_PUMSAM_FILENAME
 LEGACY_PUMSAM_DB_FILENAME = "품셈표_데이터베이스.xlsx"
 PUMSAM_HEADERS = ["검색키", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
 PUMSAM_DISPLAY_HEADERS = ["키워드", "명칭", "규격", "단위", "노무명칭", "품셈", "할증%", "품셈근거"]
-PUMSAM_COLUMN_WIDTHS = (60, 35, 45, 5, 15, 10, 5, 15)
+PUMSAM_COLUMN_WIDTHS = (60, 35, 45, 9.38, 15, 10, 5, 15)
 PUMSAM_DATA_ALIGNS = ("left", "left", "left", "center", "center", "right", "center", "center")
 PUMSAM_ROW_HEIGHT = 20
 GULIM = Font(name="굴림", size=11)
@@ -103,6 +103,9 @@ _PREFERRED_SIZE_UNITS = {"mm2", "cm2", "kva", "kv", "a", "p", "mm"}
 
 
 _SPEC_PREFIXES = (
+    "난연성",
+    "난연",
+    "분체도장",
     "아연도강전선관",
     "아연도강",
     "아연도",
@@ -165,10 +168,26 @@ def _clean_stem(stem: str) -> str:
     return text
 
 
+_WH_RE = re.compile(
+    r"(?i)(?:w|ｗ)\s*(?P<w>\d+(?:\.\d+)?)\s*[x×*]\s*(?:h|ｈ)\s*(?P<h>\d+(?:\.\d+)?)"
+)
+
+
+def _wh_area(text: str) -> float | None:
+    """W300 × H100 처럼 트레이 폭×높이이면 단면적(㎟)으로 본다."""
+    match = _WH_RE.search(str(text or ""))
+    if not match:
+        return None
+    return float(match.group("w")) * float(match.group("h"))
+
+
 def spec_match_parts(spec: Any) -> tuple[float | None, str, str, str]:
     """규격에서 (숫자, 단위, 이하/초과, 나머지 말)을 뽑는다. 검색용 단위는 mm2."""
     text = lookup_measure(display_spec(spec or ""))
+    area = _wh_area(text)
     matches = list(_SIZE_RE.finditer(text))
+    if area is not None and not any((match.group("unit") or "").lower() == "mm2" for match in matches):
+        return area, "mm2", "", ""
     if not matches:
         return None, "", "", _compact_stem(text)
 
@@ -273,6 +292,12 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
         ceiling = _match_pumsam_ceiling(candidate, spec, rows)
         if ceiling:
             return ceiling
+    compact = lookup_key(name, "").lower()
+    if "tray" in compact or "트레이" in compact:
+        for candidate in alias_names(name):
+            ceiling = _match_pumsam_ceiling(candidate, "1 mm2", rows)
+            if ceiling:
+                return ceiling
     return []
 
 
@@ -299,9 +324,9 @@ def pumsam_surcharge_note(row: PumsamRow) -> str:
     return f"품셈 {qty:.3f} · 할증 {surcharge_percent_text(row)}%"
 
 
-def labor_kind_text(row: PumsamRow) -> str:
-    """일위대가 인부 규격 칸. 할증을 품셈과 나눠 보여 준다."""
-    return f"일반공사 직종 · 할증 {surcharge_percent_text(row)}%"
+def labor_kind_text(row: PumsamRow) -> str:  # noqa: ARG001
+    """일위대가 인부 규격 칸. 할증은 적지 않는다."""
+    return "일반공사 직종"
 
 
 def labor_names_text(rows: list[PumsamRow]) -> str:
@@ -572,7 +597,13 @@ def rows_from_grid(table: SheetRows) -> list[PumsamRow]:
             else:
                 continue
         else:
+            if name is None:
+                name = prev_name
+            if spec is None:
+                spec = prev_spec
             unit_value = pick(unit_idx)
+            if unit_value is None:
+                unit_value = prev_unit
             prev_name, prev_spec, prev_unit = name, spec, unit_value
         if normalize_header(name) in _HEADER_LIKE_NAMES:
             continue
@@ -682,7 +713,7 @@ def _sheet_values(row: PumsamRow, *, hide_item: bool) -> list[Any]:
     return [
         None if hide_item else display_keyword(row.get("명칭"), row.get("규격")),
         None if hide_item else row.get("명칭"),
-        None if hide_item else spec,
+        spec,
         row.get("단위"),
         row.get("노무명칭"),
         row.get("품셈"),
