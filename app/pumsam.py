@@ -351,6 +351,14 @@ def strip_place_clone_rows(rows: list[PumsamRow]) -> list[PumsamRow]:
         if abs(pumsam_qty_value(peer) - pumsam_qty_value(row)) > 1e-9:
             kept.append(row)
             continue
+        try:
+            row_rate = int(float(row.get("할증%") or 100))
+        except (TypeError, ValueError):
+            kept.append(row)
+            continue
+        if row_rate != PLACE_SURCHARGE_RATES[suffix]:
+            kept.append(row)
+            continue
     return kept
 
 
@@ -772,7 +780,7 @@ def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
             row = dict(row)
             row["검색키"] = lookup_key(row.get("명칭"), row.get("규격"))
             merged[key] = row
-    return list(merged.values())
+    return strip_place_clone_rows(list(merged.values()))
 
 
 def load_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> list[PumsamRow]:
@@ -883,6 +891,7 @@ def save_pumsam_database(
     discipline: str | None = None,
 ) -> Path:
     disc = normalize_discipline(discipline)
+    rows = strip_place_clone_rows(list(rows))
     path = pumsam_db_path(directory, disc)
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()

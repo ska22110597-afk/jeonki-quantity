@@ -14,14 +14,17 @@ from app.items import LineItem
 
 def test_electric_pumsam_covers_places_and_trades() -> None:
     rows = electric_pumsam_rows()
-    assert len(rows) > 10000
+    assert len(rows) > 8000
     names = {str(row.get("명칭")) for row in rows}
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "경질비닐전선관" in names
     assert "CD전선관" in names
-    assert "경질비닐전선관_매입" in names
-    assert "경질비닐전선관_노출" in names
-    assert "경질비닐전선관_지중" in names
+    assert "경질비닐전선관_매입" not in names
+    assert "경질비닐전선관_노출" not in names
+    assert "경질비닐전선관_지중" not in names
+    assert "CD관_노출" not in names
+    assert "세대분전반_노출" in names
+    assert "LED등기구_매입" in names
     assert "배선용단자함" in names
     assert "HIV전선" in names
     assert "CV케이블" in names
@@ -257,6 +260,33 @@ def test_pumsam_qty_is_raw_and_surcharge_is_separate() -> None:
     assert pumsam_surcharge_note(exposed[0]) == "품셈 0.460 · 할증 120%"
 
 
+def test_household_panel_exposed_keeps_book_ninety_percent() -> None:
+    rows = default_pumsam_rows()
+    names = {str(row.get("명칭")) for row in rows}
+    assert "세대분전반_노출" in names
+    assert "세대분전반_매입" not in names
+    exposed = match_pumsam("세대분전반_노출", "3회로", rows)
+    assert exposed
+    assert exposed[0]["품셈"] == 0.59
+    assert exposed[0]["할증%"] == 90
+
+
+def test_merge_drops_place_clones_but_keeps_distinct_book_rows() -> None:
+    from app.pumsam import merge_pumsam_rows
+
+    merged = merge_pumsam_rows(
+        [
+            {"명칭": "경질비닐전선관", "규격": "HI 16 mm", "노무명칭": "내선전공", "품셈": 0.05, "할증%": 100},
+            {"명칭": "경질비닐전선관_노출", "규격": "HI 16 mm", "노무명칭": "내선전공", "품셈": 0.05, "할증%": 120},
+            {"명칭": "경질비닐전선관_매입", "규격": "HI 16 mm", "노무명칭": "내선전공", "품셈": 0.05, "할증%": 100},
+            {"명칭": "세대분전반", "규격": "3회로", "노무명칭": "내선전공", "품셈": 0.59, "할증%": 100},
+            {"명칭": "세대분전반_노출", "규격": "3회로", "노무명칭": "내선전공", "품셈": 0.59, "할증%": 90},
+        ]
+    )
+    names = {row.get("명칭") for row in merged}
+    assert names == {"경질비닐전선관", "세대분전반", "세대분전반_노출"}
+
+
 def test_horizontal_conductor_is_single_book_item() -> None:
     rows = default_pumsam_rows()
     matched = match_pumsam("수평도체", "일반", rows)
@@ -341,12 +371,14 @@ def test_ditto_and_dash_are_interpreted_from_book() -> None:
 
 def test_telecom_book_and_conduit_aliases() -> None:
     rows = default_pumsam_rows("통신")
-    assert len(rows) > 9000
+    assert len(rows) > 7000
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "통신내선공" in jobs
     assert "통신케이블공" in jobs
     names = {str(row.get("명칭")) for row in rows}
     assert "합성수지 전선관" in names or "경질비닐전선관" in names
+    assert "경질비닐전선관_노출" not in names
+    assert "경질비닐전선관_지중" not in names
     buried = match_pumsam("경질비닐전선관_지중", "HI 16 mm", rows)
     assert buried
     assert buried[0]["노무명칭"] == "통신내선공"
