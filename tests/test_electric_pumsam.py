@@ -14,7 +14,7 @@ from app.items import LineItem
 
 def test_electric_pumsam_covers_places_and_trades() -> None:
     rows = electric_pumsam_rows()
-    assert len(rows) > 12000
+    assert len(rows) > 8000
     names = {str(row.get("명칭")) for row in rows}
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "경질비닐전선관" in names
@@ -243,6 +243,59 @@ def test_pumsam_qty_is_raw_and_surcharge_is_separate() -> None:
     assert pumsam_surcharge_note(exposed[0]) == "품셈 0.460 · 할증 120%"
 
 
+def test_horizontal_conductor_is_single_book_item() -> None:
+    rows = default_pumsam_rows()
+    matched = match_pumsam("수평도체", "일반", rows)
+    jobs = {row.get("노무명칭"): row.get("품셈") for row in matched}
+    assert jobs["내선전공"] == 0.017
+    assert jobs["보통인부"] == 0.008
+    names = {
+        row.get("명칭")
+        for row in rows
+        if "수평도체" in str(row.get("명칭") or "") or "수평도체" in str(row.get("짧은명칭") or "")
+    }
+    assert names == {"수평도체 설치"}
+    specs = {
+        row.get("규격")
+        for row in rows
+        if row.get("명칭") == "수평도체 설치" or row.get("짧은명칭") == "수평도체"
+    }
+    assert specs <= {"", None}
+
+
+def test_horizontal_conductor_keyword_is_single() -> None:
+    from app.estimate_parse import display_keyword
+
+    rows = default_pumsam_rows()
+    keys = {
+        display_keyword(row.get("명칭"), row.get("규격"))
+        for row in rows
+        if "수평도체" in str(row.get("명칭") or "")
+    }
+    assert keys == {"수평도체설치"}
+
+
+def test_generator_spec_is_kva_not_qty() -> None:
+    rows = default_pumsam_rows()
+    matched = match_pumsam("자가발전기", "20 kVA", rows)
+    jobs = {row.get("노무명칭"): row.get("품셈") for row in matched}
+    assert jobs["전기공사기사"] == 10.5
+    assert jobs["플랜트전공"] == 6.3
+    assert jobs["기계설비공"] == 6.3
+    assert jobs["특별인부"] == 5.3
+    gen_specs = {
+        str(row.get("규격") or "")
+        for row in rows
+        if row.get("명칭") == "자가발전기 설치"
+    }
+    assert any("20" in spec and "kVA" in spec for spec in gen_specs)
+    assert not any(spec.replace(".", "", 1).isdigit() for spec in gen_specs if spec)
+    commission = match_pumsam("자가발전기 시운전 및 조정", "20 kVA", rows)
+    comm_jobs = {row.get("노무명칭"): row.get("품셈") for row in commission}
+    assert comm_jobs["전기공사기사"] == 3.2
+    assert comm_jobs["플랜트전공"] == 3.2
+
+
 def test_match_pumsam_skips_dash_labor() -> None:
     rows = [
         {"명칭": "지중 케이블", "규격": "OF 400 ㎟ 이하", "노무명칭": "전기공사기사", "품셈": 3.49, "할증%": 100},
@@ -274,7 +327,7 @@ def test_ditto_and_dash_are_interpreted_from_book() -> None:
 
 def test_telecom_book_and_conduit_aliases() -> None:
     rows = default_pumsam_rows("통신")
-    assert len(rows) > 10000
+    assert len(rows) > 7000
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "통신내선공" in jobs
     assert "통신케이블공" in jobs

@@ -69,6 +69,12 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert QUANTITY_SHEET_NAME not in result.sheetnames
         assert PUMSAM_SHEET_NAME in result.sheetnames
         assert WAGES_SHEET_NAME in result.sheetnames
+        wages = result[WAGES_SHEET_NAME]
+        assert wages.column_dimensions["A"].width == 17
+        assert wages.column_dimensions["B"].width == 17
+        assert wages.column_dimensions["C"].width == 40
+        assert wages["B4"].number_format == "#,##0"
+        assert wages.row_dimensions[4].height == 25
 
         compare = result[COMPARE_SHEET_NAME]
         assert compare["A1"].value == "단 가 대 비 표"
@@ -503,6 +509,15 @@ def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
         assert "VLOOKUP" not in str(qty["H8"].value or "")
         assert "SUMPRODUCT" not in str(qty["K8"].value or "")
         assert qty["A3"].value == "품목"
+        pumsam = result[PUMSAM_SHEET_NAME]
+        assert pumsam.column_dimensions["A"].width == 50
+        assert pumsam.column_dimensions["C"].width == 50
+        wages = result[WAGES_SHEET_NAME]
+        assert wages.column_dimensions["A"].width == 17
+        assert wages.column_dimensions["B"].width == 17
+        assert wages.column_dimensions["C"].width == 40
+        assert wages["B4"].number_format == "#,##0"
+        assert wages.row_dimensions[4].height == 25
     finally:
         result.close()
 

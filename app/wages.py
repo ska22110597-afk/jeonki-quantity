@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from app.estimate_parse import find_header_row, normalize_header
 from app.merge_parse import fill_merged_values, trim_grid
@@ -15,6 +17,24 @@ from app.paths import bundled_data_dir, ensure_result_directory, is_allowed_exce
 WAGES_SHEET_NAME = "노임단가"
 WAGES_DB_FILENAME = "노임단가.xlsx"
 WAGES_HEADERS = ["직종", "노임단가", "비고"]
+WAGE_COL_WIDTHS = (17, 17, 40)
+WAGE_ROW_HEIGHT = 25
+WAGE_NUMBER_FORMAT = "#,##0"
+WAGE_FONT = Font(name="굴림", size=11)
+WAGE_HEADER_FONT = Font(name="굴림", size=11, bold=True)
+WAGE_FILL = PatternFill("solid", fgColor="FFFFFF")
+WAGE_HEADER_FILL = PatternFill("solid", fgColor="B7DEE8")
+WAGE_BORDER = Border(
+    left=Side(style="thin", color="000000"),
+    right=Side(style="thin", color="000000"),
+    top=Side(style="thin", color="000000"),
+    bottom=Side(style="thin", color="000000"),
+)
+WAGE_ALIGN = {
+    1: Alignment(horizontal="left", vertical="center"),
+    2: Alignment(horizontal="right", vertical="center"),
+    3: Alignment(horizontal="left", vertical="center"),
+}
 
 WageRow = dict[str, Any]
 
@@ -83,6 +103,28 @@ def merge_wage_rows(*groups: list[WageRow]) -> list[WageRow]:
     return list(merged.values())
 
 
+def _style_wages_sheet(sheet, last_row: int) -> None:
+    last_row = max(last_row, 1)
+    for row_idx in range(1, last_row + 1):
+        sheet.row_dimensions[row_idx].height = WAGE_ROW_HEIGHT
+        for col_idx in range(1, 4):
+            cell = sheet.cell(row_idx, col_idx)
+            is_header = row_idx == 1
+            cell.font = WAGE_HEADER_FONT if is_header else WAGE_FONT
+            cell.border = WAGE_BORDER
+            cell.fill = WAGE_HEADER_FILL if is_header else WAGE_FILL
+            if is_header:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+            else:
+                cell.alignment = WAGE_ALIGN[col_idx]
+            if col_idx == 2 and not is_header and isinstance(cell.value, (int, float)):
+                cell.number_format = WAGE_NUMBER_FORMAT
+    for col_idx, width in enumerate(WAGE_COL_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(col_idx)].width = float(width)
+    sheet.freeze_panes = "A2"
+    sheet.sheet_format.defaultRowHeight = WAGE_ROW_HEIGHT
+
+
 def write_wages_workbook(rows: list[WageRow], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
@@ -91,6 +133,7 @@ def write_wages_workbook(rows: list[WageRow], path: Path) -> Path:
     sheet.append(WAGES_HEADERS)
     for row in rows:
         sheet.append([row.get("직종"), row.get("노임단가"), row.get("비고")])
+    _style_wages_sheet(sheet, sheet.max_row)
     workbook.save(path)
     workbook.close()
     return path
@@ -100,6 +143,8 @@ def ensure_wages_database(directory: Path | None = None) -> Path:
     """사용자 폴더에 노임단가 파일이 없으면 프로그램 씨앗(또는 기본값)을 복사한다."""
     dest = wages_db_path(directory)
     if dest.exists():
+        parsed = _rows_from_sheet(dest)
+        write_wages_workbook(parsed or default_wage_rows(), dest)
         return dest
     bundled = bundled_wages_path()
     if bundled.exists():

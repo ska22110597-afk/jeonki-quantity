@@ -72,6 +72,15 @@ def format_pumsam_ref(value: Any) -> str:
     return text
 
 
+def pumsam_name_keys(row: PumsamRow) -> set[str]:
+    keys: set[str] = set()
+    for field in ("명칭", "짧은명칭"):
+        token = lookup_key(row.get(field), "")
+        if token:
+            keys.add(token)
+    return keys
+
+
 def pumsam_qty_value(row: PumsamRow) -> float:
     value = row.get("품셈")
     if isinstance(value, (int, float)):
@@ -234,7 +243,7 @@ def _match_pumsam_ceiling(name: Any, spec: Any, rows: list[PumsamRow]) -> list[P
 
     by_threshold: dict[float, dict[str, list[PumsamRow]]] = {}
     for row in rows:
-        if lookup_key(row.get("명칭"), "") != name_key:
+        if name_key not in pumsam_name_keys(row):
             continue
         book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
         if book_qual != "이하" or book_size is None or book_unit != item_unit:
@@ -264,7 +273,7 @@ def _match_pumsam_same_size(name: Any, spec: Any, rows: list[PumsamRow]) -> list
 
     by_spec: dict[str, list[PumsamRow]] = {}
     for row in rows:
-        if lookup_key(row.get("명칭"), "") != name_key:
+        if name_key not in pumsam_name_keys(row):
             continue
         book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
         if book_qual == "이하" or book_size is None or book_unit != item_unit:
@@ -286,32 +295,72 @@ def _match_pumsam_same_size(name: Any, spec: Any, rows: list[PumsamRow]) -> list
     return max(by_spec.values(), key=_rank)
 
 
+def _match_pumsam_unique_item(name: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """그 이름으로 규격이 한 가지뿐이면 그 인부들을 쓴다. 수평도체처럼 원표에 항목이 하나일 때."""
+    name_key = lookup_key(name, "")
+    if not name_key:
+        return []
+    by_spec: dict[str, list[PumsamRow]] = {}
+    for row in rows:
+        if name_key not in pumsam_name_keys(row):
+            continue
+        spec_key = lookup_key("", row.get("규격"))
+        by_spec.setdefault(spec_key, []).append(row)
+    if len(by_spec) != 1:
+        return []
+    return next(iter(by_spec.values()))
+
+
+def _preferred_match_group(name: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """짧은명칭과 공식 명칭이 같이 맞으면 검색한 이름 쪽만 남긴다."""
+    kept = [row for row in rows if has_pumsam_qty(row)]
+    if not kept:
+        return []
+    by_name: dict[str, list[PumsamRow]] = {}
+    for row in kept:
+        by_name.setdefault(lookup_key(row.get("명칭"), ""), []).append(row)
+    if len(by_name) == 1:
+        return kept
+    query = lookup_key(name, "")
+    if query in by_name:
+        return by_name[query]
+    return max(by_name.values(), key=lambda group: (len(group), -len(str(group[0].get("명칭") or ""))))
+
+
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """같은 명칭·규격의 인부 행을 모두 반환한다. 지중/노출처럼 비슷한 이름은 끌어오지 않는다.
 
     글자가 똑같으면 그걸 쓴다. 후강전선관 = 강제전선관처럼 같은 품 묶음이면 그 이름으로도 찾는다.
     아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춘다.
-    그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 쓴다.
+    그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 씁니다.
     """
     if not lookup_key(name, spec):
         return []
     for candidate in alias_names(name):
         key = lookup_key(candidate, spec)
-        exact = [row for row in rows if lookup_key(row.get("명칭"), row.get("규격")) == key]
+        exact = [
+            row
+            for row in rows
+            if lookup_key(row.get("명칭"), row.get("규격")) == key
+            or lookup_key(row.get("짧은명칭"), row.get("규격")) == key
+        ]
         if exact:
-            return [row for row in exact if has_pumsam_qty(row)]
+            return _preferred_match_group(candidate, exact)
         same_size = _match_pumsam_same_size(candidate, spec, rows)
         if same_size:
-            return [row for row in same_size if has_pumsam_qty(row)]
+            return _preferred_match_group(candidate, same_size)
         ceiling = _match_pumsam_ceiling(candidate, spec, rows)
         if ceiling:
-            return [row for row in ceiling if has_pumsam_qty(row)]
+            return _preferred_match_group(candidate, ceiling)
+        unique = _match_pumsam_unique_item(candidate, rows)
+        if unique:
+            return [row for row in unique if has_pumsam_qty(row)]
     compact = lookup_key(name, "").lower()
     if "tray" in compact or "트레이" in compact:
         for candidate in alias_names(name):
             ceiling = _match_pumsam_ceiling(candidate, "1 mm2", rows)
             if ceiling:
-                return [row for row in ceiling if has_pumsam_qty(row)]
+                return _preferred_match_group(candidate, ceiling)
     return []
 
 
@@ -730,7 +779,7 @@ def grouped_pumsam_rows(rows: list[PumsamRow]) -> list[tuple[PumsamRow, bool]]:
     prev_key: tuple[str, str] | None = None
     for row in _sort_pumsam_rows(rows):
         key = _pumsam_item_key(row)
-        hide_item = prev_key == key and all(key)
+        hide_item = prev_key == key and bool(key[0])
         grouped.append((row, hide_item))
         prev_key = key
     return grouped

@@ -149,6 +149,8 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
                 assert pumsam.cell(row_idx, 5).value not in (None, "")
                 break
         assert extra_labor
+        assert pumsam.column_dimensions["A"].width == 50
+        assert pumsam.column_dimensions["C"].width == 50
         assert pumsam.row_dimensions[5].height == ROW_HEIGHT
         assert "FFFFFF" in _fill_rgb(pumsam["A3"])
 

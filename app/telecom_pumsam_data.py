@@ -17,12 +17,13 @@ from app.electric_pumsam_data import (
 )
 from app.estimate_parse import lookup_key
 from app.paths import bundled_data_dir
-from app.pumsam_text import clean_spec_unit
+from app.pumsam_text import clean_spec_unit, is_qty_like_spec
 
 PumsamRow = dict[str, object]
 
 TELECOM_RULES = [
     "한국정보통신산업연구원 정보통신공사 표준품셈 적용 기준 (2025)",
+    "v1.19 원표 재추출. 예전 통신_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
     "장 구성: 1장 공통, 2장 관로·전봇대, 3장 배관, 4장 통신케이블, 5장 교환, 6장 전송, 7장 무선·방송, 8장 네트워크, 9장 정보설비, 10장 기계경비, 11장 전원, 12장 지능형 홈, 13장 유지보수.",
     "",
@@ -56,7 +57,7 @@ TELECOM_TRADE_GUIDE = [
 
 def _spec_variants(spec: str) -> list[str]:
     text, _ = clean_spec_unit(spec, "")
-    return [text] if text else []
+    return [text]
 
 
 def book_pumsam_rows() -> list[PumsamRow]:
@@ -66,10 +67,8 @@ def book_pumsam_rows() -> list[PumsamRow]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows: list[PumsamRow] = []
     for item in payload:
-        names = [str(item.get("명칭") or "").strip()]
+        name = str(item.get("명칭") or "").strip()
         short = str(item.get("짧은명칭") or "").strip()
-        if short and short not in names:
-            names.append(short)
         unit = str(item.get("단위") or "").strip() or "식"
         labor = str(item.get("노무명칭") or "").strip()
         qty_f = _book_qty(item.get("품셈"))
@@ -78,11 +77,12 @@ def book_pumsam_rows() -> list[PumsamRow]:
         rate = int(item.get("할증%") or 100)
         ref = str(item.get("품셈근거") or "")
         spec_text, unit = clean_spec_unit(str(item.get("규격") or ""), unit)
-        for name in names:
-            if not name or not labor:
-                continue
-            for spec in _spec_variants(spec_text):
-                rows.append(_row(name, spec, unit, labor, qty_f, rate, ref))
+        if is_qty_like_spec(spec_text, qty_f):
+            continue
+        if not name or not labor:
+            continue
+        for spec in _spec_variants(spec_text):
+            rows.append(_row(name, spec, unit, labor, qty_f, rate, ref, short=short))
     return rows
 
 

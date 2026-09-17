@@ -56,7 +56,15 @@ from app.ilwidae import (
 from app.items import LineItem, first_filled, parse_line_items
 from app.paths import assert_safe_save, build_result_path
 from app.pumsam import PUMSAM_SHEET_NAME, PumsamRow
-from app.wages import WAGES_SHEET_NAME, WageRow, load_wages, save_wages
+from app.wages import (
+    WAGE_COL_WIDTHS,
+    WAGE_NUMBER_FORMAT,
+    WAGE_ROW_HEIGHT,
+    WAGES_SHEET_NAME,
+    WageRow,
+    load_wages,
+    save_wages,
+)
 
 COMPARE_LAST_COL = 21
 
@@ -205,15 +213,13 @@ def _write_wages_sheet(sheet: Worksheet, rows: list[WageRow]) -> None:
             row.get("노임단가"),
             font=BODY_FONT,
             align=RIGHT,
-            number_format=PRICE_FORMAT,
+            number_format=WAGE_NUMBER_FORMAT,
         )
         _set_cell(sheet, excel_row, 3, row.get("비고"), font=BODY_FONT)
-    _apply_sheet_look(sheet, last, 3)
-    sheet.row_dimensions[1].height = FORM_ROW_HEIGHT
-    sheet.row_dimensions[2].height = FORM_ROW_HEIGHT
-    sheet.column_dimensions["A"].width = 18
-    sheet.column_dimensions["B"].width = 14
-    sheet.column_dimensions["C"].width = 40
+    _apply_sheet_look(sheet, last, 3, row_height=WAGE_ROW_HEIGHT)
+    sheet.column_dimensions["A"].width = WAGE_COL_WIDTHS[0]
+    sheet.column_dimensions["B"].width = WAGE_COL_WIDTHS[1]
+    sheet.column_dimensions["C"].width = WAGE_COL_WIDTHS[2]
 
 
 SUNDRY_LABOR_JOBS = ("내선전공", "저압케이블전공", "통신케이블공")

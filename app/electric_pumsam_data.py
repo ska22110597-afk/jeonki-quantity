@@ -13,10 +13,11 @@
 from __future__ import annotations
 
 import json
+import re
 
 from app.estimate_parse import lookup_key
 from app.paths import bundled_data_dir
-from app.pumsam_text import clean_spec_unit, display_spec
+from app.pumsam_text import clean_spec_unit, display_spec, is_qty_like_spec
 
 PumsamRow = dict[str, object]
 
@@ -29,10 +30,11 @@ def _row(
     qty: float | None,
     rate: int,
     ref: str,
+    short: str = "",
 ) -> PumsamRow:
     spec = display_spec(spec)
     unit = display_spec(unit) if unit else unit
-    return {
+    payload: PumsamRow = {
         "검색키": lookup_key(name, spec),
         "명칭": name,
         "규격": spec,
@@ -42,6 +44,10 @@ def _row(
         "할증%": rate,
         "품셈근거": ref,
     }
+    short = str(short or "").strip()
+    if short and short != name:
+        payload["짧은명칭"] = short
+    return payload
 
 
 def _book_qty(value: object) -> float | None | type[ValueError]:
@@ -530,9 +536,6 @@ def _gear_light_block() -> list[PumsamRow]:
     ]
     for spec, qty in rods:
         rows.append(_row("피뢰침", spec, "본", "내선전공", qty, 100, "전기5-42"))
-    rows.append(_row("수평도체", "일반", "M", "내선전공", 0.017, 100, "전기5-42-2"))
-    rows.append(_row("수평도체", "일반", "M", "보통인부", 0.008, 100, "전기5-42-2"))
-
     rows.append(_row("박스커버", "일반", "장", "내선전공", 0.03, 100, "전기5-29"))
     rows.append(_row("칼블럭", "9 mm 이하", "개", "내선전공", 0.028, 100, "전기5-29"))
     rows.append(_row("칼블럭", "12 mm 이하", "개", "내선전공", 0.036, 100, "전기5-29"))
@@ -547,8 +550,9 @@ def _gear_light_block() -> list[PumsamRow]:
 
 ELECTRIC_RULES = [
     "대한전기협회 전기공사 표준품셈 전문 적용 기준 (2026, 내선 표는 단가대비표 명칭에 맞게 풀음)",
+    "v1.19 원표 재추출. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
-    "장 구성: 1장 적용기준, 2장 송전, 3장 변전, 4장 배전, 5장 내선, 6장 계측·자동제어, 7장 전기철도.",
+    "장 구성: 1장 적용기준, 2장 송전, 3장 변전, 4장 배전, 5장 내선, 6장 계측·자동제어, 7장 전기철도, 8장 항공등화, 9장 신재생, 10장 소방전기.",
     "",
     "내선(5장) 배관",
     "1. 접미사 없는 명칭은 콘크리트 매입 기준입니다. 할증 100%.",
@@ -613,8 +617,6 @@ def _spec_variants(spec: str) -> list[str]:
     from app.pumsam_text import clean_spec_unit
 
     text, _ = clean_spec_unit(spec, "")
-    if not text:
-        return []
     alts = [text]
     capacity = re.search(r"(\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*kVA)", text, re.I)
     if capacity and "이하" not in text:
@@ -625,17 +627,15 @@ def _spec_variants(spec: str) -> list[str]:
 
 
 def book_pumsam_rows() -> list[PumsamRow]:
-    """2~7장 원표. 단가대비표에 붙이도록 짧은 이름·단위 글자만 풀어 둔다."""
+    """2~10장 원표. 단가대비표에 붙이도록 짧은 이름·단위 글자만 풀어 둔다."""
     path = bundled_data_dir() / "전기품셈_원표.json"
     if not path.exists():
         return []
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows: list[PumsamRow] = []
     for item in payload:
-        names = [str(item.get("명칭") or "").strip()]
+        name = str(item.get("명칭") or "").strip()
         short = str(item.get("짧은명칭") or "").strip()
-        if short and short not in names:
-            names.append(short)
         unit = str(item.get("단위") or "").strip() or "식"
         labor = str(item.get("노무명칭") or "").strip()
         qty_f = _book_qty(item.get("품셈"))
@@ -644,11 +644,14 @@ def book_pumsam_rows() -> list[PumsamRow]:
         rate = int(item.get("할증%") or 100)
         ref = str(item.get("품셈근거") or "")
         spec_text, unit = clean_spec_unit(str(item.get("규격") or ""), unit)
-        for name in names:
-            if not name or not labor:
-                continue
-            for spec in _spec_variants(spec_text):
-                rows.append(_row(name, spec, unit, labor, qty_f, rate, ref))
+        if is_qty_like_spec(spec_text, qty_f):
+            continue
+        if re.sub(r"\s+", "", spec_text) == re.sub(r"\s+", "", name):
+            spec_text = ""
+        if not name or not labor:
+            continue
+        for spec in _spec_variants(spec_text):
+            rows.append(_row(name, spec, unit, labor, qty_f, rate, ref, short=short))
     return rows
 
 

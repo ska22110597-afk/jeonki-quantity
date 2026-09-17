@@ -446,9 +446,9 @@ def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
     _apply_sheet_look(sheet, max_row, last_col)
     sheet.row_dimensions[1].height = FORM_ROW_HEIGHT
     sheet.row_dimensions[2].height = FORM_ROW_HEIGHT
-    sheet.column_dimensions["A"].width = 34
+    sheet.column_dimensions["A"].width = 50
     sheet.column_dimensions["B"].width = 24
-    sheet.column_dimensions["C"].width = 16
+    sheet.column_dimensions["C"].width = 50
     sheet.column_dimensions["D"].width = 8
     sheet.column_dimensions["E"].width = 12
     sheet.column_dimensions["F"].width = 10

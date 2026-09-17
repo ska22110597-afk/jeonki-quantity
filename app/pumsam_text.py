@@ -12,10 +12,13 @@ DITTO_CHARS = str.maketrans(
         "″": DITTO,
         "〻": DITTO,
         '"': DITTO,
+        "“": DITTO,
+        "”": DITTO,
+        "〃": DITTO,
     }
 )
 QUALIFIERS = ("이하", "초과", "미만", "내외", "이상", "단심")
-UNIT_HINTS = ("㎟", "㎠", "㎢", "㎥", "㎜", "mm", "cm", "m", "km", "kV", "kVA", "A", "P", "C")
+UNIT_HINTS = ("㎟", "㎠", "㎢", "㎥", "㎜", "mm", "cm", "km", "kVA", "kW", "kV", "m", "A", "P", "C")
 TRAILING_UNITS = (
     "급유구간",
     "개소",
@@ -101,6 +104,8 @@ def display_unit(text: str) -> str:
         return "m"
     if unit.lower() == "10m":
         return "10m"
+    if "(" in unit and ")" not in unit:
+        unit = unit.split("(")[0].strip() or unit
     return unit
 
 
@@ -125,6 +130,53 @@ def _copy_unit_token(prev: str, hint: str = "") -> str:
         if token and token in prev:
             return token
     return ""
+
+
+def _follow_texts_after_numbers(prev: str) -> list[str]:
+    nums = list(re.finditer(r"\d+(?:[.,]\d+)?", prev))
+    follows: list[str] = []
+    for index, match in enumerate(nums):
+        end = nums[index + 1].start() if index + 1 < len(nums) else len(prev)
+        chunk = prev[match.end() : end].strip()
+        for token in UNIT_HINTS:
+            if token and (chunk.startswith(token) or chunk.lower().startswith(token.lower())):
+                chunk = chunk[len(token) :].strip()
+                break
+        word = re.match(r"[가-힣A-Za-z]+", chunk)
+        follows.append(word.group(0) if word else chunk)
+    return follows
+
+
+def _trim_follow_already_in_left(left: str, follow: str) -> str:
+    """10 m 〃 처럼 왼쪽이 이미 m 이면, 이어서 받을 말은 이하·선용만 남긴다."""
+    follow = follow or ""
+    compact_left = left.replace(" ", "")
+    stripped = follow
+    for token in UNIT_HINTS:
+        if not token:
+            continue
+        if token not in compact_left and token.lower() not in compact_left.lower():
+            continue
+        stripped = re.sub(rf"^\s*{re.escape(token)}", "", stripped, flags=re.I)
+    return stripped
+
+
+def _fill_ditto_from_prev(spec: str, prev: str) -> str:
+    """3 〃 (2 〃) · 〃 2 〃 처럼 여러 〃 를 위 칸 숫자 뒤 글자로 채운다."""
+    if DITTO not in spec:
+        return spec
+    follows = _follow_texts_after_numbers(prev)
+    parts = spec.split(DITTO)
+    if not follows:
+        return spec.replace(DITTO, "").strip()
+    built: list[str] = []
+    for index, part in enumerate(parts):
+        built.append(part)
+        if index < len(parts) - 1:
+            follow = follows[index] if index < len(follows) else follows[-1]
+            follow = _trim_follow_already_in_left("".join(built), follow)
+            built.append(follow)
+    return "".join(built)
 
 
 def apply_unit_hint(spec: str, hint: str) -> str:
@@ -155,10 +207,82 @@ def apply_unit_hint(spec: str, hint: str) -> str:
 
 
 def _prefix_before_size(prev: str) -> str:
-    matched = KIND_SPLIT.search(prev)
-    if not matched or matched.start() == 0:
+    """4각형트라스 1선용 → 4각형트라스. 이름 앞 숫자는 남긴다."""
+    nums = list(re.finditer(r"\d+(?:[.,]\d+)?", prev))
+    if not nums:
         return ""
-    return prev[: matched.start()].strip()
+    return prev[: nums[-1].start()].strip()
+
+
+def _suffix_after_size(prev: str) -> str:
+    nums = list(re.finditer(r"\d+(?:[.,]\d+)?", prev))
+    if not nums:
+        return ""
+    chunk = prev[nums[-1].end() :].strip()
+    for token in UNIT_HINTS:
+        if token and (chunk.startswith(token) or chunk.lower().startswith(token.lower())):
+            chunk = chunk[len(token) :].strip()
+            break
+    word = re.match(r"[가-힣A-Za-z]+", chunk)
+    return word.group(0) if word else chunk
+
+
+def collapse_repeated_words(spec: str) -> str:
+    """8 분배기 분배기 → 8 분배기."""
+    return re.sub(r"([가-힣A-Za-z]{2,})(?:\s+\1)+", r"\1", spec)
+
+
+def collapse_spaced_hangul(spec: str) -> str:
+    """단 자 함 → 단자함. 이 하 → 이하. 한 글자씩 띄운 PDF 글자만 붙인다."""
+    spec = re.sub(r"이\s+하", "이하", spec)
+
+    def _join_singles(match: re.Match[str]) -> str:
+        parts = match.group(0).split()
+        if len(parts) >= 2 and all(len(part) == 1 for part in parts):
+            return "".join(parts)
+        return match.group(0)
+
+    spec = re.sub(r"[가-힣]+(?:\s+[가-힣]+)+", _join_singles, spec)
+    spec = re.sub(r"(mm|㎜)\s*이$", r"\1 이하", spec, flags=re.I)
+    return spec
+
+
+def fix_unit_qualifier_order(spec: str) -> str:
+    """1.5 이하 kW → 1.5 kW 이하."""
+    return re.sub(
+        r"(?P<num>\d+(?:[.,]\d+)?)\s+(?P<qual>이하|초과|미만|이상)\s+(?P<unit>kVA|kW|kV|mm|㎟|㎜|A|P)\b",
+        lambda match: f"{match.group('num')} {match.group('unit')} {match.group('qual')}",
+        spec,
+        flags=re.I,
+    )
+
+
+def _attach_unit_qual(spec: str, unit_token: str, qualifier: str) -> str:
+    """숫자는 단위 다음 이하. 1.5 이하 + kW → 1.5 kW 이하."""
+    if unit_token and unit_token not in spec:
+        replaced = False
+        for word in QUALIFIERS:
+            if word in spec:
+                spec = spec.replace(word, f"{unit_token} {word}", 1)
+                replaced = True
+                break
+        if not replaced:
+            spec = f"{spec} {unit_token}".strip()
+    if qualifier and qualifier not in spec:
+        spec = f"{spec} {qualifier}".strip()
+    return spec
+
+
+def is_qty_like_spec(spec: str, qty: Any = None) -> bool:
+    """규격 칸에 품셈 숫자(6.3, 10.5, 0.44)가 들어간 줄."""
+    text = str(spec or "").strip()
+    if not text:
+        return False
+    if re.fullmatch(r"\d+\.\d{1,2}", text):
+        return True
+    if qty is None or qty == "":
+        return False
+    return text == str(qty).strip()
 
 
 def expand_ditto(spec: str, prev: str, unit_hint: str = "") -> str:
@@ -182,15 +306,27 @@ def expand_ditto(spec: str, prev: str, unit_hint: str = "") -> str:
     if spec.startswith(DITTO):
         rest = LEADING_DITTO.sub("", spec).strip()
         prefix = _prefix_before_size(prev)
-        pieces = [prefix, rest]
-        spec = " ".join(part for part in pieces if part).strip()
-    else:
-        spec = spec.replace(DITTO, "").strip()
+        spec = " ".join(part for part in (prefix, rest) if part).strip()
 
-    if unit_token and unit_token not in spec:
-        spec = f"{spec} {unit_token}".strip()
-    if qualifier and qualifier not in spec:
-        spec = f"{spec} {qualifier}".strip()
+    ditto_count = spec.count(DITTO)
+    if ditto_count == 1 and spec.endswith(DITTO):
+        left = spec[: -len(DITTO)].rstrip()
+        if re.fullmatch(r"\d+(?:[.,]\d+)?", left):
+            follows = _follow_texts_after_numbers(prev)
+            follow = follows[0] if follows else _suffix_after_size(prev)
+            follow = _trim_follow_already_in_left(left, follow)
+            spec = f"{left} {follow}".strip() if follow else left
+        else:
+            suffix = _suffix_after_size(prev)
+            spec = left
+            if suffix and suffix not in spec:
+                spec = f"{spec} {suffix}".strip()
+    elif DITTO in spec:
+        spec = _fill_ditto_from_prev(spec, prev)
+
+    spec = spec.replace(DITTO, "").strip()
+    spec = collapse_repeated_words(spec)
+    spec = _attach_unit_qual(spec, unit_token, qualifier)
     return MULTI_SPACE.sub(" ", spec)
 
 
@@ -212,14 +348,23 @@ def strip_trailing_unit_dash(spec: str, unit: str = "") -> tuple[str, str]:
     matched = re.search(pattern, spec, flags=re.I)
     if matched:
         found = display_unit(matched.group(1))
-        if found.lower() in {"mm", "㎟", "㎠", "cm", "㎝", "㎥"}:
+        found_l = found.lower()
+        if found_l in {"mm", "㎟", "㎠", "cm", "㎝", "㎥"}:
+            return spec, unit
+        # 10 m, 16 m 이하처럼 크기 숫자 뒤 단위는 규격에 남긴다. 공종 칸에만 붙은 m 만 단위로 돌린다.
+        if re.search(rf"\d\s*{re.escape(found)}\s*$", spec, flags=re.I):
             return spec, unit
         spec = spec[: matched.start()].strip()
-        if not unit or unit in {"식", "개"} or found.lower() in {"m", "km", "10m", "톤", "조", "선", "급유구간"}:
+        if not unit or unit in {"식", "개"} or found_l in {"m", "km", "10m", "톤", "조", "선", "급유구간"}:
             unit = found or unit
     spec = re.sub(r"\s*[-－—–]\s*$", "", spec).strip()
     spec = re.sub(r"\s+\d{1,4}\.\d{2,}\s*$", "", spec).strip()
     return spec, unit
+
+
+def fix_duplicate_of(spec: str) -> str:
+    """154 kV OF 케이블 1200 OF ㎟ → OF 를 한 번만 남긴다."""
+    return re.sub(r"(OF(?:\s*케이블)?.*?)\s+OF\b", r"\1", spec)
 
 
 CABLE_AREA_AS_KV = re.compile(
@@ -268,6 +413,10 @@ def clean_spec_unit(spec: Any, unit: Any, prev_spec: str = "", unit_hint: str = 
     spec_text = apply_unit_hint(spec_text, unit_hint)
     spec_text = fix_cable_area_kv(spec_text, f"{kind} {prev_spec}")
     spec_text = strip_leaked_qty(spec_text)
+    spec_text = collapse_spaced_hangul(spec_text)
+    spec_text = collapse_repeated_words(spec_text)
+    spec_text = fix_duplicate_of(spec_text)
+    spec_text = fix_unit_qualifier_order(spec_text)
     spec_text = display_spec(spec_text)
     unit_text = display_unit(unit_text)
     return spec_text, unit_text
