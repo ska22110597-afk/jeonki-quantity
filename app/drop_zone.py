@@ -31,8 +31,8 @@ class DropZone(QFrame):
         self.setObjectName(names.get(tone, "dropZoneForward"))
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(52)
-        self.setMaximumHeight(58)
+        self.setMinimumHeight(72)
+        self.setMaximumHeight(96)
         self._idle_title = title
         self._idle_hint = hint
         self._dialog_title = dialog_title

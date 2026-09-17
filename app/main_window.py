@@ -1,11 +1,12 @@
-"""제작자_박남석 자동 내역서식 프로그램 화면."""
+"""자동 내역서식 프로그램 화면."""
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSettings, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPixmap
+from PyQt6.QtCore import QPoint, Qt, QSettings, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -44,7 +45,7 @@ from app.paths import (
     ui_background_path,
 )
 from app.pumsam import PUMSAM_SHEET_NAME
-from app.version import APP_EXE_NAME, APP_TAGLINE, APP_TITLE
+from app.version import APP_CONTACT, APP_EXE_NAME, APP_MAKER, APP_NOTICE, APP_TITLE, DROP_HINT
 from app.wages import WAGES_SHEET_NAME
 
 APP_STYLESHEET = """
@@ -70,10 +71,44 @@ QLabel#appTitle {
     font-weight: 600;
     letter-spacing: 0.3px;
 }
-QLabel#appSubtitle {
-    color: #D8CFC0;
+QLabel#appMaker, QLabel#appContact {
+    color: #E8DFD0;
     font-size: 12px;
-    font-weight: 400;
+    font-weight: 500;
+}
+QLabel#appNotice {
+    color: #E8C98A;
+    font-size: 12px;
+    font-weight: 700;
+}
+QFrame#captionBar {
+    background: #1A1A1A;
+    border: none;
+    min-height: 34px;
+    max-height: 34px;
+}
+QLabel#captionTitle {
+    color: #FFFFFF;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+}
+QPushButton#captionMin, QPushButton#captionMax, QPushButton#captionClose {
+    background: transparent;
+    color: #FFFFFF;
+    border: none;
+    min-width: 42px;
+    max-width: 42px;
+    min-height: 34px;
+    font-size: 12px;
+    font-weight: 700;
+}
+QPushButton#captionMin:hover, QPushButton#captionMax:hover {
+    background: #3A3A3A;
+}
+QPushButton#captionClose:hover {
+    background: #5A5A5A;
+    color: #FFFFFF;
 }
 QFrame#laneForward, QFrame#laneReverse, QFrame#laneQty, QFrame#card, QFrame#partCard {
     background: rgba(255, 252, 246, 0.92);
@@ -212,6 +247,7 @@ QStatusBar {
 }
 QDialog#doneDialog {
     background: #F4EFE4;
+    border: 1px solid #1A1A1A;
 }
 QFrame#doneHeader {
     background: #2C281F;
@@ -289,6 +325,85 @@ QLabel#busyFoot {
 """
 
 
+class DragHeader(QFrame):
+    """검정 머리 줄을 잡고 창을 옮긴다. 흰색 윈도우 막대 대신 쓴다."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._drag: QPoint | None = None
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#1A1A1A"))
+        painter.setPen(QPen(QColor(255, 255, 255, 28), 1))
+        step = 6
+        width = self.width()
+        height = self.height()
+        for x in range(-height, width + height, step):
+            painter.drawLine(x, 0, x + height, height)
+        painter.fillRect(0, height - 1, width, 1, QColor("#EDEDED"))
+        painter.end()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag = event.globalPosition().toPoint() - self.window().frameGeometry().topLeft()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self._drag is not None and event.buttons() & Qt.MouseButton.LeftButton:
+            self.window().move(event.globalPosition().toPoint() - self._drag)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        self._drag = None
+        super().mouseReleaseEvent(event)
+
+
+class CaptionBar(DragHeader):
+    """메인 창 맨 위 검은 표제. 빗금 무늬를 깔고 검정·흰색만 쓴다."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("captionBar")
+        self.setFixedHeight(34)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 0, 0, 0)
+        layout.setSpacing(0)
+        self._title = QLabel(APP_TITLE)
+        self._title.setObjectName("captionTitle")
+        layout.addWidget(self._title, 1)
+        self.min_button = QPushButton("—")
+        self.min_button.setObjectName("captionMin")
+        self.min_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.max_button = QPushButton("□")
+        self.max_button.setObjectName("captionMax")
+        self.max_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_button = QPushButton("×")
+        self.close_button.setObjectName("captionClose")
+        self.close_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(self.min_button)
+        layout.addWidget(self.max_button)
+        layout.addWidget(self.close_button)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            window = self.window()
+            if window.isMaximized():
+                window.showNormal()
+            else:
+                window.showMaximized()
+        super().mouseDoubleClickEvent(event)
+
+
+def _frameless_dialog_flags() -> Qt.WindowType:
+    return (
+        Qt.WindowType.Dialog
+        | Qt.WindowType.FramelessWindowHint
+        | Qt.WindowType.WindowStaysOnTopHint
+    )
+
+
 class DoneDialog(QDialog):
     """산출이 끝났을 때 띄우는 완료 창. 배전함 명판처럼 검정이랑 놋쇠색만 쓴다."""
 
@@ -299,12 +414,13 @@ class DoneDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(560)
         self.setStyleSheet(APP_STYLESHEET)
+        self.setWindowFlags(_frameless_dialog_flags())
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header = QFrame()
+        header = DragHeader()
         header.setObjectName("doneHeader")
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(28, 22, 28, 16)
@@ -367,7 +483,7 @@ class BusyDialog(QDialog):
         self.setModal(True)
         self.setMinimumWidth(560)
         self.setStyleSheet(APP_STYLESHEET)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlags(_frameless_dialog_flags())
         self._allow_close = False
         self._ticks = 0
 
@@ -375,7 +491,7 @@ class BusyDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        header = QFrame()
+        header = DragHeader()
         header.setObjectName("doneHeader")
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(28, 22, 28, 16)
@@ -424,7 +540,7 @@ class BusyDialog(QDialog):
         layout.addWidget(body)
 
         self._timer = QTimer(self)
-        self._timer.setInterval(90)
+        self._timer.setInterval(80)
         self._timer.timeout.connect(self._tick_gauge)
 
     @property
@@ -432,26 +548,20 @@ class BusyDialog(QDialog):
         return f"{self._message.text()}\n{self._foot.text()}"
 
     def start_gauge(self) -> None:
-        self._gauge.setValue(3)
+        self._gauge.setValue(1)
         self._ticks = 0
         self._timer.start()
 
     def _tick_gauge(self) -> None:
-        value = self._gauge.value()
-        if value >= 92:
-            return
         self._ticks += 1
-        remain = 92 - value
-        if value < 18:
-            step = 4
-        elif value < 48:
-            step = 2
-        elif value < 78:
-            step = 1 if self._ticks % 2 == 0 else 0
-        else:
-            step = 1 if self._ticks % 5 == 0 else 0
-        if step:
-            self._gauge.setValue(min(92, value + max(step, 1 if remain > 12 else step)))
+        elapsed = self._ticks * (self._timer.interval() / 1000.0)
+        eased = int(99 * (1.0 - math.exp(-elapsed / 5.8)))
+        current = self._gauge.value()
+        if eased > current:
+            self._gauge.setValue(min(99, eased))
+            return
+        if current < 99 and self._ticks % 12 == 0:
+            self._gauge.setValue(current + 1)
 
     def complete_and_close(self) -> None:
         self._timer.stop()
@@ -534,6 +644,13 @@ class PaperRoot(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
         self.setWindowTitle(APP_TITLE)
         self.setMinimumSize(1180, 980)
         self.resize(1260, 1080)
@@ -568,18 +685,41 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
+        self.caption = CaptionBar()
+        self.caption.min_button.clicked.connect(self.showMinimized)
+        self.caption.max_button.clicked.connect(self._toggle_maximized)
+        self.caption.close_button.clicked.connect(self.close)
+        outer.addWidget(self.caption)
+
         hero = QFrame()
         hero.setObjectName("hero")
         hero_layout = QVBoxLayout(hero)
         hero_layout.setContentsMargins(36, 22, 36, 20)
-        hero_layout.setSpacing(8)
+        hero_layout.setSpacing(10)
         title = QLabel(APP_TITLE)
         title.setObjectName("appTitle")
-        subtitle = QLabel(APP_TAGLINE)
-        subtitle.setObjectName("appSubtitle")
-        subtitle.setWordWrap(True)
         hero_layout.addWidget(title)
-        hero_layout.addWidget(subtitle)
+        gold = QFrame()
+        gold.setObjectName("doneGoldBar")
+        gold.setFixedHeight(3)
+        hero_layout.addWidget(gold)
+        credits = QHBoxLayout()
+        credits.setContentsMargins(0, 4, 0, 0)
+        credits.setSpacing(16)
+        left = QVBoxLayout()
+        left.setSpacing(4)
+        maker = QLabel(APP_MAKER)
+        maker.setObjectName("appMaker")
+        contact = QLabel(APP_CONTACT)
+        contact.setObjectName("appContact")
+        left.addWidget(maker)
+        left.addWidget(contact)
+        notice = QLabel(APP_NOTICE)
+        notice.setObjectName("appNotice")
+        notice.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        credits.addLayout(left, 1)
+        credits.addWidget(notice, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        hero_layout.addLayout(credits)
         outer.addWidget(hero)
 
         body = QWidget()
@@ -635,24 +775,15 @@ class MainWindow(QMainWindow):
 
         self.compare_drop = DropZone(
             title="단가대비표",
-            hint="물량 품목의 자재 단가  ·  놓으면 이후 시트를 작성",
+            hint=DROP_HINT,
             dialog_title="단가대비표 엑셀 선택",
             tone="forward",
         )
         self.compare_drop.file_dropped.connect(self._on_fwd_compare_dropped)
         forward_layout.addWidget(self.compare_drop)
-
-        self.ilwidae_drop = DropZone(
-            title="일위대가",
-            hint="이미 만든 호표가 있으면 놓습니다  ·  없으면 프로그램이 작성",
-            dialog_title="일위대가 엑셀 선택",
-            tone="forward",
-        )
-        self.ilwidae_drop.file_dropped.connect(self._on_fwd_ilwidae_dropped)
-        forward_layout.addWidget(self.ilwidae_drop)
+        self.ilwidae_drop = None
         self.forward_estimate_drop = None
-        for zone in (self.compare_drop, self.ilwidae_drop):
-            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.compare_drop.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         forward_layout.addStretch(1)
         lanes.addWidget(forward_lane, 1)
 
@@ -668,23 +799,14 @@ class MainWindow(QMainWindow):
 
         self.drop_zone = DropZone(
             title="일위대가목록",
-            hint="이미 있는 일위대가목록을 놓으면 단가대비표를 만듭니다",
+            hint=DROP_HINT,
             dialog_title="일위대가목록 엑셀 선택",
             tone="reverse",
         )
         self.drop_zone.file_dropped.connect(self._on_rev_estimate_dropped)
         reverse_layout.addWidget(self.drop_zone)
-
-        self.reverse_ilwidae_drop = DropZone(
-            title="일위대가",
-            hint="이미 만든 호표가 있으면 함께 넣습니다",
-            dialog_title="일위대가 엑셀 선택",
-            tone="reverse",
-        )
-        self.reverse_ilwidae_drop.file_dropped.connect(self._on_rev_ilwidae_dropped)
-        reverse_layout.addWidget(self.reverse_ilwidae_drop)
-        for zone in (self.drop_zone, self.reverse_ilwidae_drop):
-            zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.reverse_ilwidae_drop = None
+        self.drop_zone.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         reverse_layout.addStretch(1)
         lanes.addWidget(reverse_lane, 1)
         body_layout.addLayout(lanes)
@@ -700,12 +822,12 @@ class MainWindow(QMainWindow):
         qty_layout.addWidget(qty_title)
         self.quantity_drop = DropZone(
             title="일위대가목록",
-            hint="일위대가목록 시트가 있는 엑셀을 놓으면 공량산출서를 만듭니다. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트도 남깁니다",
+            hint=DROP_HINT,
             dialog_title="공량산출용 일위대가목록 엑셀 선택",
             tone="quantity",
         )
-        self.quantity_drop.setMaximumHeight(64)
-        self.quantity_drop.setMinimumHeight(56)
+        self.quantity_drop.setMaximumHeight(88)
+        self.quantity_drop.setMinimumHeight(72)
         self.quantity_drop.file_dropped.connect(self._on_qty_estimate_dropped)
         qty_layout.addWidget(self.quantity_drop)
         body_layout.addWidget(qty_lane)
@@ -789,10 +911,19 @@ class MainWindow(QMainWindow):
         outer.addWidget(body, 1)
 
         status = QStatusBar()
+        status.setSizeGripEnabled(True)
         status.showMessage("대기 — 정방향 또는 역방향 칸에 엑셀을 놓고 저장 폴더를 확인하세요.")
         self.setStatusBar(status)
         self._write_startup_log()
         self._refresh_filename_hint()
+
+    def _toggle_maximized(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+            self.caption.max_button.setText("□")
+        else:
+            self.showMaximized()
+            self.caption.max_button.setText("❐")
 
     def _selected_discipline(self) -> str:
         if self.telecom_button.isChecked():
@@ -809,9 +940,7 @@ class MainWindow(QMainWindow):
     def _refresh_part_hint(self) -> None:
         disc = self._selected_discipline()
         filename = pumsam_filename(disc)
-        self.part_file_hint.setText(
-            f"지금 불러오는 파일: 데이터베이스\\{filename}  ·  같은 자재라도 전공·품셈은 이 파일만 봅니다."
-        )
+        self.part_file_hint.setText(f"현재 선택된 적용 품셈 : {filename}")
 
     def _on_part_changed(self) -> None:
         disc = self._selected_discipline()
@@ -823,9 +952,9 @@ class MainWindow(QMainWindow):
     def _write_startup_log(self) -> None:
         self._append_log("원본 엑셀은 읽기만 합니다. 병합 셀은 메모리에서 채웁니다.")
         self._append_log(f"저장 폴더: {self.dest_edit.text()}")
-        self._append_log("왼쪽(정방향): 단가대비표 · 일위대가 → 일위대가목록")
-        self._append_log("오른쪽(역방향): 일위대가목록 · 일위대가 → 단가대비표")
-        self._append_log("아래(공량산출): 일위대가목록 시트가 있는 엑셀 → 공량산출서. 정방향 결과 파일을 넣으면 단가대비표·일위대가 시트를 남깁니다.")
+        self._append_log("왼쪽(정방향): 단가대비표 → 일위대가목록")
+        self._append_log("오른쪽(역방향): 일위대가목록 → 단가대비표")
+        self._append_log("아래(공량산출): 일위대가목록 시트가 있는 엑셀 → 공량산출서")
         self._append_log(f"표준품셈: {pumsam_filename(self._selected_discipline())}")
         self._append_log("노임단가는 2026년 하반기 시중노임(2026.9.1)을 넣어 두었습니다. 저장 폴더의 데이터베이스에서 고칠 수 있습니다.")
 
@@ -850,13 +979,7 @@ class MainWindow(QMainWindow):
         self._rev_estimate_path = None
         self._rev_ilwidae_path = None
         self._qty_estimate_path = None
-        for zone in (
-            self.compare_drop,
-            self.ilwidae_drop,
-            self.drop_zone,
-            self.reverse_ilwidae_drop,
-            self.quantity_drop,
-        ):
+        for zone in (self.compare_drop, self.drop_zone, self.quantity_drop):
             zone.reset()
         self.source_edit.clear()
         self.confirm_box.setChecked(False)
@@ -899,10 +1022,10 @@ class MainWindow(QMainWindow):
         return self._has_forward() or self._has_reverse() or self._has_quantity()
 
     def _has_forward(self) -> bool:
-        return any([self._fwd_compare_path, self._fwd_ilwidae_path])
+        return self._fwd_compare_path is not None
 
     def _has_reverse(self) -> bool:
-        return any([self._rev_estimate_path, self._rev_ilwidae_path])
+        return self._rev_estimate_path is not None
 
     def _has_quantity(self) -> bool:
         return self._qty_estimate_path is not None
@@ -949,7 +1072,8 @@ class MainWindow(QMainWindow):
     def _on_fwd_ilwidae_dropped(self, path_text: str) -> None:
         path = Path(path_text)
         self._fwd_ilwidae_path = path
-        self.ilwidae_drop.set_loaded(path.name)
+        if self.ilwidae_drop is not None:
+            self.ilwidae_drop.set_loaded(path.name)
         self._sync_source_edit()
         self.statusBar().showMessage(f"정방향 일위대가 선택됨 (읽기 전용): {path.name}")
         self._append_log(f"정방향 일위대가 로드 대기: {path}")
@@ -971,7 +1095,8 @@ class MainWindow(QMainWindow):
     def _on_rev_ilwidae_dropped(self, path_text: str) -> None:
         path = Path(path_text)
         self._rev_ilwidae_path = path
-        self.reverse_ilwidae_drop.set_loaded(path.name)
+        if self.reverse_ilwidae_drop is not None:
+            self.reverse_ilwidae_drop.set_loaded(path.name)
         self._sync_source_edit()
         self.statusBar().showMessage(f"역방향 일위대가 선택됨 (읽기 전용): {path.name}")
         self._append_log(f"역방향 일위대가 로드 대기: {path}")

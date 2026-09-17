@@ -4,11 +4,12 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QSettings, Qt
 from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QProgressBar
 
 from app.main_window import BusyDialog, DoneDialog, MainWindow, SETTINGS_APP, SETTINGS_APP_LEGACY, SETTINGS_ORG
 from app.paths import display_result_directory
+from app.version import APP_CONTACT, APP_MAKER, APP_NOTICE, APP_TITLE, DROP_HINT
 
 
 def _clear_settings() -> None:
@@ -29,25 +30,38 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         assert window.dest_edit.minimumHeight() >= 36
         assert window.dest_edit.height() <= 44
         assert window.minimumWidth() >= 980
-        assert window.windowTitle().startswith("제작자_박남석")
-        assert "v1." in window.windowTitle()
+        assert window.windowTitle() == APP_TITLE
+        assert "V.1.0.0" in window.windowTitle()
+        assert bool(window.windowFlags() & Qt.WindowType.FramelessWindowHint)
+        assert window.findChild(QFrame, "captionBar") is not None
+        assert window.findChild(QLabel, "captionTitle").text() == APP_TITLE
+        assert window.findChild(QLabel, "appTitle").text() == APP_TITLE
+        assert window.findChild(QLabel, "appMaker").text() == APP_MAKER
+        assert window.findChild(QLabel, "appContact").text() == APP_CONTACT
+        assert window.findChild(QLabel, "appNotice").text() == APP_NOTICE
         assert window.reset_button.text() == "새로고침"
         assert window.reset_button.minimumWidth() >= 120
         assert window.findChild(QLabel, "badge") is None
         assert window.findChild(QFrame, "laneReverse") is not None
         assert "일위대가목록_결과_" in window.confirm_note.text()
-        assert window.ilwidae_drop is not None
+        assert window.ilwidae_drop is None
         assert window.forward_estimate_drop is None
         assert window.drop_zone is not None
-        assert window.reverse_ilwidae_drop is not None
+        assert window.reverse_ilwidae_drop is None
         assert window.quantity_drop is not None
         assert window.quantity_drop._idle_title == "일위대가목록"
+        assert window.compare_drop._idle_hint == DROP_HINT
+        assert window.drop_zone._idle_hint == DROP_HINT
+        assert window.quantity_drop._idle_hint == DROP_HINT
+        assert "정방향 결과" not in window.quantity_drop._idle_hint
+        assert window.part_file_hint.text() == "현재 선택된 적용 품셈 : 전기_표준품셈.xlsx"
         assert window.electric_button.isChecked() is True
         assert window.telecom_button.isChecked() is False
         window.telecom_button.click()
         assert window.telecom_button.isChecked() is True
         assert window.electric_button.isChecked() is False
         assert window._selected_discipline() == "통신"
+        assert window.part_file_hint.text() == "현재 선택된 적용 품셈 : 통신_표준품셈.xlsx"
 
         source = tmp_path / "단가대비표.xlsx"
         source.write_bytes(b"unused")
@@ -92,6 +106,11 @@ def test_busy_dialog_tells_user_not_to_click_again() -> None:
             assert gauge.maximum() == 100
             assert gauge.value() >= 0
             assert gauge.isTextVisible() is True
+            dialog._ticks = 280
+            dialog._gauge.setValue(90)
+            for _ in range(40):
+                dialog._tick_gauge()
+            assert dialog.findChild(QProgressBar, "busyGauge").value() > 92
         finally:
             dialog.complete_and_close()
         window._lock_run_ui()

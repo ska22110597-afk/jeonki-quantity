@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""제작자_박남석 자동 내역서식 프로그램 진입점."""
+"""자동 내역서식 프로그램 진입점."""
 
 from __future__ import annotations
 

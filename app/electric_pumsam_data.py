@@ -3,11 +3,9 @@
 표 숫자는 전기공사 표준품셈 제5장(2026 적용, 내선 전선관·배선 표)을
 프로그램이 붙일 수 있게 풀어 넣은 것이다.
 
-- 매입: 콘크리트 매입 기준(할증 100%)
-- 노출: 철근콘크리트 노출(할증 120%)
-- 지중: 해당 품의 70%(할증 70%)
-접미사 없는 명칭은 매입 기준이다. 단가대비표에 _노출/_매입/_지중을
-붙이면 그 할증으로 맞춘다.
+- 매입: 콘크리트 매입 기준(할증 100%). 품셈표에는 이 원표 숫자만 적는다.
+- 노출·지중: 단가대비표 명칭에 _노출/_지중을 붙이면 찾을 때 할증만 붙인다. 품셈표에 같은 규격을 세 줄로 펼치지 않는다.
+접미사 없는 명칭은 매입 기준이다.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ import re
 
 from app.estimate_parse import lookup_key
 from app.paths import bundled_data_dir
+from app.pumsam_aliases import PLACE_SURCHARGE_RATES, split_place_name
 from app.pumsam_text import clean_spec_unit, display_spec, is_qty_like_spec, pumsam_ref_sort_key
 
 PumsamRow = dict[str, object]
@@ -70,18 +69,13 @@ def _place_rows(
     base_qty: float,
     ref: str,
     *,
-    include_buried: bool = True,
+    include_buried: bool = True,  # noqa: ARG001 — 예전 호출 호환. 할증 행은 만들지 않는다.
     include_bare: bool = True,
 ) -> list[PumsamRow]:
-    """매입 기준 품을 노출·지중 할증 행으로 펼친다."""
-    rows: list[PumsamRow] = []
-    if include_bare:
-        rows.append(_row(name, spec, unit, labor, base_qty, 100, ref))
-    rows.append(_row(f"{name}_매입", spec, unit, labor, base_qty, 100, ref))
-    rows.append(_row(f"{name}_노출", spec, unit, labor, base_qty, 120, ref))
-    if include_buried:
-        rows.append(_row(f"{name}_지중", spec, unit, labor, base_qty, 70, ref))
-    return rows
+    """원표 품만 넣는다. 노출·매입·지중 할증 행은 품셈표에 펼치지 않는다."""
+    if not include_bare:
+        return []
+    return [_row(name, spec, unit, labor, base_qty, 100, ref)]
 
 
 def _hi_specs(mm: int) -> tuple[str, ...]:
@@ -369,7 +363,6 @@ def _wire_cable_block() -> list[PumsamRow]:
         for label in _area_specs(spec):
             for name in ("전력케이블", "CV케이블", "VV케이블", "F-CV케이블", "600V CV"):
                 rows.append(_row(name, label, "M", "저압케이블전공", qty, 100, "전기5-11"))
-                rows.append(_row(f"{name}_직매", label, "M", "저압케이블전공", qty, 80, "전기5-11"))
 
     cores = ["1C", "2C", "3C", "4C", "5C", "6C", "7C", "8C", "10C", "12C", "14C", "15C", "19C", "20C", "24C", "30C", "50C"]
     ctrl_25 = [0.010, 0.014, 0.019, 0.026, 0.032, 0.035, 0.039, 0.042, 0.048, 0.054, 0.059, 0.062, 0.072, 0.074, 0.084, 0.098, 0.112]
@@ -550,17 +543,17 @@ def _gear_light_block() -> list[PumsamRow]:
 
 ELECTRIC_RULES = [
     "대한전기협회 전기공사 표준품셈 전문 적용 기준 (2026, 내선 표는 단가대비표 명칭에 맞게 풀음)",
-    "v1.20 원표는 검색·페이지 대조를 위해 빈 품(원표 '-') 행도 살려 둡니다. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
+    "v1.0.0 품셈표는 원표 품값만 적습니다. 노출·매입·지중 할증 행은 펼치지 않습니다. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
     "장 구성: 1장 적용기준, 2장 송전, 3장 변전, 4장 배전, 5장 내선, 6장 계측·자동제어, 7장 전기철도, 8장 항공등화, 9장 신재생, 10장 소방전기. 품셈근거는 2장부터 10장 숫자 순입니다.",
     "",
     "내선(5장) 배관",
-    "1. 접미사 없는 명칭은 콘크리트 매입 기준입니다. 할증 100%.",
-    "2. 명칭 끝 _매입 = 콘크리트 매입, 할증 100%.",
-    "3. 명칭 끝 _노출 = 철근콘크리트 노출, 할증 120%. 품셈 숫자는 매입 기준값 그대로 두고 할증만 올립니다.",
-    "4. 명칭 끝 _지중 = 지중 배관, 할증 70%.",
-    "5. CD관·폴리에틸렌관은 합성수지(경질비닐) 품의 80%입니다. 100 mm 이상은 100%.",
-    "6. 전력케이블 _직매는 할증 80%입니다. 인부는 저압케이블전공입니다.",
+    "1. 품셈표에는 원표 품값만 적습니다. 같은 규격을 매입·노출·지중 세 줄로 나누지 않습니다.",
+    "2. 단가대비표 명칭 끝 _매입 = 콘크리트 매입, 찾을 때 할증 100%.",
+    "3. 단가대비표 명칭 끝 _노출 = 철근콘크리트 노출, 찾을 때 할증 120%. 품셈 숫자는 원표 값 그대로입니다.",
+    "4. 단가대비표 명칭 끝 _지중 = 지중 배관, 찾을 때 할증 70%.",
+    "5. CD관·폴리에틸렌관은 합성수지(경질비닐) 품의 80%입니다. 100 mm 이상은 100%. 이 80%는 원표 해설이므로 품셈 숫자에 이미 반영합니다.",
+    "6. 전력케이블 _직매는 찾을 때 할증 80%입니다. 인부는 저압케이블전공입니다. 품셈표에는 원표 한 줄만 둡니다.",
     "",
     "인부",
     "7. 전선관·박스·덕트·트레이·등기구·차단기 → 내선전공.",
@@ -570,7 +563,7 @@ ELECTRIC_RULES = [
     "11. 전주·가선·주상변압기 → 배전전공(+ 보통인부). 활선은 배전활선전공.",
     "12. 계기반·계기 → 계장공. 전철 강체·전차선 → 배전전공(표 기준).",
     "13. 배선용단자함·가로등기초·수평도체는 내선전공과 보통인부를 함께 넣습니다. 표에 직종이 두 개면 일위대가 호표에도 둘 다 넣습니다.",
-    "14. 명칭이 같고 규격이 글자 그대로 같으면 그대로 붙습니다. 후강전선관 = 강제전선관, HI관 = 경질비닐전선관처럼 같은 품 묶음이면 그 이름으로도 찾습니다. 아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춥니다. 딱 맞는 규격이 없고 「N㎟ 이하」처럼 이하 구간만 있으면, 품목 규격 이상인 가장 작은 이하 구간을 씁니다. 예: 4㎟ → 6㎟ 이하, 3㎟ → 3㎟ 이하. 지중/노출, 1C/3C처럼 다른 말은 끌어오지 않습니다.",
+    "14. 명칭이 같고 규격이 글자 그대로 같으면 그대로 붙습니다. 후강전선관 = 강제전선관, HI관 = 경질비닐전선관처럼 같은 품 묶음이면 그 이름으로도 찾습니다. 아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춥니다. 딱 맞는 규격이 없고 「N㎟ 이하」처럼 이하 구간만 있으면, 품목 규격 이상인 가장 작은 이하 구간을 씁니다. 예: 4㎟ → 6㎟ 이하, 3㎟ → 3㎟ 이하. 단가대비표의 _노출/_지중/_직매는 원표 품을 찾고 할증만 붙입니다. 1C/3C처럼 다른 말은 끌어오지 않습니다.",
     "15. 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않은 값입니다. 할증은 할증% 칸에 따로 적습니다. 일위대가 인부 규격은 일반공사 직종만 적고, 비고에는 전기 5-1 같은 적용품만 적습니다. 일위대가 인부 수량(품)은 비워 두고 엑셀에서 직접 채웁니다.",
     "16. 표에 없는 품목은 전기 내선전공 1명만 넣습니다.",
     "17. 같은 명칭·규격에 인부가 여러 명이면 품셈표에서 아래 칸의 키워드·명칭만 비웁니다. 규격은 그대로 둡니다. 인부 행은 지우지 않습니다.",
@@ -655,6 +648,38 @@ def book_pumsam_rows() -> list[PumsamRow]:
     return rows
 
 
+def _strip_place_clones(rows: list[PumsamRow]) -> list[PumsamRow]:
+    """원표와 같은 품값인 노출·매입·지중·직매 복제 행은 뺀다."""
+    bases: dict[str, PumsamRow] = {}
+    for row in rows:
+        name = str(row.get("명칭") or "")
+        _base, suffix = split_place_name(name)
+        if suffix:
+            continue
+        key = f"{lookup_key(name, row.get('규격'))}|{row.get('노무명칭')}"
+        bases[key] = row
+    kept: list[PumsamRow] = []
+    for row in rows:
+        name = str(row.get("명칭") or "")
+        base, suffix = split_place_name(name)
+        if suffix not in PLACE_SURCHARGE_RATES:
+            kept.append(row)
+            continue
+        peer = bases.get(f"{lookup_key(base, row.get('규격'))}|{row.get('노무명칭')}")
+        if peer is None:
+            kept.append(row)
+            continue
+        try:
+            left = float(peer.get("품셈") or 0)
+            right = float(row.get("품셈") or 0)
+        except (TypeError, ValueError):
+            kept.append(row)
+            continue
+        if abs(left - right) > 1e-9:
+            kept.append(row)
+    return kept
+
+
 def _put_merged_row(merged: dict[str, PumsamRow], row: PumsamRow) -> None:
     """같은 명칭·규격·직종이면 품 숫자가 있는 줄을 남긴다. 빈 품 줄은 겹치지 않을 때만 둔다."""
     key = f"{lookup_key(row.get('명칭'), row.get('규격'))}|{row.get('노무명칭')}"
@@ -679,7 +704,7 @@ def electric_pumsam_rows() -> list[PumsamRow]:
         *_gear_light_block(),
     ):
         _put_merged_row(merged, row)
-    rows = list(merged.values())
+    rows = _strip_place_clones(list(merged.values()))
     rows.sort(
         key=lambda item: (
             pumsam_ref_sort_key(item.get("품셈근거")),

@@ -34,6 +34,7 @@ from app.pumsam import (
     fill_pumsam_search_sheet,
     import_pumsam_file,
     load_pumsam_database,
+    matched_surcharge_percent,
     merge_pumsam_rows,
     rows_from_grid,
     save_pumsam_database,
@@ -444,7 +445,6 @@ def _write_quantity_sheet(
     ilwidae_name = ilwidae_sheet_name or ILWIDAE_SHEET_NAME
     ilwidae_queues = _ilwidae_ref_queues(ilwidae_refs)
     _ = pumsam_last_row
-    _ = pumsam_rows
 
     if data_start >= 5:
         write_title_banner(sheet, "공 량 산 출 서", QTY_LAST_COL)
@@ -540,7 +540,7 @@ def _write_quantity_sheet(
             sheet,
             excel_row,
             10,
-            100,
+            matched_surcharge_percent(name, spec, pumsam_rows),
             align=RIGHT,
             number_format=RATE_FORMAT,
         )

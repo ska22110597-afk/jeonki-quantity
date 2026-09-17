@@ -18,7 +18,7 @@ from app.estimate_parse import (
     lookup_key,
     normalize_header,
 )
-from app.pumsam_aliases import alias_names
+from app.pumsam_aliases import PLACE_SURCHARGE_RATES, alias_names, split_place_name
 from app.pumsam_text import display_spec, lookup_measure, pumsam_ref_sort_key
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.discipline import (
@@ -327,16 +327,47 @@ def _preferred_match_group(name: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     return max(by_name.values(), key=lambda group: (len(group), -len(str(group[0].get("명칭") or ""))))
 
 
-def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
-    """같은 명칭·규격의 인부 행을 모두 반환한다. 지중/노출처럼 비슷한 이름은 끌어오지 않는다.
+def strip_place_clone_rows(rows: list[PumsamRow]) -> list[PumsamRow]:
+    """원표와 같은 품값인 노출·매입·지중·직매 복제 행은 품셈표에서 뺀다."""
+    bases: dict[str, PumsamRow] = {}
+    for row in rows:
+        name = str(row.get("명칭") or "")
+        base, suffix = split_place_name(name)
+        if suffix:
+            continue
+        key = f"{lookup_key(name, row.get('규격'))}|{row.get('노무명칭')}"
+        bases[key] = row
+    kept: list[PumsamRow] = []
+    for row in rows:
+        name = str(row.get("명칭") or "")
+        base, suffix = split_place_name(name)
+        if suffix not in PLACE_SURCHARGE_RATES:
+            kept.append(row)
+            continue
+        peer = bases.get(f"{lookup_key(base, row.get('규격'))}|{row.get('노무명칭')}")
+        if peer is None:
+            kept.append(row)
+            continue
+        if abs(pumsam_qty_value(peer) - pumsam_qty_value(row)) > 1e-9:
+            kept.append(row)
+            continue
+    return kept
 
-    글자가 똑같으면 그걸 쓴다. 후강전선관 = 강제전선관처럼 같은 품 묶음이면 그 이름으로도 찾는다.
-    아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춘다.
-    그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 씁니다.
-    """
-    if not lookup_key(name, spec):
-        return []
-    for candidate in alias_names(name):
+
+def with_place_surcharge(rows: list[PumsamRow], suffix: str) -> list[PumsamRow]:
+    rate = PLACE_SURCHARGE_RATES.get(suffix)
+    if not rate:
+        return rows
+    copied: list[PumsamRow] = []
+    for row in rows:
+        item = dict(row)
+        item["할증%"] = rate
+        copied.append(item)
+    return copied
+
+
+def _match_pumsam_candidates(names: list[str], spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    for candidate in names:
         key = lookup_key(candidate, spec)
         exact = [
             row
@@ -355,13 +386,50 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
         unique = _match_pumsam_unique_item(candidate, rows)
         if unique:
             return [row for row in unique if has_pumsam_qty(row)]
-    compact = lookup_key(name, "").lower()
+    compact = lookup_key(names[0] if names else "", "").lower()
     if "tray" in compact or "트레이" in compact:
-        for candidate in alias_names(name):
+        for candidate in names:
             ceiling = _match_pumsam_ceiling(candidate, "1 mm2", rows)
             if ceiling:
                 return _preferred_match_group(candidate, ceiling)
     return []
+
+
+def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """같은 명칭·규격의 인부 행을 모두 반환한다.
+
+    글자가 똑같으면 그걸 쓴다. 후강전선관 = 강제전선관처럼 같은 품 묶음이면 그 이름으로도 찾는다.
+    아연도 16 mm 와 16 mm / G 16 mm 처럼 앞말만 다르면 같은 크기로 맞춘다.
+    그래도 없으면 품목 규격 이상인 가장 작은 「이하」 구간을 씁니다.
+    단가대비표의 _노출/_지중/_직매는 원표 품을 찾고 할증만 붙입니다.
+    세대분전반_노출처럼 원표에 접미사가 따로 있는 품은 그 줄을 그대로 씁니다.
+    """
+    if not lookup_key(name, spec):
+        return []
+    found = _match_pumsam_candidates(alias_names(name), spec, rows)
+    base, suffix = split_place_name(name)
+    if suffix not in PLACE_SURCHARGE_RATES:
+        return found
+    if found and any(split_place_name(row.get("명칭"))[1] == suffix for row in found):
+        return found
+    if not found:
+        found = _match_pumsam_candidates(alias_names(base), spec, rows)
+    return with_place_surcharge(found, suffix)
+
+
+def matched_surcharge_percent(name: Any, spec: Any, rows: list[PumsamRow] | None) -> int:
+    """공량산출서 할증% 칸. 품셈 숫자는 원표 값이고, 할증만 따로 적는다."""
+    if rows:
+        found = match_pumsam(name, spec, rows)
+        if found:
+            raw = found[0].get("할증%")
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                number = 100.0
+            return int(round(number if number > 5 else number * 100.0))
+    _base, suffix = split_place_name(name)
+    return int(PLACE_SURCHARGE_RATES.get(suffix, 100))
 
 
 def surcharge_percent_text(row: PumsamRow) -> str:
@@ -704,7 +772,7 @@ def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
             row = dict(row)
             row["검색키"] = lookup_key(row.get("명칭"), row.get("규격"))
             merged[key] = row
-    return list(merged.values())
+    return strip_place_clone_rows(list(merged.values()))
 
 
 def load_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> list[PumsamRow]:
@@ -778,6 +846,7 @@ def fill_pumsam_search_sheet(sheet, rows: list[PumsamRow]) -> None:
     """검색·원표 대조용 품셈표. 키워드·명칭·규격·단위·노무명칭·품셈·할증%·품셈근거."""
     sheet.title = PUMSAM_SHEET_NAME
     sheet.append(list(PUMSAM_DISPLAY_HEADERS))
+    rows = strip_place_clone_rows(rows)
     for row, hide_item in grouped_pumsam_rows(rows):
         sheet.append(_sheet_values(row, hide_item=hide_item))
     _style_pumsam_sheet(sheet)

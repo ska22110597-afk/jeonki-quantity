@@ -14,13 +14,15 @@ from app.items import LineItem
 
 def test_electric_pumsam_covers_places_and_trades() -> None:
     rows = electric_pumsam_rows()
-    assert len(rows) > 10000
+    assert len(rows) > 9000
     names = {str(row.get("명칭")) for row in rows}
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "경질비닐전선관" in names
-    assert "경질비닐전선관_매입" in names
-    assert "경질비닐전선관_노출" in names
-    assert "경질비닐전선관_지중" in names
+    assert "CD전선관" in names
+    assert "경질비닐전선관_매입" not in names
+    assert "경질비닐전선관_노출" not in names
+    assert "경질비닐전선관_지중" not in names
+    assert not any(n.startswith("CD전선관_") for n in names)
     assert "배선용단자함" in names
     assert "HIV전선" in names
     assert "CV케이블" in names
@@ -67,6 +69,11 @@ def test_cd_is_80_percent_of_resin_under_100mm() -> None:
     assert len(matched) == 1
     assert matched[0]["품셈"] == 0.04
     assert matched[0]["노무명칭"] == "내선전공"
+    exposed = match_pumsam("CD전선관_노출", "CD 16 mm", default_pumsam_rows())
+    assert exposed[0]["품셈"] == 0.04
+    assert exposed[0]["할증%"] == 120
+    names = {str(row.get("명칭")) for row in default_pumsam_rows()}
+    assert "CD전선관_노출" not in names
 
 
 def test_direct_burial_cable_uses_80_percent() -> None:
@@ -174,7 +181,10 @@ def test_name_aliases_treat_steel_and_resin_as_same_family() -> None:
     buried = match_pumsam("후강전선관_지중", "16 mm", steel_only)
     assert buried[0]["품셈"] == 0.056
     assert buried[0]["할증%"] == 70
-    assert match_pumsam("후강전선관_지중", "16 mm", steel_only[:1]) == []
+    from_base = match_pumsam("후강전선관_지중", "16 mm", steel_only[:1])
+    assert len(from_base) == 1
+    assert from_base[0]["품셈"] == 0.08
+    assert from_base[0]["할증%"] == 70
 
     resin_only = [
         {"명칭": "경질비닐전선관", "규격": "HI 28 mm", "노무명칭": "내선전공", "품셈": 0.08, "할증%": 100},

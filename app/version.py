@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-APP_VERSION = "1.20"
+APP_VERSION = "1.0.0"
 APP_EXE_NAME = "전기·통신 서식 생성"
-APP_TITLE = f"제작자_박남석 자동 내역서식 프로그램.v{APP_VERSION}"
-APP_TAGLINE = "정방향은 단가대비표에서 일위대가목록까지, 역방향은 일위대가목록에서 단가대비표까지 만듭니다. 공량산출은 일위대가목록 시트가 있는 엑셀을 아래 칸에 놓으면 됩니다."
+APP_TITLE = f"자동 내역서식 프로그램 V.{APP_VERSION}"
+APP_MAKER = "◇ 제작자 : 박남석"
+APP_CONTACT = "◇ 프로그램 문의 : ska0597@naver.com"
+APP_NOTICE = "※ 무단 복제 및 파일변조 금지"
+DROP_HINT = "여기를 눌러 파일을 선택하거나, 파일을 끌어다가 놓아주세요."

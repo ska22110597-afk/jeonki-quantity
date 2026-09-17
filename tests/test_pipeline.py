@@ -732,7 +732,7 @@ def test_quantity_keeps_compare_and_ilwidae_from_forward_result(tmp_path: Path) 
         assert first.labor_rows
         assert qty["H5"].value == f"='일위대가'!A{first.labor_rows[0]}"
         assert qty["I5"].value == "=" + "+".join(f"'일위대가'!D{r}" for r in first.labor_rows)
-        assert qty["J5"].value == 100
+        assert qty["J5"].value == 70
         assert qty["L5"].value == f"='일위대가'!M{first.material_row}"
         assert "G5*I5*(J5/100)" in str(qty["K5"].value)
         assert all(ilwidae.cell(row, 4).value in (None, "") for row in first.labor_rows)

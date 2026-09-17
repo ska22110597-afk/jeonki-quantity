@@ -143,7 +143,9 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
             for col in range(1, 10)
         )
         names = [pumsam.cell(r, 2).value for r in range(2, pumsam.max_row + 1)]
-        assert "경질비닐전선관_지중" in names
+        assert "경질비닐전선관" in names
+        assert "경질비닐전선관_지중" not in names
+        assert "경질비닐전선관_노출" not in names
         extra_labor = False
         for row_idx in range(2, pumsam.max_row + 1):
             if pumsam.cell(row_idx, 2).value in (None, "") and pumsam.cell(row_idx, 3).value not in (None, ""):
@@ -171,7 +173,9 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert qty["G5"].value == "='일위대가목록'!D5"
         assert qty["H5"].value in (None, "")
         assert qty["I5"].value in (None, "")
-        assert qty["J5"].value == 100
+        assert qty["J5"].value == 70
+        assert qty["B7"].value == "경질비닐전선관_노출"
+        assert qty["J7"].value == 120
         assert qty["K5"].value == (
             '=IF(OR(G5="",I5="",G5*I5=0),"",G5*I5*(J5/100))'
         )
