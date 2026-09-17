@@ -69,6 +69,15 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert QUANTITY_SHEET_NAME not in result.sheetnames
         assert PUMSAM_SHEET_NAME in result.sheetnames
         assert WAGES_SHEET_NAME in result.sheetnames
+        pumsam = result[PUMSAM_SHEET_NAME]
+        assert pumsam["A1"].value == "키워드"
+        assert pumsam["B1"].value == "명칭"
+        assert pumsam["C1"].value == "규격"
+        assert pumsam["H1"].value == "품셈근거"
+        assert all(
+            "공량산출" not in str(pumsam.cell(1, col).value or "")
+            for col in range(1, 10)
+        )
         wages = result[WAGES_SHEET_NAME]
         assert wages.column_dimensions["A"].width == 17
         assert wages.column_dimensions["B"].width == 17
@@ -509,9 +518,12 @@ def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
         assert "VLOOKUP" not in str(qty["H8"].value or "")
         assert "SUMPRODUCT" not in str(qty["K8"].value or "")
         assert qty["A3"].value == "품목"
+        from app.pumsam import PUMSAM_COLUMN_WIDTHS
+
         pumsam = result[PUMSAM_SHEET_NAME]
-        assert pumsam.column_dimensions["A"].width == 50
-        assert pumsam.column_dimensions["C"].width == 50
+        assert pumsam["A1"].value == "키워드"
+        assert pumsam.column_dimensions["A"].width == PUMSAM_COLUMN_WIDTHS[0]
+        assert pumsam.column_dimensions["C"].width == PUMSAM_COLUMN_WIDTHS[2]
         wages = result[WAGES_SHEET_NAME]
         assert wages.column_dimensions["A"].width == 17
         assert wages.column_dimensions["B"].width == 17

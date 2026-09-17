@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.pumsam_text import clean_spec_unit, expand_ditto, strip_trailing_unit_dash
+from app.pumsam_text import clean_spec_unit, expand_ditto, pumsam_ref_sort_key, strip_trailing_unit_dash
 
 
 def test_expand_ditto_copies_prefix_and_선용() -> None:
@@ -48,3 +48,13 @@ def test_process_name_trailing_m_still_moves_to_unit() -> None:
     spec, unit = strip_trailing_unit_dash("급유관 설치 m", "식")
     assert spec == "급유관 설치"
     assert unit == "m"
+
+
+def test_pumsam_ref_sorts_chapter_1_to_10() -> None:
+    ordered = sorted(
+        ["전기10-1-1", "전기2-1", "전기9-2", "전기3-12-1", "통신2-1", "전기10-1-2"],
+        key=pumsam_ref_sort_key,
+    )
+    assert ordered[:4] == ["전기2-1", "전기3-12-1", "전기9-2", "전기10-1-1"]
+    assert ordered[4] == "전기10-1-2"
+    assert ordered[-1] == "통신2-1"

@@ -13,17 +13,17 @@ from app.electric_pumsam_data import (
     _cd_qty,
     _hi_specs,
     _place_rows,
+    _put_merged_row,
     _row,
 )
-from app.estimate_parse import lookup_key
 from app.paths import bundled_data_dir
-from app.pumsam_text import clean_spec_unit, is_qty_like_spec
+from app.pumsam_text import clean_spec_unit, is_qty_like_spec, pumsam_ref_sort_key
 
 PumsamRow = dict[str, object]
 
 TELECOM_RULES = [
     "한국정보통신산업연구원 정보통신공사 표준품셈 적용 기준 (2025)",
-    "v1.19 원표 재추출. 예전 통신_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
+    "v1.20 원표는 검색·페이지 대조를 위해 빈 품(원표 '-') 행도 살려 둡니다. 예전 통신_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
     "장 구성: 1장 공통, 2장 관로·전봇대, 3장 배관, 4장 통신케이블, 5장 교환, 6장 전송, 7장 무선·방송, 8장 네트워크, 9장 정보설비, 10장 기계경비, 11장 전원, 12장 지능형 홈, 13장 유지보수.",
     "",
@@ -145,12 +145,11 @@ def _cable_aliases() -> list[PumsamRow]:
 def telecom_pumsam_rows() -> list[PumsamRow]:
     merged: dict[str, PumsamRow] = {}
     for row in (*book_pumsam_rows(), *_conduit_block(), *_cable_aliases()):
-        key = f"{lookup_key(row.get('명칭'), row.get('규격'))}|{row.get('노무명칭')}"
-        merged[key] = row
+        _put_merged_row(merged, row)
     rows = list(merged.values())
     rows.sort(
         key=lambda item: (
-            str(item.get("품셈근거") or ""),
+            pumsam_ref_sort_key(item.get("품셈근거")),
             str(item.get("명칭") or ""),
             str(item.get("규격") or ""),
             str(item.get("노무명칭") or ""),

@@ -17,7 +17,7 @@ from app.excel_io import (
     source_qty_formula,
 )
 from app.estimate_parse import first_data_row_number, is_section_row, is_sundry_form_row, load_estimate_sheet, lookup_key
-from app.pumsam import PUMSAM_SHEET_NAME, import_pumsam_file
+from app.pumsam import PUMSAM_COLUMN_WIDTHS, PUMSAM_DISPLAY_HEADERS, PUMSAM_ROW_HEIGHT, PUMSAM_SHEET_NAME, import_pumsam_file
 
 
 def _write_estimate(path: Path, *, with_merge: bool = False) -> None:
@@ -134,25 +134,28 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         assert str(estimate.sheet_properties.tabColor.rgb).upper().endswith("FFFFFF")
 
         pumsam = result[PUMSAM_SHEET_NAME]
-        assert pumsam["A1"].value == "품 셈 표"
-        assert pumsam["A3"].value == "품목"
-        assert pumsam["E4"].value == "명칭"
-        assert pumsam["B5"].value
-        names = [pumsam.cell(r, 2).value for r in range(5, pumsam.max_row + 1)]
+        assert [pumsam.cell(1, col).value for col in range(1, 9)] == list(PUMSAM_DISPLAY_HEADERS)
+        assert pumsam["A1"].value == "키워드"
+        assert pumsam["H1"].value == "품셈근거"
+        assert pumsam["A3"].value != "품목"
+        assert all(
+            "공량산출" not in str(pumsam.cell(1, col).value or "")
+            for col in range(1, 10)
+        )
+        names = [pumsam.cell(r, 2).value for r in range(2, pumsam.max_row + 1)]
         assert "경질비닐전선관_지중" in names
-        assert str(pumsam["A5"].value).startswith("=CONCATENATE")
         extra_labor = False
-        for row_idx in range(5, pumsam.max_row + 1):
+        for row_idx in range(2, pumsam.max_row + 1):
             if pumsam.cell(row_idx, 2).value in (None, "") and pumsam.cell(row_idx, 3).value not in (None, ""):
                 extra_labor = True
                 assert pumsam.cell(row_idx, 1).value in (None, "")
                 assert pumsam.cell(row_idx, 5).value not in (None, "")
                 break
         assert extra_labor
-        assert pumsam.column_dimensions["A"].width == 50
-        assert pumsam.column_dimensions["C"].width == 50
-        assert pumsam.row_dimensions[5].height == ROW_HEIGHT
-        assert "FFFFFF" in _fill_rgb(pumsam["A3"])
+        assert pumsam.column_dimensions["A"].width == PUMSAM_COLUMN_WIDTHS[0]
+        assert pumsam.column_dimensions["C"].width == PUMSAM_COLUMN_WIDTHS[2]
+        assert pumsam.row_dimensions[2].height == PUMSAM_ROW_HEIGHT
+        assert "B7DEE8" in _fill_rgb(pumsam["A1"])
 
         qty = result[QUANTITY_SHEET_NAME]
         assert qty["A1"].value == "공 량 산 출 서"

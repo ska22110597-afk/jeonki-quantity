@@ -17,7 +17,7 @@ import re
 
 from app.estimate_parse import lookup_key
 from app.paths import bundled_data_dir
-from app.pumsam_text import clean_spec_unit, display_spec, is_qty_like_spec
+from app.pumsam_text import clean_spec_unit, display_spec, is_qty_like_spec, pumsam_ref_sort_key
 
 PumsamRow = dict[str, object]
 
@@ -550,9 +550,9 @@ def _gear_light_block() -> list[PumsamRow]:
 
 ELECTRIC_RULES = [
     "대한전기협회 전기공사 표준품셈 전문 적용 기준 (2026, 내선 표는 단가대비표 명칭에 맞게 풀음)",
-    "v1.19 원표 재추출. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
+    "v1.20 원표는 검색·페이지 대조를 위해 빈 품(원표 '-') 행도 살려 둡니다. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
-    "장 구성: 1장 적용기준, 2장 송전, 3장 변전, 4장 배전, 5장 내선, 6장 계측·자동제어, 7장 전기철도, 8장 항공등화, 9장 신재생, 10장 소방전기.",
+    "장 구성: 1장 적용기준, 2장 송전, 3장 변전, 4장 배전, 5장 내선, 6장 계측·자동제어, 7장 전기철도, 8장 항공등화, 9장 신재생, 10장 소방전기. 품셈근거는 2장부터 10장 숫자 순입니다.",
     "",
     "내선(5장) 배관",
     "1. 접미사 없는 명칭은 콘크리트 매입 기준입니다. 할증 100%.",
@@ -655,6 +655,19 @@ def book_pumsam_rows() -> list[PumsamRow]:
     return rows
 
 
+def _put_merged_row(merged: dict[str, PumsamRow], row: PumsamRow) -> None:
+    """같은 명칭·규격·직종이면 품 숫자가 있는 줄을 남긴다. 빈 품 줄은 겹치지 않을 때만 둔다."""
+    key = f"{lookup_key(row.get('명칭'), row.get('규격'))}|{row.get('노무명칭')}"
+    prev = merged.get(key)
+    if prev is None:
+        merged[key] = row
+        return
+    prev_has = prev.get("품셈") not in (None, "")
+    new_has = row.get("품셈") not in (None, "")
+    if new_has or not prev_has:
+        merged[key] = row
+
+
 def electric_pumsam_rows() -> list[PumsamRow]:
     """전기 표준품셈 베이스. 같은 명칭·규격·직종은 한 줄만 남긴다."""
     merged: dict[str, PumsamRow] = {}
@@ -665,12 +678,11 @@ def electric_pumsam_rows() -> list[PumsamRow]:
         *_wire_cable_block(),
         *_gear_light_block(),
     ):
-        key = f"{lookup_key(row.get('명칭'), row.get('규격'))}|{row.get('노무명칭')}"
-        merged[key] = row
+        _put_merged_row(merged, row)
     rows = list(merged.values())
     rows.sort(
         key=lambda item: (
-            str(item.get("품셈근거") or ""),
+            pumsam_ref_sort_key(item.get("품셈근거")),
             str(item.get("명칭") or ""),
             str(item.get("규격") or ""),
             str(item.get("노무명칭") or ""),

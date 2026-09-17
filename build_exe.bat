@@ -4,7 +4,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 echo ============================================
-echo  전기공사 공량산출  —  단일 EXE 빌드
+echo  전기·통신 서식 생성  —  단일 EXE 빌드
 echo ============================================
 echo 작업 폴더: %CD%
 echo.
@@ -43,7 +43,7 @@ echo.
 echo [2] 콘솔 창 없는 단일 EXE 빌드
 echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe 가 없어도 됩니다^)
 %PY% -m PyInstaller --noconsole --onefile --clean ^
-  --name GongryangCalc ^
+  --name "전기·통신 서식 생성" ^
   --icon assets/app.ico ^
   --version-file file_version_info.txt ^
   --collect-all PyQt6 ^
@@ -73,7 +73,7 @@ echo     python -m PyInstaller 를 사용합니다. ^(PATH에 pyinstaller.exe �
 if errorlevel 1 goto :fail
 
 echo.
-echo 완료: %CD%\dist\GongryangCalc.exe
+echo 완료: %CD%\dist\전기·통신 서식 생성.exe
 echo 이 파일을 파이썬이 없는 사무용 PC에 복사해 실행하면 됩니다.
 echo 결과는 창에서 고른 폴더에 저장됩니다. 기본 후보는 C:\전기공사_공량산출_결과 입니다.
 pause

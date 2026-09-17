@@ -5,14 +5,19 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QProgressDialog
+from PyQt6.QtWidgets import QApplication, QFrame, QLabel, QProgressBar
 
-from app.main_window import DoneDialog, MainWindow
+from app.main_window import BusyDialog, DoneDialog, MainWindow, SETTINGS_APP, SETTINGS_APP_LEGACY, SETTINGS_ORG
 from app.paths import display_result_directory
 
 
+def _clear_settings() -> None:
+    QSettings(SETTINGS_ORG, SETTINGS_APP).clear()
+    QSettings(SETTINGS_ORG, SETTINGS_APP_LEGACY).clear()
+
+
 def test_run_button_requires_file_and_confirm(tmp_path) -> None:
-    QSettings("전기공사공량산출", "GongryangCalc").clear()
+    _clear_settings()
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     try:
@@ -70,20 +75,25 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
 
 
 def test_busy_dialog_tells_user_not_to_click_again() -> None:
-    QSettings("전기공사공량산출", "GongryangCalc").clear()
+    _clear_settings()
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     try:
         dialog = window._open_busy_dialog()
         try:
-            assert isinstance(dialog, QProgressDialog)
+            assert isinstance(dialog, BusyDialog)
             assert dialog.windowTitle() == "작업 중"
-            assert "만드는 중" in dialog.labelText()
-            assert "다시 누르지" in dialog.labelText()
-            assert dialog.minimum() == 0
-            assert dialog.maximum() == 0
+            assert dialog.findChild(QLabel, "doneTitle").text() == "작업 중"
+            assert "만드는 중" in dialog.labelText
+            assert "다시 누르지" in dialog.labelText
+            gauge = dialog.findChild(QProgressBar, "busyGauge")
+            assert gauge is not None
+            assert gauge.minimum() == 0
+            assert gauge.maximum() == 100
+            assert gauge.value() >= 0
+            assert gauge.isTextVisible() is True
         finally:
-            dialog.close()
+            dialog.complete_and_close()
         window._lock_run_ui()
         try:
             assert window._busy is True
@@ -102,7 +112,7 @@ def test_busy_dialog_tells_user_not_to_click_again() -> None:
 
 
 def test_done_dialog_keeps_short_electrician_copy(tmp_path) -> None:
-    QSettings("전기공사공량산출", "GongryangCalc").clear()
+    _clear_settings()
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     try:

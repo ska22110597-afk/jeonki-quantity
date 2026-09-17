@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
-    QProgressDialog,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QStatusBar,
@@ -44,7 +44,7 @@ from app.paths import (
     ui_background_path,
 )
 from app.pumsam import PUMSAM_SHEET_NAME
-from app.version import APP_TAGLINE, APP_TITLE
+from app.version import APP_EXE_NAME, APP_TAGLINE, APP_TITLE
 from app.wages import WAGES_SHEET_NAME
 
 APP_STYLESHEET = """
@@ -260,6 +260,32 @@ QPushButton#doneOk {
 QPushButton#doneOk:hover {
     background: #4A4338;
 }
+QProgressBar#busyGauge {
+    border: 1px solid #C9A45C;
+    border-radius: 8px;
+    background: #E8DFD0;
+    color: #2C281F;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 22px;
+    max-height: 22px;
+    text-align: center;
+}
+QProgressBar#busyGauge::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #B8893A, stop:0.55 #E8C98A, stop:1 #F3DEAE);
+    border-radius: 7px;
+    margin: 1px;
+}
+QLabel#busyMessage, QLabel#busyStatus {
+    color: #2C281F;
+    font-size: 13px;
+    font-weight: 600;
+}
+QLabel#busyFoot {
+    color: #7A6A52;
+    font-size: 12px;
+}
 """
 
 
@@ -331,6 +357,153 @@ class DoneDialog(QDialog):
         layout.addWidget(body)
 
 
+class BusyDialog(QDialog):
+    """작업 중 창. 완료 창과 같은 배전함 무늬에, 프로그램 받을 때처럼 게이지를 채운다."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("doneDialog")
+        self.setWindowTitle("작업 중")
+        self.setModal(True)
+        self.setMinimumWidth(560)
+        self.setStyleSheet(APP_STYLESHEET)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self._allow_close = False
+        self._ticks = 0
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("doneHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(28, 22, 28, 16)
+        header_layout.setSpacing(12)
+        title = QLabel("작업 중")
+        title.setObjectName("doneTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        header_layout.addWidget(title)
+        gold = QFrame()
+        gold.setObjectName("doneGoldBar")
+        gold.setFixedHeight(3)
+        header_layout.addWidget(gold)
+        layout.addWidget(header)
+
+        body = QFrame()
+        body.setObjectName("doneBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(28, 22, 28, 24)
+        body_layout.setSpacing(10)
+
+        cap = QLabel("진행 상황 :")
+        cap.setObjectName("doneCaption")
+        body_layout.addWidget(cap)
+        self._message = QLabel("산출 파일을 만드는 중입니다.")
+        self._message.setObjectName("busyMessage")
+        self._message.setWordWrap(True)
+        body_layout.addWidget(self._message)
+
+        self._status = QLabel(f"{APP_EXE_NAME}  ·  서식 작성")
+        self._status.setObjectName("busyStatus")
+        body_layout.addWidget(self._status)
+
+        self._gauge = QProgressBar()
+        self._gauge.setObjectName("busyGauge")
+        self._gauge.setRange(0, 100)
+        self._gauge.setValue(0)
+        self._gauge.setTextVisible(True)
+        self._gauge.setFormat("%p%")
+        self._gauge.setMinimumHeight(22)
+        body_layout.addWidget(self._gauge)
+
+        self._foot = QLabel("끝날 때까지 버튼을 다시 누르지 마세요.")
+        self._foot.setObjectName("busyFoot")
+        self._foot.setWordWrap(True)
+        body_layout.addWidget(self._foot)
+        layout.addWidget(body)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(90)
+        self._timer.timeout.connect(self._tick_gauge)
+
+    @property
+    def labelText(self) -> str:  # noqa: N802 — 예전 QProgressDialog 검사와 맞춤
+        return f"{self._message.text()}\n{self._foot.text()}"
+
+    def start_gauge(self) -> None:
+        self._gauge.setValue(3)
+        self._ticks = 0
+        self._timer.start()
+
+    def _tick_gauge(self) -> None:
+        value = self._gauge.value()
+        if value >= 92:
+            return
+        self._ticks += 1
+        remain = 92 - value
+        if value < 18:
+            step = 4
+        elif value < 48:
+            step = 2
+        elif value < 78:
+            step = 1 if self._ticks % 2 == 0 else 0
+        else:
+            step = 1 if self._ticks % 5 == 0 else 0
+        if step:
+            self._gauge.setValue(min(92, value + max(step, 1 if remain > 12 else step)))
+
+    def complete_and_close(self) -> None:
+        self._timer.stop()
+        self._gauge.setValue(100)
+        self._message.setText("산출 파일을 만들었습니다.")
+        QApplication.processEvents()
+        self._allow_close = True
+        self.close()
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if not self._allow_close:
+            event.ignore()
+            return
+        self._timer.stop()
+        event.accept()
+
+
+class PipelineWorker(QThread):
+    """엑셀 산출은 별도 줄에서 돌려, 작업 중 게이지가 멈추지 않게 한다."""
+
+    succeeded = pyqtSignal(str)
+    failed = pyqtSignal(str, str)
+
+    def __init__(self, kwargs: dict) -> None:
+        super().__init__()
+        self._kwargs = kwargs
+
+    def run(self) -> None:
+        try:
+            dest = save_result_workbook(**self._kwargs)
+            self.succeeded.emit(str(dest))
+        except ResultDirectoryError as exc:
+            self.failed.emit("저장 폴더 오류", str(exc))
+        except Exception as exc:  # noqa: BLE001 — GUI에서 사용자 메시지로 보여 준다.
+            self.failed.emit("처리 실패", str(exc))
+
+
+SETTINGS_ORG = "전기공사공량산출"
+SETTINGS_APP = "전기통신서식생성"
+SETTINGS_APP_LEGACY = "GongryangCalc"
+
+
+def _load_settings() -> QSettings:
+    settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+    if not str(settings.value("dest_dir", "") or "").strip():
+        legacy = QSettings(SETTINGS_ORG, SETTINGS_APP_LEGACY)
+        stored = legacy.value("dest_dir", "")
+        if isinstance(stored, str) and stored.strip():
+            settings.setValue("dest_dir", stored.strip())
+    return settings
+
+
 class PaperRoot(QWidget):
     """금색 문장을 베이지 바탕 위에 옅게 깔아 둔 화면."""
 
@@ -369,7 +542,7 @@ class MainWindow(QMainWindow):
         if icon_file.is_file():
             self.setWindowIcon(QIcon(str(icon_file)))
 
-        self._settings = QSettings("전기공사공량산출", "GongryangCalc")
+        self._settings = _load_settings()
         self._fwd_compare_path: Path | None = None
         self._fwd_ilwidae_path: Path | None = None
         self._fwd_estimate_path: Path | None = None
@@ -377,6 +550,8 @@ class MainWindow(QMainWindow):
         self._rev_ilwidae_path: Path | None = None
         self._qty_estimate_path: Path | None = None
         self._busy = False
+        self._busy_dialog: BusyDialog | None = None
+        self._worker: PipelineWorker | None = None
         self._build_ui()
         self._refresh_run_enabled()
 
@@ -833,24 +1008,13 @@ class MainWindow(QMainWindow):
         self._append_log(f"공량산출 일위대가목록 로드 대기: {path}")
         self._refresh_run_enabled()
 
-    def _open_busy_dialog(self) -> QProgressDialog:
-        dialog = QProgressDialog(
-            "산출 파일을 만드는 중입니다.\n끝날 때까지 버튼을 다시 누르지 마세요.",
-            None,
-            0,
-            0,
-            self,
-        )
-        dialog.setWindowTitle("작업 중")
+    def _open_busy_dialog(self) -> BusyDialog:
+        dialog = BusyDialog(self)
         dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-        dialog.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        dialog.setMinimumDuration(0)
-        dialog.setCancelButton(None)
-        dialog.setAutoClose(False)
-        dialog.setAutoReset(False)
         dialog.show()
         dialog.raise_()
         dialog.activateWindow()
+        dialog.start_gauge()
         QApplication.processEvents()
         return dialog
 
@@ -902,38 +1066,31 @@ class MainWindow(QMainWindow):
             ilwidae_path = None
             estimate_path = self._qty_estimate_path
 
-        progress = self._open_busy_dialog()
-        dest = None
-        error_title = ""
-        error_text = ""
-        try:
-            dest = save_result_workbook(
-                dest_dir=dest_dir,
-                unit_price_path=unit_price_path,
-                ilwidae_path=ilwidae_path,
-                estimate_path=estimate_path,
-                discipline=discipline,
-                mode=mode,
-            )
-        except ResultDirectoryError as exc:
-            self._append_log(f"저장 폴더 오류: {exc}")
-            self.statusBar().showMessage("저장 폴더 오류")
-            error_title, error_text = "저장 폴더 오류", str(exc)
-        except Exception as exc:  # noqa: BLE001 — GUI에서 사용자 메시지로 보여 준다.
-            self._append_log(f"실패: {exc}")
-            self.statusBar().showMessage("실패")
-            error_title, error_text = "처리 실패", str(exc)
-        finally:
-            progress.close()
-            QApplication.processEvents()
-            self._unlock_run_ui()
+        self._busy_dialog = self._open_busy_dialog()
+        self._worker = PipelineWorker(
+            {
+                "dest_dir": dest_dir,
+                "unit_price_path": unit_price_path,
+                "ilwidae_path": ilwidae_path,
+                "estimate_path": estimate_path,
+                "discipline": discipline,
+                "mode": mode,
+            }
+        )
+        self._worker.succeeded.connect(self._on_pipeline_succeeded)
+        self._worker.failed.connect(self._on_pipeline_failed)
+        self._worker.start()
 
-        if error_title:
-            QMessageBox.critical(self, error_title, error_text)
-            return
-        if dest is None:
-            return
+    def _finish_busy_dialog(self) -> None:
+        if self._busy_dialog is not None:
+            self._busy_dialog.complete_and_close()
+            self._busy_dialog = None
+        QApplication.processEvents()
+        self._unlock_run_ui()
 
+    def _on_pipeline_succeeded(self, dest_text: str) -> None:
+        self._finish_busy_dialog()
+        dest = Path(dest_text)
         originals = [
             p
             for p in (
@@ -950,5 +1107,11 @@ class MainWindow(QMainWindow):
             self._append_log(f"원본 보존 확인: {original}")
         self._append_log(f"새 파일 저장: {dest}")
         self.statusBar().showMessage(f"저장 완료 — {dest.name}")
-        DoneDialog(self, dest, pumsam_filename(discipline)).exec()
+        DoneDialog(self, dest, pumsam_filename(self._selected_discipline())).exec()
         self._refresh_run_enabled()
+
+    def _on_pipeline_failed(self, title: str, text: str) -> None:
+        self._append_log(f"{title}: {text}")
+        self.statusBar().showMessage("실패" if title == "처리 실패" else title)
+        self._finish_busy_dialog()
+        QMessageBox.critical(self, title, text)

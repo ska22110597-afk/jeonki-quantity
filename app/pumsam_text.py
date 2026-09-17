@@ -425,3 +425,21 @@ def clean_spec_unit(spec: Any, unit: Any, prev_spec: str = "", unit_hint: str = 
 def is_empty_qty(value: Any) -> bool:
     text = normalize_spaces(str(value or ""))
     return text in {"", "-", "－", "—", "–", "None"}
+
+
+_REF_SORT_RE = re.compile(
+    r"(전기|통신)\s*(\d+)(?:-(\d+))?(?:-(\d+))?(?:-(\d+))?",
+)
+
+
+def pumsam_ref_sort_key(ref: Any) -> tuple:
+    """품셈근거를 장(1~10)·항·호 숫자 순으로 붙인다. 전기10이 전기2보다 앞에 오지 않는다."""
+    text = str(ref or "").strip()
+    compact = text.replace(" ", "")
+    matched = _REF_SORT_RE.search(compact)
+    if not matched:
+        return (2, 9999, 9999, 9999, 9999, compact)
+    kind = 0 if matched.group(1) == "전기" else 1
+    chapter = int(matched.group(2))
+    rest = tuple(int(part) if part else 0 for part in matched.group(3, 4, 5))
+    return (kind, chapter, *rest, compact)

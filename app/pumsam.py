@@ -19,7 +19,7 @@ from app.estimate_parse import (
     normalize_header,
 )
 from app.pumsam_aliases import alias_names
-from app.pumsam_text import display_spec, lookup_measure
+from app.pumsam_text import display_spec, lookup_measure, pumsam_ref_sort_key
 from app.merge_parse import SheetRows, fill_merged_values, trim_grid
 from app.discipline import (
     ELECTRIC,
@@ -761,16 +761,26 @@ def _pumsam_item_key(row: PumsamRow) -> tuple[str, str]:
     return lookup_key(row.get("명칭"), ""), lookup_key("", row.get("규격"))
 
 
-def _sort_pumsam_rows(rows: list[PumsamRow]) -> list[PumsamRow]:
-    return sorted(
-        rows,
-        key=lambda row: (
-            str(row.get("품셈근거") or ""),
-            str(row.get("명칭") or ""),
-            str(row.get("규격") or ""),
-            str(row.get("노무명칭") or ""),
-        ),
+def pumsam_row_sort_key(row: PumsamRow) -> tuple:
+    return (
+        pumsam_ref_sort_key(row.get("품셈근거")),
+        str(row.get("명칭") or ""),
+        str(row.get("규격") or ""),
+        str(row.get("노무명칭") or ""),
     )
+
+
+def _sort_pumsam_rows(rows: list[PumsamRow]) -> list[PumsamRow]:
+    return sorted(rows, key=pumsam_row_sort_key)
+
+
+def fill_pumsam_search_sheet(sheet, rows: list[PumsamRow]) -> None:
+    """검색·원표 대조용 품셈표. 키워드·명칭·규격·단위·노무명칭·품셈·할증%·품셈근거."""
+    sheet.title = PUMSAM_SHEET_NAME
+    sheet.append(list(PUMSAM_DISPLAY_HEADERS))
+    for row, hide_item in grouped_pumsam_rows(rows):
+        sheet.append(_sheet_values(row, hide_item=hide_item))
+    _style_pumsam_sheet(sheet)
 
 
 def grouped_pumsam_rows(rows: list[PumsamRow]) -> list[tuple[PumsamRow, bool]]:
@@ -809,11 +819,7 @@ def save_pumsam_database(
     path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = PUMSAM_SHEET_NAME
-    sheet.append(list(PUMSAM_DISPLAY_HEADERS))
-    for row, hide_item in grouped_pumsam_rows(rows):
-        sheet.append(_sheet_values(row, hide_item=hide_item))
-    _style_pumsam_sheet(sheet)
+    fill_pumsam_search_sheet(sheet, rows)
     if disc == ELECTRIC:
         rules = workbook.create_sheet("적용기준")
         rules.append(["적용 기준"])

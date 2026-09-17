@@ -1094,23 +1094,12 @@ def cleanup_book_rows(rows: list[dict]) -> list[dict]:
         row["노무명칭"] = job
         spec = str(row.get("규격") or "").strip()
         name = str(row.get("명칭") or "")
-        compact_name = name.replace(" ", "")
         qty = row.get("품셈")
         unit = display_unit(str(row.get("단위") or ""))
         row["단위"] = unit
         if not job:
             continue
         if is_qty_like_spec(spec, qty):
-            continue
-        if re.fullmatch(r"[12]", spec) and "배관" in name:
-            continue
-        if not spec and isinstance(qty, (int, float)) and qty >= 50:
-            continue
-        if "콘크리트전주 기계 세움" in name and re.fullmatch(r"\d+m", spec) and isinstance(qty, (int, float)) and qty < 0.1:
-            continue
-        if "벽관통" in compact_name and not spec:
-            continue
-        if "벽관통" in compact_name and ("싱글" in spec or "멀티" in spec or "가공포설" in spec.replace(" ", "")):
             continue
         if "분전반" in name and re.fullmatch(r"\d+", spec):
             spec = f"{spec}회로"
@@ -1127,11 +1116,6 @@ def cleanup_book_rows(rows: list[dict]) -> list[dict]:
                 row["규격"] = spec
             if re.search(r"광\s*송신|광\s*증폭|위성방송|신호변환", spec):
                 continue
-        if "급전선 접속" in name and re.search(r"활주로|PAPI|WIND|등기구", spec):
-            continue
-        ref = str(row.get("품셈근거") or "")
-        if ref.endswith("13-10-1") and "kVA" not in spec and "kva" not in spec.lower():
-            continue
         cleaned.append(row)
     return cleaned
 

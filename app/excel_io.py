@@ -31,11 +31,10 @@ from app.pumsam import (
     PUMSAM_SHEET_NAME,
     PumsamRow,
     ensure_all_pumsam_databases,
-    grouped_pumsam_rows,
+    fill_pumsam_search_sheet,
     import_pumsam_file,
     load_pumsam_database,
     merge_pumsam_rows,
-    pumsam_surcharge_note,
     rows_from_grid,
     save_pumsam_database,
 )
@@ -382,79 +381,8 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
 
 
 def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
-    last_col = 9
-    write_title_banner(sheet, "품 셈 표", last_col)
-    header_row = 3
-    sub_row = 4
-    _set_cell(sheet, header_row, 1, "품목", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, header_row, 2, "명칭", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, header_row, 3, "규격", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, header_row, 4, "단위", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, header_row, 5, "공량산출", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, header_row, 9, "비고", font=HEADER_FONT, align=CENTER)
-    for col in (6, 7, 8):
-        _set_cell(sheet, header_row, col, None, font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, sub_row, 5, "명칭", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, sub_row, 6, "품셈", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, sub_row, 7, "할증%", font=HEADER_FONT, align=CENTER)
-    _set_cell(sheet, sub_row, 8, "품셈근거", font=HEADER_FONT, align=CENTER)
-    for col in (1, 2, 3, 4, 9):
-        _set_cell(sheet, sub_row, col, None, font=HEADER_FONT, align=CENTER)
-
-    sheet.merge_cells("A3:A4")
-    sheet.merge_cells("B3:B4")
-    sheet.merge_cells("C3:C4")
-    sheet.merge_cells("D3:D4")
-    sheet.merge_cells("E3:H3")
-    sheet.merge_cells("I3:I4")
-
-    last_data = PUMSAM_DATA_START - 1
-    for offset, (row, hide_item) in enumerate(grouped_pumsam_rows(rows)):
-        excel_row = PUMSAM_DATA_START + offset
-        last_data = excel_row
-        values = [
-            None if hide_item else concat_formula(excel_row),
-            None if hide_item else row.get("명칭"),
-            row.get("규격"),
-            row.get("단위"),
-            row.get("노무명칭"),
-            row.get("품셈"),
-            row.get("할증%"),
-            row.get("품셈근거"),
-            pumsam_surcharge_note(row),
-        ]
-        for c_idx, value in enumerate(values, start=1):
-            align = CENTER if c_idx in (3, 4, 7) else LEFT
-            number_format = None
-            if c_idx == 6:
-                number_format = PUMSAM_FORMAT
-                align = RIGHT
-            elif c_idx == 7:
-                number_format = RATE_FORMAT
-                align = RIGHT
-            _set_cell(
-                sheet,
-                excel_row,
-                c_idx,
-                value,
-                font=BODY_FONT,
-                align=align,
-                number_format=number_format,
-            )
-
-    max_row = max(last_data, 4)
-    _apply_sheet_look(sheet, max_row, last_col)
-    sheet.row_dimensions[1].height = FORM_ROW_HEIGHT
-    sheet.row_dimensions[2].height = FORM_ROW_HEIGHT
-    sheet.column_dimensions["A"].width = 50
-    sheet.column_dimensions["B"].width = 24
-    sheet.column_dimensions["C"].width = 50
-    sheet.column_dimensions["D"].width = 8
-    sheet.column_dimensions["E"].width = 12
-    sheet.column_dimensions["F"].width = 10
-    sheet.column_dimensions["G"].width = 10
-    sheet.column_dimensions["H"].width = 12
-    sheet.column_dimensions["I"].width = 28
+    """결과 파일 품셈표는 데이터베이스와 같은 검색 양식이다. 공량산출 양식으로 바꾸지 않는다."""
+    fill_pumsam_search_sheet(sheet, rows)
 
 
 def _pick(row: list[Any], index: int | None) -> Any:

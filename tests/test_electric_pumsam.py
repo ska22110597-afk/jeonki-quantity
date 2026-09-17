@@ -14,7 +14,7 @@ from app.items import LineItem
 
 def test_electric_pumsam_covers_places_and_trades() -> None:
     rows = electric_pumsam_rows()
-    assert len(rows) > 8000
+    assert len(rows) > 10000
     names = {str(row.get("명칭")) for row in rows}
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "경질비닐전선관" in names
@@ -38,6 +38,13 @@ def test_electric_pumsam_covers_places_and_trades() -> None:
     assert any(str(row.get("품셈근거") or "").startswith("전기4-") for row in rows)
     assert any(str(row.get("품셈근거") or "").startswith("전기6-") for row in rows)
     assert any(str(row.get("품셈근거") or "").startswith("전기7-") for row in rows)
+    assert any(str(row.get("품셈근거") or "").startswith("전기10-") for row in rows)
+    refs = [str(row.get("품셈근거") or "") for row in rows if row.get("품셈근거")]
+    first_ch10 = next(i for i, ref in enumerate(refs) if ref.startswith("전기10-"))
+    first_ch2 = next(i for i, ref in enumerate(refs) if ref.startswith("전기2-"))
+    assert first_ch2 < first_ch10
+    none_qty = [row for row in rows if row.get("품셈") in (None, "")]
+    assert len(none_qty) > 400
     assert all(row[0] for row in ELECTRIC_TRADE_GUIDE)
 
 
@@ -327,7 +334,7 @@ def test_ditto_and_dash_are_interpreted_from_book() -> None:
 
 def test_telecom_book_and_conduit_aliases() -> None:
     rows = default_pumsam_rows("통신")
-    assert len(rows) > 7000
+    assert len(rows) > 9000
     jobs = {str(row.get("노무명칭")) for row in rows}
     assert "통신내선공" in jobs
     assert "통신케이블공" in jobs
@@ -340,3 +347,5 @@ def test_telecom_book_and_conduit_aliases() -> None:
     utp = match_pumsam("UTP케이블", "CAT.6", rows)
     assert utp
     assert utp[0]["노무명칭"] == "통신내선공"
+    none_qty = [row for row in rows if row.get("품셈") in (None, "")]
+    assert len(none_qty) > 800
