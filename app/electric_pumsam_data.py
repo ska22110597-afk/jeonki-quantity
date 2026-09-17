@@ -3,9 +3,11 @@
 표 숫자는 전기공사 표준품셈 제5장(2026 적용, 내선 전선관·배선 표)을
 프로그램이 붙일 수 있게 풀어 넣은 것이다.
 
-- 매입: 콘크리트 매입 기준(할증 100%). 품셈표에는 이 원표 숫자만 적는다.
-- 노출·지중: 단가대비표 명칭에 _노출/_지중을 붙이면 찾을 때 할증만 붙인다. 품셈표에 같은 규격을 세 줄로 펼치지 않는다.
-접미사 없는 명칭은 매입 기준이다.
+- 매입: 콘크리트 매입 기준(할증 100%). 품셈 칸에는 원표 숫자만 적는다.
+- 노출: 철근콘크리트 노출(할증 120%). 품셈 숫자는 원표와 같고 할증% 만 다르다.
+- 지중: 해당 품의 70%(할증 70%). 품셈 숫자는 원표와 같다.
+접미사 없는 명칭은 매입 기준이다. 단가대비표에 _노출/_매입/_지중을
+붙이면 그 할증으로 맞춘다.
 """
 
 from __future__ import annotations
@@ -69,13 +71,18 @@ def _place_rows(
     base_qty: float,
     ref: str,
     *,
-    include_buried: bool = True,  # noqa: ARG001 — 예전 호출 호환. 할증 행은 만들지 않는다.
+    include_buried: bool = True,
     include_bare: bool = True,
 ) -> list[PumsamRow]:
-    """원표 품만 넣는다. 노출·매입·지중 할증 행은 품셈표에 펼치지 않는다."""
-    if not include_bare:
-        return []
-    return [_row(name, spec, unit, labor, base_qty, 100, ref)]
+    """매입 기준 품을 노출·지중 할증 행으로 펼친다. 품셈 숫자는 원표 값 그대로다."""
+    rows: list[PumsamRow] = []
+    if include_bare:
+        rows.append(_row(name, spec, unit, labor, base_qty, 100, ref))
+    rows.append(_row(f"{name}_매입", spec, unit, labor, base_qty, 100, ref))
+    rows.append(_row(f"{name}_노출", spec, unit, labor, base_qty, 120, ref))
+    if include_buried:
+        rows.append(_row(f"{name}_지중", spec, unit, labor, base_qty, 70, ref))
+    return rows
 
 
 def _hi_specs(mm: int) -> tuple[str, ...]:
@@ -543,12 +550,12 @@ def _gear_light_block() -> list[PumsamRow]:
 
 ELECTRIC_RULES = [
     "대한전기협회 전기공사 표준품셈 전문 적용 기준 (2026, 내선 표는 단가대비표 명칭에 맞게 풀음)",
-    "v1.0.0 품셈표는 원표 품값만 적습니다. 노출·매입·지중 할증 행은 펼치지 않습니다. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
+    "v1.0.0 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않습니다. 노출·매입·지중은 같은 품셈에 할증% 만 다릅니다. 예전 전기_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
     "장 구성: 1장 적용기준, 2장 송전, 3장 변전, 4장 배전, 5장 내선, 6장 계측·자동제어, 7장 전기철도, 8장 항공등화, 9장 신재생, 10장 소방전기. 품셈근거는 2장부터 10장 숫자 순입니다.",
     "",
     "내선(5장) 배관",
-    "1. 품셈표에는 원표 품값만 적습니다. 같은 규격을 매입·노출·지중 세 줄로 나누지 않습니다.",
+    "1. 품셈 칸은 원표 품값입니다. 노출·매입·지중 행의 품셈 숫자도 원표와 같고, 할증은 할증% 칸에만 적습니다.",
     "2. 단가대비표 명칭 끝 _매입 = 콘크리트 매입, 찾을 때 할증 100%.",
     "3. 단가대비표 명칭 끝 _노출 = 철근콘크리트 노출, 찾을 때 할증 120%. 품셈 숫자는 원표 값 그대로입니다.",
     "4. 단가대비표 명칭 끝 _지중 = 지중 배관, 찾을 때 할증 70%.",
@@ -704,7 +711,7 @@ def electric_pumsam_rows() -> list[PumsamRow]:
         *_gear_light_block(),
     ):
         _put_merged_row(merged, row)
-    rows = _strip_place_clones(list(merged.values()))
+    rows = list(merged.values())
     rows.sort(
         key=lambda item: (
             pumsam_ref_sort_key(item.get("품셈근거")),

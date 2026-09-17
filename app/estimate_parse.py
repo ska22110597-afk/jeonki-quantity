@@ -164,11 +164,10 @@ def lookup_key(name: Any, spec: Any) -> str:
 
 
 def display_keyword(name: Any, spec: Any) -> str:
-    """엑셀 키워드 칸. 공백 없이 명칭+규격, 제곱밀리미터는 ㎟."""
-    left = display_spec("" if name is None else str(name))
-    right = display_spec("" if spec is None else str(spec))
-    joined = display_spec(f"{left} {right}")
-    return "".join(ch for ch in joined if not ch.isspace())
+    """엑셀 키워드 칸. 명칭과 규격을 띄어 읽고, 제곱밀리미터는 ㎟."""
+    left = display_spec("" if name is None else str(name)).strip()
+    right = display_spec("" if spec is None else str(spec)).strip()
+    return " ".join(part for part in (left, right) if part)
 
 
 def concat_key(name: Any, spec: Any) -> str:

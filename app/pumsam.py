@@ -772,7 +772,7 @@ def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
             row = dict(row)
             row["검색키"] = lookup_key(row.get("명칭"), row.get("규격"))
             merged[key] = row
-    return strip_place_clone_rows(list(merged.values()))
+    return list(merged.values())
 
 
 def load_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> list[PumsamRow]:
@@ -846,7 +846,6 @@ def fill_pumsam_search_sheet(sheet, rows: list[PumsamRow]) -> None:
     """검색·원표 대조용 품셈표. 키워드·명칭·규격·단위·노무명칭·품셈·할증%·품셈근거."""
     sheet.title = PUMSAM_SHEET_NAME
     sheet.append(list(PUMSAM_DISPLAY_HEADERS))
-    rows = strip_place_clone_rows(rows)
     for row, hide_item in grouped_pumsam_rows(rows):
         sheet.append(_sheet_values(row, hide_item=hide_item))
     _style_pumsam_sheet(sheet)

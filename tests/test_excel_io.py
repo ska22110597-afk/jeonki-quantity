@@ -144,8 +144,7 @@ def test_three_sheets_sample_layout_and_same_row_formulas(tmp_path: Path) -> Non
         )
         names = [pumsam.cell(r, 2).value for r in range(2, pumsam.max_row + 1)]
         assert "경질비닐전선관" in names
-        assert "경질비닐전선관_지중" not in names
-        assert "경질비닐전선관_노출" not in names
+        assert "경질비닐전선관_지중" in names
         extra_labor = False
         for row_idx in range(2, pumsam.max_row + 1):
             if pumsam.cell(row_idx, 2).value in (None, "") and pumsam.cell(row_idx, 3).value not in (None, ""):

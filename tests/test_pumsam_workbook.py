@@ -57,6 +57,8 @@ def test_pumsam_workbook_layout_electric_and_telecom(tmp_path: Path) -> None:
 
 def test_keyword_column_uses_square_mm_not_ascii(tmp_path: Path) -> None:
     assert "㎟" in display_keyword("HIV전선", "14 mm2")
+    assert " " in display_keyword("HIV전선", "14 mm2")
+    assert display_keyword("HIV전선", "14 mm2") == "HIV전선 14 ㎟"
     assert "mm2" not in display_keyword("HIV전선", "14 mm2").lower()
     rows = [row for row in default_pumsam_rows() if "HIV전선" in str(row.get("명칭") or "")][:8]
     path = save_pumsam_database(rows, directory=tmp_path, discipline="전기")
@@ -66,6 +68,7 @@ def test_keyword_column_uses_square_mm_not_ascii(tmp_path: Path) -> None:
         keywords = [sheet.cell(row, 1).value for row in range(2, sheet.max_row + 1)]
         assert keywords
         assert any("㎟" in str(value or "") for value in keywords)
+        assert any(str(value or "").startswith("HIV전선 ") for value in keywords)
         assert all("mm2" not in str(value or "").lower() for value in keywords)
         specs = [sheet.cell(row, 3).value for row in range(2, sheet.max_row + 1)]
         assert all("mm2" not in str(value or "").lower() for value in specs)

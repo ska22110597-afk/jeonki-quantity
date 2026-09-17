@@ -106,13 +106,15 @@ def test_busy_dialog_tells_user_not_to_click_again() -> None:
             assert gauge.maximum() == 100
             assert gauge.value() >= 0
             assert gauge.isTextVisible() is True
-            dialog._ticks = 280
-            dialog._gauge.setValue(90)
-            for _ in range(40):
+            dialog._ticks = 200
+            dialog._gauge.setValue(70)
+            for _ in range(50):
                 dialog._tick_gauge()
-            assert dialog.findChild(QProgressBar, "busyGauge").value() > 92
+            working = dialog.findChild(QProgressBar, "busyGauge").value()
+            assert working < 100
         finally:
             dialog.complete_and_close()
+            assert dialog.findChild(QProgressBar, "busyGauge").value() == 100
         window._lock_run_ui()
         try:
             assert window._busy is True

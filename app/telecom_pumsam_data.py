@@ -15,7 +15,6 @@ from app.electric_pumsam_data import (
     _place_rows,
     _put_merged_row,
     _row,
-    _strip_place_clones,
 )
 from app.paths import bundled_data_dir
 from app.pumsam_text import clean_spec_unit, is_qty_like_spec, pumsam_ref_sort_key
@@ -24,13 +23,13 @@ PumsamRow = dict[str, object]
 
 TELECOM_RULES = [
     "한국정보통신산업연구원 정보통신공사 표준품셈 적용 기준 (2025)",
-    "v1.0.0 품셈표는 원표 품값만 적습니다. 노출·매입·지중 할증 행은 펼치지 않습니다. 예전 통신_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
+    "v1.0.0 품셈 칸은 표준품셈 원표 숫자입니다. 할증을 곱하지 않습니다. 노출·매입·지중은 같은 품셈에 할증% 만 다릅니다. 예전 통신_표준품셈.xlsx 는 데이터베이스 폴더에서 지운 뒤 다시 산출하세요.",
     "",
     "장 구성: 1장 공통, 2장 관로·전봇대, 3장 배관, 4장 통신케이블, 5장 교환, 6장 전송, 7장 무선·방송, 8장 네트워크, 9장 정보설비, 10장 기계경비, 11장 전원, 12장 지능형 홈, 13장 유지보수.",
     "",
     "배관(3-1-1)",
     "1. 원표 단위는 10m 입니다. 단가대비표가 M 이면 같은 품을 1m 기준으로 나눠 둔 별칭(경질비닐전선관 등)을 씁니다.",
-    "2. 품셈표에는 원표 품값만 적습니다. 같은 규격을 매입·노출·지중 세 줄로 나누지 않습니다.",
+    "2. 품셈 칸은 원표 품값입니다. 노출·매입·지중 행의 품셈 숫자도 원표와 같고, 할증은 할증% 칸에만 적습니다.",
     "3. 단가대비표 명칭 끝 _매입 = 콘크리트 매입, 찾을 때 할증 100%.",
     "4. 단가대비표 명칭 끝 _노출 = 철근콘크리트 노출, 찾을 때 할증 120%.",
     "5. 단가대비표 명칭 끝 _지중 = 지중 매설, 찾을 때 할증 70%.",
@@ -147,7 +146,7 @@ def telecom_pumsam_rows() -> list[PumsamRow]:
     merged: dict[str, PumsamRow] = {}
     for row in (*book_pumsam_rows(), *_conduit_block(), *_cable_aliases()):
         _put_merged_row(merged, row)
-    rows = _strip_place_clones(list(merged.values()))
+    rows = list(merged.values())
     rows.sort(
         key=lambda item: (
             pumsam_ref_sort_key(item.get("품셈근거")),

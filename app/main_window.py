@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-from PyQt6.QtCore import QPoint, Qt, QSettings, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEventLoop, QPoint, Qt, QSettings, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon, QMouseEvent, QPainter, QPaintEvent, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -486,6 +486,7 @@ class BusyDialog(QDialog):
         self.setWindowFlags(_frameless_dialog_flags())
         self._allow_close = False
         self._ticks = 0
+        self._finishing = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -540,7 +541,7 @@ class BusyDialog(QDialog):
         layout.addWidget(body)
 
         self._timer = QTimer(self)
-        self._timer.setInterval(80)
+        self._timer.setInterval(120)
         self._timer.timeout.connect(self._tick_gauge)
 
     @property
@@ -548,26 +549,51 @@ class BusyDialog(QDialog):
         return f"{self._message.text()}\n{self._foot.text()}"
 
     def start_gauge(self) -> None:
-        self._gauge.setValue(1)
+        self._gauge.setValue(0)
         self._ticks = 0
+        self._finishing = False
         self._timer.start()
 
     def _tick_gauge(self) -> None:
+        if self._finishing:
+            return
         self._ticks += 1
         elapsed = self._ticks * (self._timer.interval() / 1000.0)
-        eased = int(99 * (1.0 - math.exp(-elapsed / 5.8)))
+        eased = int(100 * (1.0 - math.exp(-elapsed / 16.0)))
         current = self._gauge.value()
-        if eased > current:
-            self._gauge.setValue(min(99, eased))
+        target = min(95, eased)
+        if target > current:
+            self._gauge.setValue(target)
             return
-        if current < 99 and self._ticks % 12 == 0:
+        if current < 95 and self._ticks % 10 == 0:
             self._gauge.setValue(current + 1)
 
     def complete_and_close(self) -> None:
         self._timer.stop()
-        self._gauge.setValue(100)
+        self._finishing = True
         self._message.setText("산출 파일을 만들었습니다.")
         QApplication.processEvents()
+        loop = QEventLoop(self)
+        anim = QTimer(self)
+        anim.setInterval(45)
+
+        def step() -> None:
+            value = self._gauge.value()
+            if value >= 100:
+                anim.stop()
+                QTimer.singleShot(480, loop.quit)
+                return
+            bump = 1 if value >= 88 else max(1, (100 - value) // 14)
+            self._gauge.setValue(min(100, value + bump))
+            QApplication.processEvents()
+
+        anim.timeout.connect(step)
+        if self._gauge.value() >= 100:
+            QTimer.singleShot(480, loop.quit)
+        else:
+            anim.start()
+            step()
+        loop.exec()
         self._allow_close = True
         self.close()
 
