@@ -388,3 +388,44 @@ def test_telecom_book_and_conduit_aliases() -> None:
     assert utp[0]["노무명칭"] == "통신내선공"
     none_qty = [row for row in rows if row.get("품셈") in (None, "")]
     assert len(none_qty) > 800
+
+
+def test_electric_5472_vehicle_names_are_split() -> None:
+    """5-47-2 교통신호 정기점검은 장치별로 명칭을 나눈다.
+
+    원표는 차량자동인식장치·차량검지시스템·전자 교통신호제어기·가변정보표지판이다.
+    """
+    rows = default_pumsam_rows()
+    section = [row for row in rows if row.get("품셈근거") == "전기5-47-2"]
+    names = {str(row.get("명칭")) for row in section}
+    assert "교통신호 시스템 정기점검" not in names
+    assert names == {
+        "차량자동인식장치 정기점검",
+        "차량검지시스템 정기점검",
+        "전자 교통신호제어기 정기점검",
+        "가변정보표지판 정기점검",
+    }
+
+    avi = match_pumsam("차량자동인식장치", "카메라부 조명장치", rows)
+    assert [(row.get("노무명칭"), row.get("품셈")) for row in avi] == [("내선전공", 0.19)]
+    assert avi[0]["품셈근거"] == "전기5-47-2"
+
+    controller = match_pumsam("차량자동인식장치 정기점검", "카메라부 카메라 컨트롤러", rows)
+    jobs = {row.get("노무명칭"): row.get("품셈") for row in controller}
+    assert jobs == {"내선전공": 0.17, "전기공사산업기사": 0.17}
+
+    avi_main = match_pumsam("차량자동인식장치", "서브랙 메인 컨트롤러", rows)
+    avi_jobs = {row.get("노무명칭"): row.get("품셈") for row in avi_main}
+    assert avi_jobs == {"내선전공": 0.04, "전기공사산업기사": 0.25}
+
+    vds_main = match_pumsam("차량검지시스템", "서브랙 메인 컨트롤러", rows)
+    vds_jobs = {row.get("노무명칭"): row.get("품셈") for row in vds_main}
+    assert vds_jobs == {"내선전공": 0.04, "전기공사산업기사": 0.31}
+
+    signal = match_pumsam("전자 교통신호제어기", "구동부 신호구동기(LSU)", rows)
+    signal_jobs = {row.get("노무명칭"): row.get("품셈") for row in signal}
+    assert signal_jobs == {"내선전공": 0.06, "전기공사산업기사": 0.13}
+
+    vms = match_pumsam("가변정보표지판", "LED 출력 모듈 2단 10열", rows)
+    vms_jobs = {row.get("노무명칭"): row.get("품셈") for row in vms}
+    assert vms_jobs == {"내선전공": 0.08, "전기공사산업기사": 0.13}
