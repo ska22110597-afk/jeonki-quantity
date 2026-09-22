@@ -128,7 +128,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert ilwidae.cell(sundry_row, 6).value == "=TRUNC(F6*0.02,1)"
         assert "H" in str(ilwidae.cell(tool_row, 10).value)
         assert "0.03" in str(ilwidae.cell(tool_row, 10).value)
-        assert ilwidae.cell(labor_row, 4).value in (None, "")
+        assert ilwidae.cell(labor_row, 4).value == "=0.05"
         assert ilwidae.cell(labor_row, 5).value == "=0"
         assert f"E{labor_row}" in str(ilwidae.cell(labor_row, 6).value)
         assert "VLOOKUP" in str(ilwidae.cell(labor_row, 7).value)
@@ -173,6 +173,11 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert not any("부속" in str(value or "") for value in estimate_names)
         assert any(str(value or "").replace(" ", "") == "노무비" for value in estimate_names)
         assert any(str(value or "").replace(" ", "") == "(합계)" for value in estimate_names)
+        labor_list = next(r for r in range(5, 40) if estimate.cell(r, 2).value == "내선전공")
+        assert estimate.cell(labor_list, 5).value == "=0"
+        assert "TRUNC" in str(estimate.cell(labor_list, 6).value)
+        assert estimate.cell(labor_list, 9).value == "=0"
+        assert "TRUNC" in str(estimate.cell(labor_list, 10).value)
         titles = [
             ilwidae.cell(r, 1).value
             for r in range(1, 40)
@@ -220,7 +225,7 @@ def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     assert "품셈" not in material_note
     kinds = [str(sheet.cell(row, 2).value or "") for row in blocks[0].labor_rows]
     assert all(kind == "일반공사 직종" for kind in kinds)
-    assert all(sheet.cell(row, 4).value in (None, "") for row in blocks[0].labor_rows)
+    assert all(str(sheet.cell(row, 4).value).startswith("=") for row in blocks[0].labor_rows)
     assert all("VLOOKUP" in str(sheet.cell(row, 7).value or "") for row in blocks[0].labor_rows)
     assert all(f"D{row}" in str(sheet.cell(row, 8).value or "") for row in blocks[0].labor_rows)
     workbook.close()
@@ -264,6 +269,12 @@ def test_ilwidae_percent_rows_follow_conduit_and_wire_aliases() -> None:
     assert "내선전공" in [sheet.cell(row, 1).value for row in blocks[2].labor_rows]
     assert "보통인부" in [sheet.cell(row, 1).value for row in blocks[2].labor_rows]
     assert sheet.cell(blocks[2].sum_row - 1, 1).value == "공구손료"
+    for block in blocks:
+        for row in range(block.material_row, block.sum_row):
+            for col in range(4, 13):
+                assert sheet.cell(row, col).value not in (None, ""), (block.item.name, row, col)
+        for col in (6, 8, 10, 12):
+            assert str(sheet.cell(block.sum_row, col).value).startswith("=")
     tool = blocks[2].sum_row - 1
     tool_formula = str(sheet.cell(tool, 10).value)
     assert "0.03" in tool_formula
@@ -334,7 +345,7 @@ def test_unmatched_item_gets_one_fallback_labor(tmp_path: Path) -> None:
         assert "보통인부" not in jobs
         labor_row = title + 2
         assert ilwidae.cell(labor_row, 1).value == "내선전공"
-        assert ilwidae.cell(labor_row, 4).value in (None, "")
+        assert ilwidae.cell(labor_row, 4).value == "=0"
         assert "VLOOKUP" in str(ilwidae.cell(labor_row, 7).value)
         assert f"D{labor_row}" in str(ilwidae.cell(labor_row, 8).value)
     finally:
@@ -784,7 +795,7 @@ def test_quantity_keeps_compare_and_ilwidae_from_forward_result(tmp_path: Path) 
         assert qty["J5"].value == 70
         assert qty["L5"].value == f"='일위대가'!M{first.material_row}"
         assert "G5*I5*(J5/100)" in str(qty["K5"].value)
-        assert all(ilwidae.cell(row, 4).value in (None, "") for row in first.labor_rows)
+        assert all(str(ilwidae.cell(row, 4).value).startswith("=") for row in first.labor_rows)
         box = next(block for block in blocks if "단자함" in str(block.item.name or ""))
         qty_row = next(r for r in range(5, 20) if qty.cell(r, 2).value == "배선용단자함")
         assert len(box.labor_rows) == 2

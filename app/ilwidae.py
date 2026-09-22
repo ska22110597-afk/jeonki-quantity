@@ -106,6 +106,15 @@ def labor_qty_formula(row: PumsamRow) -> str:
     return f"={qty}*{rate}"
 
 
+def labor_base_qty_formula(row: PumsamRow) -> str:
+    """인부 수량 칸. 원표 품을 수식으로 둔다. 할증은 공량산출 할증%에서 한 번만 곱한다."""
+    qty = pumsam_qty_value(row)
+    text = f"{qty:.6f}".rstrip("0").rstrip(".")
+    if text in {"", "-"}:
+        text = "0"
+    return f"={text}"
+
+
 def quantity_ilwidae_refs(blocks: list[IlwidaeBlock]) -> list[tuple[str, int, list[int]]]:
     """공량산출서가 일위대가 호표를 찾을 때 쓰는 (키, 자재행, 인부행들)."""
     return [(block.item.key, block.material_row, list(block.labor_rows)) for block in blocks]
@@ -402,7 +411,15 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 1, job, font=BODY_FONT)
             _set_cell(sheet, cursor, 2, labor_kind_text(labor), font=BODY_FONT)
             _set_cell(sheet, cursor, 3, "인", font=BODY_FONT, align=CENTER)
-            _set_cell(sheet, cursor, 4, None, font=BODY_FONT, align=RIGHT, number_format="0.000")
+            _set_cell(
+                sheet,
+                cursor,
+                4,
+                labor_base_qty_formula(labor),
+                font=BODY_FONT,
+                align=RIGHT,
+                number_format="0.000",
+            )
             job_lit = str(job).replace('"', '""')
             _idle_material_expense(sheet, cursor)
             _price(

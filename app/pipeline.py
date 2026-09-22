@@ -265,6 +265,16 @@ def _write_estimate_sundry_form(
             _set_cell(sheet, excel_row, 5, _unit_price(excel_row, "F"), font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
         elif amount_col == "H":
             job_lit = str(spec).replace('"', '""')
+            _set_cell(sheet, excel_row, 5, "=0", font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+            _set_cell(
+                sheet,
+                excel_row,
+                6,
+                f"=TRUNC(D{excel_row}*E{excel_row},1)",
+                font=BODY_FONT,
+                align=RIGHT,
+                number_format=AMOUNT_FORMAT,
+            )
             _set_cell(
                 sheet,
                 excel_row,
@@ -275,6 +285,16 @@ def _write_estimate_sundry_form(
                 number_format=PRICE_FORMAT,
             )
             _set_cell(sheet, excel_row, 8, amount_formula, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
+            _set_cell(sheet, excel_row, 9, "=0", font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
+            _set_cell(
+                sheet,
+                excel_row,
+                10,
+                f"=TRUNC(I{excel_row}*D{excel_row},1)",
+                font=BODY_FONT,
+                align=RIGHT,
+                number_format=AMOUNT_FORMAT,
+            )
         elif amount_col == "J":
             _set_cell(sheet, excel_row, 10, amount_formula, font=BODY_FONT, align=RIGHT, number_format=AMOUNT_FORMAT)
             _set_cell(sheet, excel_row, 9, _unit_price(excel_row, "J"), font=BODY_FONT, align=RIGHT, number_format=PRICE_FORMAT)
