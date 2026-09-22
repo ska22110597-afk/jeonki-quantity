@@ -107,9 +107,9 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
 
         ilwidae = result[ILWIDAE_SHEET_NAME]
         names = [ilwidae.cell(r, 1).value for r in range(1, 40)]
-        assert "전선관부속품비" not in names
-        assert "잡재료비" not in names
-        assert "공구손료" not in names
+        assert "전선관부속품비" in names
+        assert "잡재료비" in names
+        assert "공구손료" in names
         assert "내선전공" in names
         assert "보통인부" in names
         assert ilwidae["A1"].value == "일 위 대 가"
@@ -119,13 +119,22 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert "TRUNC" in str(ilwidae["H6"].value)
         assert "G6" in str(ilwidae["H6"].value)
         labor_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "내선전공")
+        fitting_row = next(r for r in range(5, 20) if ilwidae.cell(r, 1).value == "전선관부속품비")
+        sundry_row = next(r for r in range(5, 20) if ilwidae.cell(r, 1).value == "잡재료비")
+        tool_row = next(r for r in range(5, 25) if ilwidae.cell(r, 1).value == "공구손료")
+        assert ilwidae.cell(fitting_row, 2).value == "전선관의 15%"
+        assert ilwidae.cell(fitting_row, 6).value == "=TRUNC(F6*0.15,1)"
+        assert ilwidae.cell(sundry_row, 2).value == "배관의 2%"
+        assert ilwidae.cell(sundry_row, 6).value == "=TRUNC(F6*0.02,1)"
+        assert "H" in str(ilwidae.cell(tool_row, 10).value)
+        assert "0.03" in str(ilwidae.cell(tool_row, 10).value)
         assert ilwidae.cell(labor_row, 4).value in (None, "")
         assert ilwidae.cell(labor_row, 5).value == "=0"
         assert f"E{labor_row}" in str(ilwidae.cell(labor_row, 6).value)
         assert "VLOOKUP" in str(ilwidae.cell(labor_row, 7).value)
         assert f"G{labor_row}" in str(ilwidae.cell(labor_row, 8).value)
         assert f"D{labor_row}" in str(ilwidae.cell(labor_row, 8).value)
-        assert labor_row == 7
+        assert labor_row == 9
         sum_rows = [
             r
             for r in range(5, 25)
@@ -161,15 +170,9 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert estimate["L5"].number_format == "#,##0.0"
         assert estimate.row_dimensions[5].height == 30
         estimate_names = [estimate.cell(r, 1).value for r in range(1, 40)]
-        assert any("배관" in str(value or "") and "부속" in str(value or "") for value in estimate_names)
-        assert any("소모" in str(value or "") and "잡자" in str(value or "") for value in estimate_names)
-        assert any("공구" in str(value or "").replace(" ", "") for value in estimate_names)
+        assert not any("부속" in str(value or "") for value in estimate_names)
+        assert any(str(value or "").replace(" ", "") == "노무비" for value in estimate_names)
         assert any(str(value or "").replace(" ", "") == "(합계)" for value in estimate_names)
-        sundry_row = next(
-            r for r in range(5, 40) if "부속" in str(estimate.cell(r, 1).value or "") and "CD" in str(estimate.cell(r, 2).value or "")
-        )
-        assert "SUMPRODUCT" in str(estimate.cell(sundry_row, 6).value)
-        assert "0.4" in str(estimate.cell(sundry_row, 6).value)
         titles = [
             ilwidae.cell(r, 1).value
             for r in range(1, 40)
@@ -220,6 +223,52 @@ def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     assert all(sheet.cell(row, 4).value in (None, "") for row in blocks[0].labor_rows)
     assert all("VLOOKUP" in str(sheet.cell(row, 7).value or "") for row in blocks[0].labor_rows)
     assert all(f"D{row}" in str(sheet.cell(row, 8).value or "") for row in blocks[0].labor_rows)
+    workbook.close()
+
+
+def test_ilwidae_percent_rows_follow_conduit_and_wire_aliases() -> None:
+    from app.ilwidae import write_ilwidae_sheet
+
+    workbook = Workbook()
+    sheet = workbook.active
+    items = [
+        LineItem(excel_row=5, name="HI관", spec="16 mm", unit="M", qty=10, material_price=100),
+        LineItem(excel_row=6, name="CV케이블", spec="6 ㎟ 이하", unit="M", qty=10, material_price=200),
+        LineItem(excel_row=7, name="배선용단자함", spec="10 P 이하", unit="대", qty=1, material_price=1),
+    ]
+    blocks = write_ilwidae_sheet(sheet, items, default_pumsam_rows(), default_wage_rows())
+
+    def rows_of(block) -> list[tuple[Any, Any, Any]]:
+        start = block.material_row
+        end = block.sum_row
+        return [(sheet.cell(row, 1).value, sheet.cell(row, 2).value, sheet.cell(row, 6).value) for row in range(start, end)]
+
+    conduit_rows = rows_of(blocks[0])
+    assert ("전선관부속품비", "전선관의 15%", f"=TRUNC(F{blocks[0].material_row}*0.15,1)") in conduit_rows
+    assert ("잡재료비", "배관의 2%", f"=TRUNC(F{blocks[0].material_row}*0.02,1)") in conduit_rows
+    assert sheet.cell(blocks[0].sum_row - 1, 1).value == "공구손료"
+
+    wire_rows = rows_of(blocks[1])
+    assert all(name != "전선관부속품비" for name, _spec, _amount in wire_rows)
+    assert ("잡재료비", "배선의 2%", f"=TRUNC(F{blocks[1].material_row}*0.02,1)") in wire_rows
+    wire_jobs = [sheet.cell(row, 1).value for row in blocks[1].labor_rows]
+    assert "내선전공" not in wire_jobs
+    assert "케이블전공" in wire_jobs
+    assert "보통인부" in wire_jobs
+    labor = next(row for row in blocks[1].labor_rows if sheet.cell(row, 1).value == "케이블전공")
+    assert "케이블전공" in str(sheet.cell(labor, 7).value)
+    assert "노임단가" in str(sheet.cell(labor, 7).value)
+
+    box_rows = rows_of(blocks[2])
+    assert all(name not in {"전선관부속품비", "잡재료비"} for name, _spec, _amount in box_rows)
+    assert "내선전공" in [sheet.cell(row, 1).value for row in blocks[2].labor_rows]
+    assert "보통인부" in [sheet.cell(row, 1).value for row in blocks[2].labor_rows]
+    assert sheet.cell(blocks[2].sum_row - 1, 1).value == "공구손료"
+    tool = blocks[2].sum_row - 1
+    tool_formula = str(sheet.cell(tool, 10).value)
+    assert "0.03" in tool_formula
+    for labor_row in blocks[2].labor_rows:
+        assert f"H{labor_row}" in tool_formula
     workbook.close()
 
 

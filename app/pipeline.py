@@ -43,11 +43,7 @@ from app.excel_io import (
     write_title_banner,
 )
 from app.ilwidae import (
-    CD_FITTING_RATE,
-    CONDUIT_FITTING_RATE,
     IlwidaeBlock,
-    SUNDRY_RATE,
-    TOOL_RATE,
     parse_ilwidae_blocks,
     quantity_ilwidae_refs,
     renumber_ilwidae_ho,
@@ -225,15 +221,6 @@ def _write_wages_sheet(sheet: Worksheet, rows: list[WageRow]) -> None:
 SUNDRY_LABOR_JOBS = ("내선전공", "저압케이블전공", "통신케이블공")
 
 
-def _sumproduct_amount(item_first: int, item_last: int, *search_flags: str) -> str:
-    """내역서 품목 구간의 재료비 금액(F)을 품명 조건으로 더한다."""
-    cells_a = f"$A${item_first}:$A${item_last}"
-    cells_f = f"$F${item_first}:$F${item_last}"
-    terms = [f"(ISNUMBER(SEARCH(\"{token}\",{cells_a})))" for token in search_flags]
-    joined = "*".join(terms)
-    return f"SUMPRODUCT({joined}*({cells_f}))"
-
-
 def _write_estimate_sundry_form(
     sheet: Worksheet,
     excel_row: int,
@@ -243,20 +230,9 @@ def _write_estimate_sundry_form(
     last_col: int,
     filled: list[list[Any]],
 ) -> int:
-    """내역서 아래에 부속재·잡자재·노무비·공구손료 통합 양식을 넣는다."""
+    """내역서 아래에 직종별 노무비 합을 붙인다. 부속·잡재료·공구손료는 호표에 있다."""
     first = item_first_row
     last = max(item_last_row, item_first_row)
-    cd_base = _sumproduct_amount(first, last, "전선관", "CD")
-    conduit_only = (
-        f"SUMPRODUCT((ISNUMBER(SEARCH(\"전선관\",$A${first}:$A${last})))*"
-        f"(NOT(ISNUMBER(SEARCH(\"CD\",$A${first}:$A${last}))))*"
-        f"($F${first}:$F${last}))"
-    )
-    wire_base = (
-        f"SUMPRODUCT(((ISNUMBER(SEARCH(\"전선\",$A${first}:$A${last})))+"
-        f"(ISNUMBER(SEARCH(\"케이블\",$A${first}:$A${last}))))*"
-        f"($F${first}:$F${last}))"
-    )
 
     def _push(row: list[Any]) -> None:
         padded = list(row) + [None] * (last_col - len(row))
@@ -268,51 +244,12 @@ def _write_estimate_sundry_form(
     def _line_total(row: int) -> str:
         return f"=TRUNC(F{row}+H{row}+J{row},1)"
 
-    rows: list[tuple[str, str, str, Any, str | None, str | None]] = [
-        (
-            "[ 배관 부속재 ]",
-            "CD 전선관의 40 %",
-            "식",
-            1,
-            "F",
-            f"=TRUNC({cd_base}*{CD_FITTING_RATE},1)",
-        ),
-        (
-            "[ 배관 부속재 ]",
-            "전선관의 15 %",
-            "식",
-            1,
-            "F",
-            f"=TRUNC({conduit_only}*{CONDUIT_FITTING_RATE},1)",
-        ),
-        (
-            "[ 소모 잡자재 ]",
-            "전선, 전선관의 2 %",
-            "식",
-            1,
-            "F",
-            f"=TRUNC({wire_base}*{SUNDRY_RATE},1)",
-        ),
-    ]
-    labor_start = excel_row + len(rows)
+    rows: list[tuple[str, str, str, Any, str | None, str | None]] = []
     for job in SUNDRY_LABOR_JOBS:
         job_lit = str(job).replace('"', '""')
         qty = f"=TRUNC(SUMIF('{ILWIDAE_SHEET_NAME}'!$A:$A,\"{job_lit}\",'{ILWIDAE_SHEET_NAME}'!$D:$D),0)"
         amount = f"=SUMIF('{ILWIDAE_SHEET_NAME}'!$A:$A,\"{job_lit}\",'{ILWIDAE_SHEET_NAME}'!$H:$H)"
         rows.append(("노 무 비", job, "인", qty, "H", amount))
-
-    labor_end = labor_start + len(SUNDRY_LABOR_JOBS) - 1
-    tool_labor_sum = "+".join(f"H{r}" for r in range(labor_start, labor_end + 1))
-    rows.append(
-        (
-            "[ 공 구 손 료 ]",
-            "직접노무비의 3 %",
-            "식",
-            1,
-            "J",
-            f"=TRUNC(({tool_labor_sum})*{TOOL_RATE},1)",
-        )
-    )
 
     form_first = excel_row
     for name, spec, unit, qty, amount_col, amount_formula in rows:

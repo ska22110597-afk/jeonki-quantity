@@ -199,6 +199,12 @@ def _group_for(base: str) -> tuple[str, ...]:
     return best if best else (base,)
 
 
+def alias_group(name: Any) -> tuple[str, ...]:
+    """이 이름이 속한 같은 뜻 묶음. 없으면 그 이름만 돌려준다."""
+    base, _suffix = split_place_name(name)
+    return _group_for(base)
+
+
 def alias_names(name: Any) -> list[str]:
     """원래 이름을 앞에 두고, 같은 품 묶음의 다른 이름을 이어서 돌려준다."""
     text = str(name or "").strip()

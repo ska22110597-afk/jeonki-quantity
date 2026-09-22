@@ -11,6 +11,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.discipline import default_labor_name
 from app.estimate_parse import normalize_header
+from app.pumsam_aliases import alias_group
 from app.excel_io import (
     AMOUNT_FORMAT,
     BODY_FONT,
@@ -55,13 +56,31 @@ class IlwidaeBlock:
     pumsam_ref: str = ""
 
 
+_CONDUIT_ANCHORS = ("강제전선관", "경질비닐전선관", "CD전선관", "금속제가요전선관", "박강전선관")
+_WIRE_ANCHORS = ("옥내배선", "전력케이블", "제어용케이블", "UTP케이블", "광케이블")
+
+
+def _in_anchor_group(name: Any, anchors: tuple[str, ...]) -> bool:
+    group = alias_group(name)
+    return any(anchor in group for anchor in anchors)
+
+
 def is_conduit_name(name: Any) -> bool:
-    return "전선관" in str(name or "")
+    """전선관과 같은 자재. HI관·후강관처럼 다른 말도 전선관으로 본다."""
+    if _in_anchor_group(name, _CONDUIT_ANCHORS):
+        return True
+    text = str(name or "")
+    return "전선관" in text and "부속" not in text
 
 
 def is_cable_name(name: Any) -> bool:
+    """전선·케이블. CV·HIV처럼 다른 말도 전선류로 본다. 전선관·트레이는 빼 둔다."""
+    if is_conduit_name(name):
+        return False
+    if _in_anchor_group(name, _WIRE_ANCHORS):
+        return True
     text = str(name or "")
-    if "전선관" in text:
+    if any(word in text for word in ("트레이", "덕트", "몰딩")):
         return False
     return "케이블" in text or "전선" in text
 
@@ -270,6 +289,47 @@ def _price_ref(item: LineItem, compare_sheet: str) -> str:
     return f"='{compare_sheet}'!{get_column_letter(col_index)}{item.excel_row}"
 
 
+def _write_percent_material_row(
+    sheet: Worksheet,
+    row: int,
+    name: str,
+    spec: str,
+    material_row: int,
+    rate: float,
+) -> None:
+    """부속품·잡재료. 규격에 비율을 적고, 수식은 재료비 금액(F)에 둔다."""
+    _set_cell(sheet, row, 1, name, font=BODY_FONT)
+    _set_cell(sheet, row, 2, spec, font=BODY_FONT)
+    _set_cell(sheet, row, 3, "식", font=BODY_FONT, align=CENTER)
+    _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+    _price(sheet, row, 5, f"=IF(D{row}=0,0,TRUNC(F{row}/D{row},2))")
+    _amount(sheet, row, 6, f"=TRUNC(F{material_row}*{rate},1)")
+    _idle_labor_expense(sheet, row)
+    _cost_totals(sheet, row)
+    _set_cell(sheet, row, 13, None)
+
+
+def _write_tool_loss_row(sheet: Worksheet, row: int, labor_rows: list[int]) -> None:
+    """기본 행. 직접노무비의 3%를 경비 금액에 넣는다."""
+    _set_cell(sheet, row, 1, "공구손료", font=BODY_FONT)
+    _set_cell(sheet, row, 2, "직접노무비의 3%", font=BODY_FONT)
+    _set_cell(sheet, row, 3, "식", font=BODY_FONT, align=CENTER)
+    _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+    _price(sheet, row, 5, _zero_price())
+    _amount(sheet, row, 6, _qty_times_price(row, "E"))
+    _price(sheet, row, 7, _zero_price())
+    _amount(sheet, row, 8, _qty_times_price_trunc(row, "G"))
+    if labor_rows:
+        parts = "+".join(f"H{labor}" for labor in labor_rows)
+        tool_amount = f"=TRUNC(({parts})*{TOOL_RATE},1)"
+    else:
+        tool_amount = "=0"
+    _price(sheet, row, 9, f"=IF(D{row}=0,0,TRUNC(J{row}/D{row},2))")
+    _amount(sheet, row, 10, tool_amount)
+    _cost_totals(sheet, row)
+    _set_cell(sheet, row, 13, None)
+
+
 def write_ilwidae_sheet(
     sheet: Worksheet,
     items: list[LineItem],
@@ -322,6 +382,20 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
         cursor += 1
 
+        conduit = is_conduit_name(item.name)
+        wire = is_cable_name(item.name)
+        if conduit:
+            _write_percent_material_row(
+                sheet, cursor, "전선관부속품비", "전선관의 15%", material_row, CONDUIT_FITTING_RATE
+            )
+            cursor += 1
+        if conduit or wire:
+            sundry_spec = "배관의 2%" if conduit else "배선의 2%"
+            _write_percent_material_row(
+                sheet, cursor, "잡재료비", sundry_spec, material_row, SUNDRY_RATE
+            )
+            cursor += 1
+
         labor_rows: list[int] = []
         for labor in labors:
             job = labor.get("노무명칭") or fallback_labor
@@ -342,6 +416,9 @@ def write_ilwidae_sheet(
             _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
             cursor += 1
+
+        _write_tool_loss_row(sheet, cursor, labor_rows)
+        cursor += 1
 
         first_data = material_row
         last_data = cursor - 1
