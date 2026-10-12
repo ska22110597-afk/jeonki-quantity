@@ -151,6 +151,15 @@ def extract_entries(workbook: Workbook, blocks: list[IlwidaeBlock], wage_rows: l
     return entries
 
 
+def set_material_price(session: "EstimateSession", entry: IlwidaeEntry, price: float) -> None:
+    """목록에 보이는 재료비 단가(= 자재수량 × 단가)를 받아 일위대가 시트 자재 줄의 단가(5열)에 숫자로 적는다."""
+    sheet = session.workbook[ILWIDAE_SHEET_NAME]
+    qty = _number(sheet.cell(entry.material_row, 4).value) or 1.0
+    unit_price = float(price) / qty
+    sheet.cell(entry.material_row, 5).value = unit_price
+    entry.material_unit = trunc1(qty * unit_price)
+
+
 def generate_session(
     unit_price_path: Path,
     discipline: str | None = None,
@@ -690,7 +699,7 @@ def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSecti
 
 
 def save_session(session: EstimateSession, sections: list[EstimateSection], dest_dir: Path | None) -> Path:
-    """원본은 두고, 고른 공정마다 내역서 시트를 붙여 새 엑셀 파일로 저장한다."""
+    """원본은 두고, 고른 공정을 한 장의 내역서 시트에 이어서 붙여 새 엑셀 파일로 저장한다."""
     workbook = session.workbook
     for old in session.estimate_sheets:  # 다시 저장할 때 내역서가 쌓이지 않게 먼저 지운다.
         if old in workbook.sheetnames:

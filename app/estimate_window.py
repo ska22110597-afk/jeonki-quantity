@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QIcon
+from PyQt6.QtGui import QBrush, QColor, QGuiApplication, QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizeGrip,
     QSizePolicy,
     QStatusBar,
     QTableWidget,
@@ -44,6 +45,7 @@ from app.estimate_build import (
     strip_section_number,
     EstimateSession,
     generate_session,
+    set_material_price,
     open_session,
     save_session,
     autosave_path,
@@ -77,7 +79,9 @@ QTableWidget#itemTable {
     selection-background-color: #E8D9BC;
     selection-color: #2C281F;
     font-size: 13px;
+    outline: 0;
 }
+QTableWidget#itemTable::item:focus { border: none; outline: none; }
 QHeaderView::section {
     background: #5C4A32;
     color: #F7F3EA;
@@ -165,6 +169,9 @@ class FuncWorker(QThread):
             self.failed.emit("처리 실패", str(exc))
 
 
+_RESIZE_MARGIN = 5
+
+
 def _money(value: float) -> str:
     return f"{value:,.0f}" if value else ""
 
@@ -180,8 +187,14 @@ class EstimateWindow(QMainWindow):
             | Qt.WindowType.WindowMaximizeButtonHint
         )
         self.setWindowTitle(APP_TITLE)
-        self.setMinimumSize(1180, 820)
-        self.resize(1320, 900)
+        self.setMinimumSize(900, 620)
+        screen = QGuiApplication.primaryScreen()
+        avail = screen.availableGeometry() if screen is not None else None
+        width = min(1560, avail.width() - 40) if avail else 1400
+        height = min(920, avail.height() - 40) if avail else 900
+        self.resize(width, height)
+        self.setMouseTracking(True)
+        self.setContentsMargins(_RESIZE_MARGIN, _RESIZE_MARGIN, _RESIZE_MARGIN, _RESIZE_MARGIN)
         self.setStyleSheet(APP_STYLESHEET + EXTRA_STYLESHEET)
         icon_file = app_icon_path()
         if icon_file.is_file():
@@ -356,10 +369,13 @@ class EstimateWindow(QMainWindow):
         self.uncheck_all_button.clicked.connect(lambda: self._set_all_checked(False))
         self.unmatched_only = QCheckBox("미매칭만 보기")
         self.unmatched_only.stateChanged.connect(self._apply_filter)
+        self.no_price_only = QCheckBox("재료비 단가 공란만 보기")
+        self.no_price_only.stateChanged.connect(self._apply_filter)
         self.link_button = QPushButton("선택 품목 품셈 연결")
         self.link_button.setObjectName("smallButton")
         self.link_button.clicked.connect(self._on_link)
         tools.addWidget(self.unmatched_only)
+        tools.addWidget(self.no_price_only)
         tools.addWidget(self.link_button)
         tools.addWidget(self.check_visible_button)
         tools.addWidget(self.uncheck_all_button)
@@ -401,7 +417,7 @@ class EstimateWindow(QMainWindow):
         self.add_button.clicked.connect(self._on_add_section)
         side_layout.addWidget(self.add_button)
 
-        step6 = QLabel("⑥ 담은 공정 (내역서 시트가 공정마다 하나씩 만들어집니다)")
+        step6 = QLabel("⑥ 담은 공정 (내역서 한 시트에 순서대로 이어서 작성됩니다)")
         step6.setObjectName("stepLabel")
         step6.setWordWrap(True)
         side_layout.addWidget(step6)
@@ -480,6 +496,44 @@ class EstimateWindow(QMainWindow):
 
     def _append_log(self, message: str) -> None:
         self.log.append(message)
+
+    def _edges_at(self, pos) -> Qt.Edge:
+        edges = Qt.Edge(0)
+        m = _RESIZE_MARGIN + 1
+        if pos.x() <= m:
+            edges |= Qt.Edge.LeftEdge
+        if pos.x() >= self.width() - m:
+            edges |= Qt.Edge.RightEdge
+        if pos.y() <= m:
+            edges |= Qt.Edge.TopEdge
+        if pos.y() >= self.height() - m:
+            edges |= Qt.Edge.BottomEdge
+        return edges
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if not self.isMaximized():
+            edges = self._edges_at(event.position().toPoint())
+            horizontal = bool(edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge))
+            vertical = bool(edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge))
+            if horizontal and vertical:
+                diagonal = (edges & Qt.Edge.LeftEdge and edges & Qt.Edge.TopEdge) or (edges & Qt.Edge.RightEdge and edges & Qt.Edge.BottomEdge)
+                self.setCursor(Qt.CursorShape.SizeFDiagCursor if diagonal else Qt.CursorShape.SizeBDiagCursor)
+            elif horizontal:
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+            elif vertical:
+                self.setCursor(Qt.CursorShape.SizeVerCursor)
+            else:
+                self.unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and not self.isMaximized():
+            edges = self._edges_at(event.position().toPoint())
+            handle = self.windowHandle()
+            if edges and handle is not None:
+                handle.startSystemResize(edges)
+                return
+        super().mousePressEvent(event)
 
     def _toggle_maximized(self) -> None:
         if self.isMaximized():
@@ -719,7 +773,7 @@ class EstimateWindow(QMainWindow):
                 self._put(row, COL_SPEC, entry.spec)
                 self._put(row, COL_UNIT, entry.unit, center=True)
                 self._put(row, COL_QTY, "", editable=True, right=True)
-                self._put(row, COL_MAT, _money(entry.material_unit), right=True)
+                self._put(row, COL_MAT, _money(entry.material_unit), editable=True, right=True)
                 self._put(row, COL_LAB, _money(entry.labor_unit), right=True)
                 self._put(row, COL_NOTE, "", editable=True)
                 state_text = entry.pumsam_ref if entry.matched else "미매칭"
@@ -758,6 +812,8 @@ class EstimateWindow(QMainWindow):
                     item.setText(f"{number:g}")
                 finally:
                     self._updating = False
+        if item.column() == COL_MAT and self._session is not None:
+            self._on_price_edited(item)
         if item.column() == COL_CHECK:
             qty_item = self.table.item(item.row(), COL_QTY)
             if qty_item is not None:
@@ -769,6 +825,22 @@ class EstimateWindow(QMainWindow):
                     self._updating = False
         self._refresh_state()
 
+    def _on_price_edited(self, item: QTableWidgetItem) -> None:
+        entry = self._session.entries[item.row()]
+        number, _cleaned = parse_number(item.text())
+        self._updating = True
+        try:
+            if number is None or number < 0:
+                item.setText(_money(entry.material_unit))
+                if item.text().strip():
+                    self._append_log("재료비 단가는 숫자로 입력해 주세요.")
+                return
+            set_material_price(self._session, entry, number)
+            item.setText(_money(entry.material_unit))
+            self._append_log(f"「{entry.label}」 재료비 단가를 {number:,.0f} 으로 넣었습니다. (일위대가 시트에 반영)")
+        finally:
+            self._updating = False
+
     def _apply_filter(self) -> None:
         tokens = [t for t in self.search_edit.text().lower().split() if t]
         for row in range(self.table.rowCount()):
@@ -778,6 +850,8 @@ class EstimateWindow(QMainWindow):
             hide = not all(t in haystack for t in tokens) or (self._hide_dups and row in self._dup_rows)
             if not hide and self.unmatched_only.isChecked() and self._session is not None:
                 hide = self._session.entries[row].matched
+            if not hide and self.no_price_only.isChecked() and self._session is not None:
+                hide = self._session.entries[row].material_unit > 0
             self.table.setRowHidden(row, hide)
 
     def _set_visible_checked(self, state: bool) -> None:
