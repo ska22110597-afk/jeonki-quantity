@@ -383,9 +383,13 @@ def test_telecom_book_and_conduit_aliases() -> None:
     assert buried
     assert buried[0]["노무명칭"] == "통신내선공"
     assert buried[0]["할증%"] == 70
-    utp = match_pumsam("UTP케이블", "CAT.6", rows)
-    assert utp
-    assert utp[0]["노무명칭"] == "통신내선공"
+    # 통신 4-3-1: 구내 UTP 4P 0.15 /10m, 통신케이블공 → 1m 당 0.015
+    utp = match_pumsam("UTP 케이블", "Cat.6 0.5mm 4P", rows)
+    assert [(row["노무명칭"], row["품셈"]) for row in utp] == [("통신케이블공", 0.015)]
+    fiber = match_pumsam("광케이블(옥내용)", "SM 12c", rows)
+    assert {(row["노무명칭"], row["품셈"]) for row in fiber} == {("광케이블설치사", 0.0092), ("특별인부", 0.0046)}
+    jack = match_pumsam("모듈라짹", "매입형 8P 2구", rows)
+    assert [(row["노무명칭"], row["품셈"], row["할증%"]) for row in jack] == [("통신내선공", 0.028, 120)]
     none_qty = [row for row in rows if row.get("품셈") in (None, "")]
     assert len(none_qty) > 800
 

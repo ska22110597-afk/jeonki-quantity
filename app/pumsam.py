@@ -32,6 +32,7 @@ from app.discipline import (
     pumsam_filename,
 )
 from app.electric_pumsam_data import ELECTRIC_RULES, ELECTRIC_TRADE_GUIDE, electric_pumsam_rows
+from app.telecom_adapter import telecom_candidates
 from app.telecom_pumsam_data import TELECOM_RULES, TELECOM_TRADE_GUIDE, telecom_pumsam_rows
 from app.paths import (
     bundled_data_dir,
@@ -422,6 +423,23 @@ def _match_pumsam_candidates(names: list[str], spec: Any, rows: list[PumsamRow])
     return []
 
 
+def _match_telecom_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """UTP·광케이블·박스·단자함처럼 통신 자재는 이름·규격을 원표 항목으로 바꿔 찾는다. 원표에 그 행이 있을 때만 쓴다."""
+    for book_name, book_spec, rate in telecom_candidates(str(name or ""), str(spec or "")):
+        key = lookup_key(book_name, book_spec)
+        hit = [row for row in _row_index(rows).by_exact.get(key, ()) if has_pumsam_qty(row)]
+        if hit:
+            if rate == 100:
+                return hit
+            copied = []
+            for row in hit:
+                item = dict(row)
+                item["할증%"] = rate
+                copied.append(item)
+            return copied
+    return []
+
+
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """같은 명칭·규격의 인부 행을 모두 반환한다.
 
@@ -433,7 +451,7 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
     """
     if not lookup_key(name, spec):
         return []
-    found = _match_pumsam_candidates(alias_names(name), spec, rows)
+    found = _match_telecom_adapter(name, spec, rows) or _match_pumsam_candidates(alias_names(name), spec, rows)
     base, suffix = split_place_name(name)
     if suffix not in PLACE_SURCHARGE_RATES:
         return found

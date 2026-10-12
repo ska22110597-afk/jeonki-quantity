@@ -10,7 +10,6 @@ from app.electric_pumsam_data import (
     RESIN_CONDUIT,
     THIN_STEEL,
     _book_qty,
-    _cd_qty,
     _hi_specs,
     _place_rows,
     _put_merged_row,
@@ -97,7 +96,8 @@ def _conduit_block() -> list[PumsamRow]:
         for spec in _hi_specs(mm):
             for name in resin_names:
                 rows.extend(_place_rows(name, spec, "M", labor, qty, ref))
-        cd_qty = _cd_qty(mm)
+        # 통신 3-1-1 해설 ⑤: CD·PF·폴리에틸렌 전선관은 합성수지 전선관 품의 80% (구경 제한 없음)
+        cd_qty = round(qty * 0.8, 3)
         for spec in (f"PE {mm} mm", f"CD {mm} mm", f"PE-{mm} mm", f"CD-{mm} mm"):
             for name in ("CD전선관", "CD관", "폴리에틸렌전선관"):
                 rows.extend(_place_rows(name, spec, "M", labor, cd_qty, ref))
@@ -121,25 +121,27 @@ def _conduit_block() -> list[PumsamRow]:
 
 
 def _cable_aliases() -> list[PumsamRow]:
+    """단가대비표 M·개 단위에 맞게 원표(10m·100m·10개 기준)를 환산한 별칭. 이름·규격은 app/telecom_adapter.py 가 맞춰 준다.
+
+    값은 모두 2026 표준품셈 원표 기준이다.
+    """
     rows: list[PumsamRow] = []
-    for spec, qty in (
-        ("CAT.5e", 0.040),
-        ("CAT.6", 0.040),
-        ("CAT.6A", 0.045),
-        ("CAT.7", 0.050),
-    ):
-        for name in ("UTP케이블", "꼬임케이블", "LAN케이블"):
-            rows.append(_row(name, spec, "M", "통신내선공", qty, 100, "통신4-3-1"))
-    for spec, qty in (
-        ("SM 4C", 0.080),
-        ("SM 8C", 0.090),
-        ("SM 12C", 0.100),
-        ("SM 24C", 0.120),
-        ("MM 4C", 0.080),
-        ("MM 12C", 0.100),
-    ):
-        for name in ("광케이블", "광섬유케이블"):
-            rows.append(_row(name, spec, "M", "통신케이블공", qty, 100, "통신4-1-1"))
+    # 통신 4-3-1 꼬임케이블 구내 포설(10m): 4P 0.15 / 25P 0.24 / 50P 0.35 / 100P 0.50, 통신케이블공
+    for pair, per10 in {"4P": 0.15, "25P": 0.24, "50P": 0.35, "100P": 0.50}.items():
+        for name in ("UTP케이블", "STP케이블", "FTP케이블"):
+            rows.append(_row(name, pair, "M", "통신케이블공", round(per10 / 10, 4), 100, "통신4-3-1"))
+    # 통신 4-1-3 구내 광섬유케이블(100m): 12코어 이하 설치사 0.92·특별인부 0.46, 24코어 이하 1.32·0.67
+    for spec, (inst, helper) in {"12C": (0.92, 0.46), "24C": (1.32, 0.67)}.items():
+        rows.append(_row("광케이블", spec, "M", "광케이블설치사", round(inst / 100, 4), 100, "통신4-1-3"))
+        rows.append(_row("광케이블", spec, "M", "특별인부", round(helper / 100, 4), 100, "통신4-1-3"))
+    # 통신 4-2-1 동축케이블 옥내 포설(10m): 5C 이하 0.17 / 7C 0.22 / 10C 0.32, 통신케이블공
+    for spec, per10 in {"5C": 0.17, "7C": 0.22, "10C": 0.32}.items():
+        rows.append(_row("동축케이블", spec, "M", "통신케이블공", round(per10 / 10, 4), 100, "통신4-2-1"))
+    # 통신 4-3-2 Modular(Outlet) 10개당 0.28 → 1개 0.028 (2구 120%, 3구 140%, 4구 160%는 찾을 때 할증%)
+    rows.append(_row("모듈라짹", "1구", "개", "통신내선공", 0.028, 100, "통신4-3-2"))
+    # 통신 3-4-2 조립식 케이블트레이(10m, 철재) → 1m
+    for width, per10 in {200: 1.50, 300: 2.00, 400: 2.60, 500: 3.10, 600: 4.10, 800: 4.60, 1000: 6.10}.items():
+        rows.append(_row("케이블트레이", f"폭 {width:,}mm 이하 철재", "M", "통신내선공", round(per10 / 10, 3), 100, "통신3-4-2"))
     return rows
 
 
