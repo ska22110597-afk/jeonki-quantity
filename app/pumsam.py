@@ -71,9 +71,9 @@ def format_pumsam_ref(value: Any) -> str:
     if not text:
         return ""
     compact = text.replace(" ", "")
-    matched = re.fullmatch(r"(전기|통신)(\d+)-(\d+)", compact)
+    matched = re.fullmatch(r"(전기|통신)(\d+(?:-\d+)+)", compact)
     if matched:
-        return f"{matched.group(1)} {matched.group(2)}-{matched.group(3)}"
+        return f"{matched.group(1)} {matched.group(2)}"
     return text
 
 

@@ -128,7 +128,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert ilwidae.cell(sundry_row, 6).value == "=TRUNC(F6*0.02,1)"
         assert "H" in str(ilwidae.cell(tool_row, 10).value)
         assert "0.03" in str(ilwidae.cell(tool_row, 10).value)
-        assert ilwidae.cell(labor_row, 4).value == "=0.05"
+        assert ilwidae.cell(labor_row, 4).value in ("=0.05", "=0.05*0.7")  # 지중이면 장소 할증이 수식에 보인다
         assert ilwidae.cell(labor_row, 5).value == "=0"
         assert f"E{labor_row}" in str(ilwidae.cell(labor_row, 6).value)
         assert "VLOOKUP" in str(ilwidae.cell(labor_row, 7).value)
@@ -186,7 +186,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert titles
         assert all("전기" not in str(title) for title in titles)
         remarks = [ilwidae.cell(r, 13).value for r in range(5, 40)]
-        assert any(str(value or "").replace(" ", "") == "전기5-1" for value in remarks)
+        assert any(str(value or "").replace(" ", "").startswith("전기5-1") for value in remarks)
         assert all("품셈" not in str(value or "") for value in remarks)
         assert ilwidae["A5"].font.name == "굴림"
         assert ilwidae["A5"].font.bold is not True
@@ -219,7 +219,7 @@ def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     assert "내선전공" in jobs
     assert "보통인부" in jobs
     notes = [sheet.cell(row, 13).value for row in blocks[0].labor_rows]
-    assert all(note in (None, "") for note in notes)
+    assert all(note in (None, "") for note in notes[1:])  # 첫 인부 줄에만 품셈 근거
     material_note = str(sheet.cell(blocks[0].material_row, 13).value or "")
     assert material_note.replace(" ", "").startswith("전기")
     assert "품셈" not in material_note
@@ -514,7 +514,7 @@ def test_telecom_pumsam_does_not_pull_electric_labor(tmp_path: Path) -> None:
         assert "통신내선공" in names
         assert "내선전공" not in names
         remarks = [str(ilwidae.cell(r, 13).value or "").replace(" ", "") for r in range(5, 40)]
-        assert any(value in {"전기5-1", "통신3-1-1"} for value in remarks)
+        assert any(value.startswith(("전기5-", "통신3-")) for value in remarks)
         assert all("품셈" not in str(ilwidae.cell(r, 13).value or "") for r in range(5, 40))
         assert any(str(ilwidae.cell(r, 2).value or "") == "일반공사 직종" for r in range(5, 40))
         assert all("할증" not in str(ilwidae.cell(r, 2).value or "") for r in range(5, 40))

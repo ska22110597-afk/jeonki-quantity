@@ -37,6 +37,7 @@ from app.estimate_build import (
     EstimateSection,
     EstimateSession,
     generate_session,
+    open_session,
     save_session,
 )
 from app.main_window import (
@@ -259,13 +260,13 @@ class EstimateWindow(QMainWindow):
         top_layout.addLayout(part_box, 2)
 
         src_box = QVBoxLayout()
-        step2 = QLabel("② 단가대비표")
+        step2 = QLabel("② 단가대비표 / 일위대가목록 파일")
         step2.setObjectName("stepLabel")
         src_box.addWidget(step2)
         self.compare_drop = DropZone(
-            title="단가대비표",
-            hint=DROP_HINT,
-            dialog_title="단가대비표 엑셀 선택",
+            title="단가대비표 또는 일위대가목록",
+            hint="단가대비표를 넣으면 일위대가부터 새로 만들고, 저장해 둔 일위대가목록 파일을 넣으면 이어서 내역서를 만듭니다.",
+            dialog_title="단가대비표 또는 일위대가목록 엑셀 선택",
             tone="forward",
         )
         self.compare_drop.file_dropped.connect(self._on_source_dropped)
@@ -571,11 +572,11 @@ class EstimateWindow(QMainWindow):
         source = self._source_path
         self._append_log(f"일위대가 생성 중… ({disc} · {pumsam_filename(disc)})")
         self.statusBar().showMessage("일위대가를 생성하는 중…")
-        self._run_background(lambda: generate_session(source, disc, dest), self._on_generated)
+        self._run_background(lambda: open_session(source, disc, dest), self._on_generated)
 
     def _on_generated(self, session: EstimateSession) -> None:
         self._load_session(session)
-        self._append_log(f"일위대가 {len(session.entries)}건 생성. 내역서에 넣을 품목을 체크하세요.")
+        self._append_log(f"일위대가 {len(session.entries)}건을 불러왔습니다. 내역서에 넣을 품목을 체크하세요.")
         self.statusBar().showMessage("일위대가목록이 만들어졌습니다.")
 
     def _load_session(self, session: EstimateSession) -> None:

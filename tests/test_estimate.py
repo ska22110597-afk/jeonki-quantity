@@ -130,3 +130,41 @@ def test_saving_twice_does_not_stack_sheets(session, tmp_path) -> None:
     names = openpyxl.load_workbook(second).sheetnames
     assert [n for n in names if n.startswith("내역서")] == ["내역서"]
     assert openpyxl.load_workbook(second)["내역서"]["A5"].value == "C"
+
+
+def test_resume_from_saved_ilwidae_list(session, tmp_path) -> None:
+    from app.estimate_build import is_result_workbook, open_session
+
+    saved = save_session(session, [], tmp_path)
+    assert saved.name.startswith("일위대가목록_결과_")
+    assert is_result_workbook(saved) and not is_result_workbook(SAMPLE)
+    again = open_session(saved, "전기", tmp_path)
+    assert len(again.entries) == len(session.entries)
+    for a, b in zip(session.entries, again.entries):
+        assert (a.name, a.spec, a.unit, a.material_row, a.labor_rows) == (b.name, b.spec, b.unit, b.material_row, b.labor_rows)
+        assert round(a.material_unit, 1) == round(b.material_unit, 1)
+        assert a.fitting_rate == b.fitting_rate and a.has_sundry == b.has_sundry
+    out = save_session(again, [EstimateSection("이어서", [EstimateLine(again.entries[0], 3)])], tmp_path)
+    assert out.name.startswith("내역서_결과_")
+    assert "내역서" in openpyxl.load_workbook(out).sheetnames
+
+
+def test_material_waste_and_basis_note() -> None:
+    from app.material_waste import material_waste
+
+    assert material_waste("강제전선관", "아연도 16 mm", "M", "통신", is_conduit=True, is_cable=False)[0] == 1.10
+    q, note = material_waste("UTP 케이블", "Cat.6 4P", "M", "통신", is_conduit=False, is_cable=True)
+    assert q == 1.075 and "통신 1-1-6" in note
+    q, note = material_waste("광케이블(옥외용)", "SM 12c", "M", "통신", is_conduit=False, is_cable=True)
+    assert q == 1.03 and "옥외" in note
+    assert material_waste("앵커볼트", "M10", "개", "전기", is_conduit=False, is_cable=False) == (1.0, "")
+
+
+def test_summary_has_six_blank_rows_and_no_dotted_qty(session, tmp_path) -> None:
+    sec = EstimateSection("t", [EstimateLine(session.entries[0], 1), EstimateLine(session.entries[1], 2.5)])
+    out = save_session(session, [sec], tmp_path)
+    ws = openpyxl.load_workbook(out)["내역서"]
+    assert ws.cell(6, 4).number_format == "#,##0"
+    assert ws.cell(7, 4).number_format == "#,##0.0##"
+    total = next(r for r in range(1, ws.max_row + 1) if "합" in str(ws.cell(r, 1).value or "") and "계" in str(ws.cell(r, 1).value or ""))
+    assert all(ws.cell(total - k, 1).value is None for k in range(1, 7))

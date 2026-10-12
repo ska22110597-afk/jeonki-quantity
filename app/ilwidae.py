@@ -112,10 +112,21 @@ def is_meter_unit(unit: Any) -> bool:
     return token in {"m", "ｍ", "미터", "metre", "meter"}
 
 
-def material_qty(item: LineItem) -> float:
-    if is_meter_unit(item.unit) or is_conduit_name(item.name) or is_cable_name(item.name):
-        return PIPE_WASTE_QTY
-    return 1
+def material_qty(item: LineItem, discipline: str = "전기") -> float:
+    return material_waste_note(item, discipline)[0]
+
+
+def material_waste_note(item: LineItem, discipline: str = "전기") -> tuple[float, str]:
+    from app.material_waste import material_waste
+
+    return material_waste(
+        item.name,
+        item.spec,
+        item.unit,
+        discipline,
+        is_conduit=is_conduit_name(item.name),
+        is_cable=is_cable_name(item.name),
+    )
 
 
 def match_pumsam(item: LineItem, rows: list[PumsamRow]) -> list[PumsamRow]:
@@ -135,6 +146,15 @@ def labor_base_qty_formula(row: PumsamRow) -> str:
     if text in {"", "-"}:
         text = "0"
     return f"={text}"
+
+
+def labor_qty_formula_with_place(row: PumsamRow) -> str:
+    """인부 수량 칸. 노출·지중 같은 장소 할증이 붙은 품은 `=원표품*할증` 으로 보이게 둔다."""
+    base = labor_base_qty_formula(row)
+    rate = pumsam_rate_value(row)
+    if abs(rate - 1.0) < 1e-9:
+        return base
+    return f"{base}*{rate:g}"
 
 
 def quantity_ilwidae_refs(blocks: list[IlwidaeBlock]) -> list[tuple[str, int, list[int]]]:
@@ -402,7 +422,7 @@ def write_ilwidae_sheet(
         cursor += 1
 
         material_row = cursor
-        qty = material_qty(item)
+        qty, waste_note = material_waste_note(item, discipline or "전기")
         _set_cell(sheet, cursor, 1, item.name, font=BODY_FONT)
         _set_cell(sheet, cursor, 2, item.spec, font=BODY_FONT)
         _set_cell(sheet, cursor, 3, item.unit or "개", font=BODY_FONT, align=CENTER)
@@ -411,7 +431,8 @@ def write_ilwidae_sheet(
         _amount(sheet, cursor, 6, _qty_times_price(cursor, "E"))
         _idle_labor_expense(sheet, cursor)
         _cost_totals(sheet, cursor)
-        _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=CENTER)
+        material_note = " · ".join(part for part in (ref, waste_note) if part)
+        _set_cell(sheet, cursor, 13, material_note or None, font=BODY_FONT, align=LEFT)
         cursor += 1
 
         conduit = is_conduit_name(item.name)
@@ -436,7 +457,7 @@ def write_ilwidae_sheet(
             cursor += 1
 
         labor_rows: list[int] = []
-        for labor in labors:
+        for labor_index, labor in enumerate(labors):
             job = labor.get("노무명칭") or fallback_labor
             _set_cell(sheet, cursor, 1, job, font=BODY_FONT)
             _set_cell(sheet, cursor, 2, labor_kind_text(labor), font=BODY_FONT)
@@ -445,7 +466,7 @@ def write_ilwidae_sheet(
                 sheet,
                 cursor,
                 4,
-                labor_base_qty_formula(labor),
+                labor_qty_formula_with_place(labor),
                 font=BODY_FONT,
                 align=RIGHT,
                 number_format="0.000",
@@ -460,7 +481,12 @@ def write_ilwidae_sheet(
             )
             _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
             _cost_totals(sheet, cursor)
-            _set_cell(sheet, cursor, 13, None)
+            if labor_index == 0:
+                rate_pct = round(pumsam_rate_value(labor) * 100)
+                note = f"장소 품 할증 {rate_pct}% ({ref})" if rate_pct != 100 and ref else (f"장소 품 할증 {rate_pct}%" if rate_pct != 100 else "")
+                _set_cell(sheet, cursor, 13, note or None, font=BODY_FONT, align=LEFT)
+            else:
+                _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
             cursor += 1
 
@@ -491,7 +517,7 @@ def write_ilwidae_sheet(
                 has_sundry=bool(conduit or wire),
                 material_qty=qty,
                 labor_jobs=[str(l.get("노무명칭") or fallback_labor) for l in labors],
-                labor_qtys=[pumsam_qty_value(l) for l in labors],
+                labor_qtys=[pumsam_qty_value(l) * pumsam_rate_value(l) for l in labors],
             )
         )
         cursor += 2

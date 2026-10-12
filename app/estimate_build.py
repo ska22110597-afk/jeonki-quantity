@@ -173,6 +173,140 @@ def generate_session(
     return EstimateSession(workbook=workbook, entries=entries, discipline=disc, source_path=source)
 
 
+_PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+_CELL_REF_RE = re.compile(r"^=\s*'?([^'!]+)'?!\$?([A-Z]+)\$?(\d+)$")
+_PRODUCT_RE = re.compile(r"^=?\s*\d+(?:\.\d+)?(?:\s*\*\s*\d+(?:\.\d+)?)*$")
+
+
+def _number(value: Any) -> float | None:
+    """숫자 칸 또는 `=0.04*0.7` 같은 단순 곱 수식을 숫자로."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and _PRODUCT_RE.match(value.strip()):
+        result = 1.0
+        for part in value.strip().lstrip("=").split("*"):
+            result *= float(part)
+        return result
+    return None
+
+
+def is_result_workbook(path: Path) -> bool:
+    """이미 만들어 둔 일위대가·일위대가목록 파일인지(내역서만 이어서 만들 수 있는 파일)."""
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(path, read_only=True)
+        try:
+            return ILWIDAE_SHEET_NAME in wb.sheetnames and ILWIDAE_LIST_SHEET_NAME in wb.sheetnames
+        finally:
+            wb.close()
+    except Exception:
+        return False
+
+
+def load_session_from_result(result_path: Path, discipline: str | None = None) -> EstimateSession:
+    """저장해 둔 일위대가·일위대가목록 파일을 읽어, 내역서만 이어서 만들 수 있게 한다."""
+    from openpyxl import load_workbook
+
+    disc = normalize_discipline(discipline)
+    path = Path(result_path)
+    workbook = load_workbook(path)
+    if ILWIDAE_SHEET_NAME not in workbook.sheetnames:
+        raise ValueError("일위대가 시트가 없는 파일입니다. 일위대가목록까지 저장한 결과 파일을 넣어 주세요.")
+    sheet = workbook[ILWIDAE_SHEET_NAME]
+    compare = workbook[COMPARE_SHEET_NAME] if COMPARE_SHEET_NAME in workbook.sheetnames else None
+    wages: dict[str, float] = {}
+    if WAGES_SHEET_NAME in workbook.sheetnames:
+        for row in workbook[WAGES_SHEET_NAME].iter_rows(min_row=2, max_col=2, values_only=True):
+            if row[0] and isinstance(row[1], (int, float)):
+                wages[str(row[0]).strip()] = float(row[1])
+    if not wages:
+        wages = {str(r.get("직종")): float(r.get("노임단가") or 0) for r in load_wages(None)}
+
+    def price_of(cell_value: Any) -> float:
+        direct = _number(cell_value)
+        if direct is not None and not (isinstance(cell_value, str) and cell_value.startswith("=")):
+            return direct
+        if isinstance(cell_value, str):
+            matched = _CELL_REF_RE.match(cell_value.strip())
+            if matched and compare is not None and matched.group(1) == COMPARE_SHEET_NAME:
+                value = compare[f"{matched.group(2)}{matched.group(3)}"].value
+                if isinstance(value, (int, float)):
+                    return float(value)
+        return 0.0
+
+    entries: list[IlwidaeEntry] = []
+    max_row = sheet.max_row
+    row = 5
+    while row <= max_row:
+        title = sheet.cell(row, 1).value
+        if not (isinstance(title, str) and "호표" in title and sheet.cell(row, 2).value is None and sheet.cell(row, 3).value is None):
+            row += 1
+            continue
+        matched_no = re.search(r"호표\s*(\d+)", title)
+        ho_no = int(matched_no.group(1)) if matched_no else len(entries) + 1
+        material_row = row + 1
+        end = material_row
+        while end + 1 <= max_row:
+            head = sheet.cell(end + 1, 1).value
+            if isinstance(head, str) and head.strip().startswith("[ 합"):
+                end += 1
+                break
+            end += 1
+        sum_row = end
+        qty = _number(sheet.cell(material_row, 4).value) or 1.0
+        labor_rows: dict[str, list[int]] = {}
+        labor_unit: dict[str, float] = {}
+        fitting_rate = 0.0
+        has_sundry = False
+        ref = ""
+        for r in range(material_row + 1, sum_row):
+            label = str(sheet.cell(r, 1).value or "").strip()
+            unit = str(sheet.cell(r, 3).value or "").strip()
+            if label == "전선관부속품비":
+                found = _PCT_RE.search(str(sheet.cell(r, 2).value or ""))
+                fitting_rate = float(found.group(1)) / 100 if found else 0.0
+            elif label == "잡재료비":
+                has_sundry = True
+            elif unit == "인" and label:
+                labor_rows.setdefault(label, []).append(r)
+                q = _number(sheet.cell(r, 4).value) or 0.0
+                labor_unit[label] = labor_unit.get(label, 0.0) + trunc1(wages.get(label, 0.0) * q)
+        head_note = str(sheet.cell(material_row, 13).value or "")
+        ref = head_note.split(" · ")[0].strip() if head_note else ""
+        entries.append(
+            IlwidaeEntry(
+                index=len(entries),
+                name=str(sheet.cell(material_row, 1).value or "").strip(),
+                spec=str(sheet.cell(material_row, 2).value or "").strip(),
+                unit=str(sheet.cell(material_row, 3).value or "").strip(),
+                ho_no=ho_no,
+                material_row=material_row,
+                labor_rows=labor_rows,
+                material_unit=trunc1(qty * price_of(sheet.cell(material_row, 5).value)),
+                labor_unit_by_job=labor_unit,
+                fitting_rate=fitting_rate,
+                has_sundry=has_sundry,
+                pumsam_ref=ref,
+            )
+        )
+        row = sum_row + 1
+    if not entries:
+        raise ValueError("일위대가 호표를 찾지 못했습니다. 이 프로그램으로 만든 일위대가목록 파일인지 확인해 주세요.")
+    session = EstimateSession(workbook=workbook, entries=entries, discipline=disc, source_path=path)
+    session.estimate_sheets = [n for n in workbook.sheetnames if n == ESTIMATE_SHEET_NAME or n.startswith(f"{ESTIMATE_SHEET_NAME}(")]
+    return session
+
+
+def open_session(path: Path, discipline: str | None = None, db_dir: Path | None = None) -> EstimateSession:
+    """단가대비표면 새로 일위대가를 만들고, 일위대가목록 결과 파일이면 그대로 이어서 읽는다."""
+    if is_result_workbook(Path(path)):
+        return load_session_from_result(Path(path), discipline)
+    return generate_session(Path(path), discipline, db_dir)
+
+
 def _sheet_name(base: str, taken: set[str]) -> str:
     name = _BAD_SHEET_CHARS.sub("", base)[:31] or ESTIMATE_SHEET_NAME
     candidate = name
@@ -360,7 +494,7 @@ def save_session(session: EstimateSession, sections: list[EstimateSection], dest
         current = workbook.sheetnames.index(name)
         workbook.move_sheet(name, offset=anchor + offset - current)
     session.estimate_sheets = list(names)
-    dest = build_result_path(dest_dir, mode="estimate")
+    dest = build_result_path(dest_dir, mode="estimate" if sections else "forward")
     if session.source_path is not None:
         assert_safe_save(session.source_path, dest)
     workbook.save(dest)
