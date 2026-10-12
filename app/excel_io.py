@@ -26,6 +26,7 @@ from app.estimate_parse import (
     read_named_sheet_rows,
     read_workbook_first_sheet,
 )
+from app.discipline import normalize_discipline
 from app.paths import assert_safe_save, build_result_path
 from app.pumsam import (
     PUMSAM_SHEET_NAME,
@@ -566,6 +567,22 @@ def _write_quantity_sheet(
         sheet.column_dimensions[get_column_letter(col)].width = width
 
 
+def _pumsam_database_outdated(directory: Path | None, discipline: str | None) -> bool:
+    """데이터베이스 파일이 없거나, 프로그램에 실린 씨앗 파일보다 오래됐으면 한 번 다시 쓴다.
+    (읽기만 한 매 산출마다 1.2만 행 엑셀을 다시 저장하던 시간을 없앤다.)"""
+    from app.pumsam import bundled_pumsam_path, pumsam_db_path
+
+    disc = normalize_discipline(discipline)
+    path = pumsam_db_path(directory, disc)
+    if not path.exists():
+        return True
+    bundled = bundled_pumsam_path(disc)
+    try:
+        return bundled.exists() and path.stat().st_mtime < bundled.stat().st_mtime
+    except OSError:
+        return True
+
+
 def collect_pumsam_rows(
     source_path: Path | None,
     dest_dir: Path | None,
@@ -583,7 +600,8 @@ def collect_pumsam_rows(
     if extra_pumsam_path is not None:
         groups.append(import_pumsam_file(extra_pumsam_path))
     merged = merge_pumsam_rows(*groups)
-    save_pumsam_database(merged, database_dir, discipline=discipline)
+    if len(groups) > 1 or _pumsam_database_outdated(database_dir, discipline):
+        save_pumsam_database(merged, database_dir, discipline=discipline)
     return merged
 
 

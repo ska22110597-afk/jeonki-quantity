@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import copy
 from functools import lru_cache
 
 import re
@@ -81,6 +82,37 @@ def pumsam_name_keys(row: PumsamRow) -> set[str]:
         if token:
             keys.add(token)
     return keys
+
+
+class _RowIndex:
+    """품셈 행을 이름·(이름+규격)으로 한 번에 찾는 색인. 같은 rows 목록이면 재사용한다."""
+
+    __slots__ = ("rows", "size", "by_name", "by_exact")
+
+    def __init__(self, rows: list) -> None:
+        self.rows = rows
+        self.size = len(rows)
+        self.by_name: dict[str, list] = {}
+        self.by_exact: dict[str, list] = {}
+        for row in rows:
+            for key in pumsam_name_keys(row):
+                self.by_name.setdefault(key, []).append(row)
+            for field in ("명칭", "짧은명칭"):
+                exact = lookup_key(row.get(field), row.get("규격"))
+                bucket = self.by_exact.setdefault(exact, [])
+                if not bucket or bucket[-1] is not row:
+                    bucket.append(row)
+
+
+_INDEX_CACHE: list[_RowIndex] = []
+
+
+def _row_index(rows: list) -> _RowIndex:
+    if _INDEX_CACHE and _INDEX_CACHE[0].rows is rows and _INDEX_CACHE[0].size == len(rows):
+        return _INDEX_CACHE[0]
+    index = _RowIndex(rows)
+    _INDEX_CACHE[:] = [index]
+    return index
 
 
 def pumsam_qty_value(row: PumsamRow) -> float:
@@ -246,9 +278,7 @@ def _match_pumsam_ceiling(name: Any, spec: Any, rows: list[PumsamRow]) -> list[P
         return []
 
     by_threshold: dict[float, dict[str, list[PumsamRow]]] = {}
-    for row in rows:
-        if name_key not in pumsam_name_keys(row):
-            continue
+    for row in _row_index(rows).by_name.get(name_key, ()):
         book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
         if book_qual != "이하" or book_size is None or book_unit != item_unit:
             continue
@@ -276,9 +306,7 @@ def _match_pumsam_same_size(name: Any, spec: Any, rows: list[PumsamRow]) -> list
     item_stem_compact = _compact_stem(item_stem)
 
     by_spec: dict[str, list[PumsamRow]] = {}
-    for row in rows:
-        if name_key not in pumsam_name_keys(row):
-            continue
+    for row in _row_index(rows).by_name.get(name_key, ()):
         book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
         if book_qual == "이하" or book_size is None or book_unit != item_unit:
             continue
@@ -305,9 +333,7 @@ def _match_pumsam_unique_item(name: Any, rows: list[PumsamRow]) -> list[PumsamRo
     if not name_key:
         return []
     by_spec: dict[str, list[PumsamRow]] = {}
-    for row in rows:
-        if name_key not in pumsam_name_keys(row):
-            continue
+    for row in _row_index(rows).by_name.get(name_key, ()):
         spec_key = lookup_key("", row.get("규격"))
         by_spec.setdefault(spec_key, []).append(row)
     if len(by_spec) != 1:
@@ -381,12 +407,7 @@ def with_place_surcharge(rows: list[PumsamRow], suffix: str) -> list[PumsamRow]:
 def _match_pumsam_candidates(names: list[str], spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     for candidate in names:
         key = lookup_key(candidate, spec)
-        exact = [
-            row
-            for row in rows
-            if lookup_key(row.get("명칭"), row.get("규격")) == key
-            or lookup_key(row.get("짧은명칭"), row.get("규격")) == key
-        ]
+        exact = list(_row_index(rows).by_exact.get(key, ()))
         if exact:
             return _preferred_match_group(candidate, exact)
         same_size = _match_pumsam_same_size(candidate, spec, rows)
@@ -802,9 +823,10 @@ def _align(kind: str) -> Alignment:
 
 
 def _style_pumsam_sheet(sheet) -> None:
+    """1행(머리글)과 2행(본문) 서식만 셀마다 입히고, 나머지 행은 그 서식 배열을 복사한다. (1.2만 행도 빠르게)"""
     last_row = max(sheet.max_row, 1)
     last_col = len(PUMSAM_DISPLAY_HEADERS)
-    for row_idx in range(1, last_row + 1):
+    for row_idx in range(1, min(last_row, 2) + 1):
         sheet.row_dimensions[row_idx].height = PUMSAM_ROW_HEIGHT
         is_header = row_idx == 1
         for col_idx in range(1, last_col + 1):
@@ -812,12 +834,15 @@ def _style_pumsam_sheet(sheet) -> None:
             cell.font = GULIM_HEADER if is_header else GULIM
             cell.border = THIN
             cell.fill = SKY_BLUE if is_header else WHITE
-            if is_header:
-                cell.alignment = _align("center")
-            else:
-                cell.alignment = _align(PUMSAM_DATA_ALIGNS[col_idx - 1])
-            if col_idx == 6 and not is_header and isinstance(cell.value, (int, float)):
+            cell.alignment = _align("center") if is_header else _align(PUMSAM_DATA_ALIGNS[col_idx - 1])
+            if col_idx == 6 and not is_header:
                 cell.number_format = "0.000"
+    if last_row > 2:
+        protos = [copy(sheet.cell(2, col_idx)._style) for col_idx in range(1, last_col + 1)]
+        for row_idx in range(3, last_row + 1):
+            sheet.row_dimensions[row_idx].height = PUMSAM_ROW_HEIGHT
+            for col_idx in range(1, last_col + 1):
+                sheet.cell(row_idx, col_idx)._style = copy(protos[col_idx - 1])
     for col_idx, width in enumerate(PUMSAM_COLUMN_WIDTHS, start=1):
         sheet.column_dimensions[get_column_letter(col_idx)].width = width
     sheet.freeze_panes = "A2"
