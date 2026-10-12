@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import re
 from typing import Any
 
@@ -109,6 +111,7 @@ def display_unit(text: str) -> str:
     return unit
 
 
+@lru_cache(maxsize=None)
 def lookup_measure(text: str) -> str:
     """검색키용. ㎟·mm2·mm² 를 같은 글자로 본다."""
     text = unify_square_display(unify_length_display(str(text or "")))

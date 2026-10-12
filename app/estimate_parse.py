@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -156,6 +158,7 @@ def is_section_row(name: Any, spec: Any, unit: Any) -> bool:
     return False
 
 
+@lru_cache(maxsize=None)
 def lookup_key(name: Any, spec: Any) -> str:
     """품셈표 검색용. 공백을 없애 명칭+규격을 붙인다. ㎟·mm2 는 같은 키로 본다."""
     left = lookup_measure("" if name is None else str(name))

@@ -26,6 +26,7 @@ from app.excel_io import (
     _apply_sheet_look,
     _set_cell,
 )
+from app.fitting_rules import DEFAULT_FITTING_EXCLUDES, fitting_excluded
 from app.items import LineItem
 from app.pumsam import (
     PumsamRow,
@@ -56,7 +57,14 @@ class IlwidaeBlock:
     pumsam_ref: str = ""
 
 
-_CONDUIT_ANCHORS = ("강제전선관", "경질비닐전선관", "CD전선관", "금속제가요전선관", "박강전선관")
+_CONDUIT_ANCHORS = (
+    "강제전선관",
+    "경질비닐전선관",
+    "CD전선관",
+    "금속제가요전선관",
+    "박강전선관",
+    "합성수지파형관",
+)
 _WIRE_ANCHORS = ("옥내배선", "전력케이블", "제어용케이블", "UTP케이블", "광케이블")
 
 
@@ -83,6 +91,14 @@ def is_cable_name(name: Any) -> bool:
     if any(word in text for word in ("트레이", "덕트", "몰딩")):
         return False
     return "케이블" in text or "전선" in text
+
+
+def conduit_fitting_rate(name: Any, spec: Any = None) -> float:
+    """표준품셈 5-2 전선관 부속품률. 후강·박강·합성수지 15%, CD(주름관) 40%."""
+    text = f"{name or ''} {spec or ''}".upper()
+    if "CD" in text or "주름" in text or ("합성수지" in text and "가요" in text):
+        return CD_FITTING_RATE
+    return CONDUIT_FITTING_RATE
 
 
 def is_meter_unit(unit: Any) -> bool:
@@ -346,6 +362,7 @@ def write_ilwidae_sheet(
     wage_rows: list[WageRow],
     compare_sheet: str = "단가대비표",
     discipline: str | None = None,
+    fitting_excludes: tuple[str, ...] = DEFAULT_FITTING_EXCLUDES,
 ) -> list[IlwidaeBlock]:
     sheet.title = ILWIDAE_SHEET_NAME
     _write_ilwidae_header(sheet)
@@ -393,9 +410,15 @@ def write_ilwidae_sheet(
 
         conduit = is_conduit_name(item.name)
         wire = is_cable_name(item.name)
-        if conduit:
+        if conduit and not fitting_excluded(item.name, item.spec, fitting_excludes):
+            fitting_rate = conduit_fitting_rate(item.name, item.spec)
             _write_percent_material_row(
-                sheet, cursor, "전선관부속품비", "전선관의 15%", material_row, CONDUIT_FITTING_RATE
+                sheet,
+                cursor,
+                "전선관부속품비",
+                f"전선관의 {round(fitting_rate * 100)}%",
+                material_row,
+                fitting_rate,
             )
             cursor += 1
         if conduit or wire:

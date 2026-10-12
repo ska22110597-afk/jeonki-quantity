@@ -42,6 +42,7 @@ from app.excel_io import (
     collect_pumsam_rows,
     write_title_banner,
 )
+from app.fitting_rules import DEFAULT_FITTING_EXCLUDES, load_fitting_excludes
 from app.ilwidae import (
     IlwidaeBlock,
     parse_ilwidae_blocks,
@@ -573,7 +574,10 @@ def build_result_workbook(
     mode: str = "forward",
     dropped_ilwidae: EstimateSheet | None = None,
     companion_sheets: dict[str, EstimateSheet] | None = None,
+    fitting_excludes: tuple[str, ...] | None = None,
 ) -> Workbook:
+    if fitting_excludes is None:
+        fitting_excludes = DEFAULT_FITTING_EXCLUDES
     workbook = Workbook()
     sheets = _SheetFactory(workbook)
     items: list[LineItem] = []
@@ -655,6 +659,7 @@ def build_result_workbook(
                 wage_rows,
                 compare_sheet=COMPARE_SHEET_NAME,
                 discipline=discipline,
+                fitting_excludes=fitting_excludes,
             )
         if estimate is not None:
             copied = sheets.take(ILWIDAE_LIST_SHEET_NAME)
@@ -749,6 +754,7 @@ def run_pipeline(
         mode=mode,
         dropped_ilwidae=dropped_ilwidae,
         companion_sheets=companion_sheets or None,
+        fitting_excludes=load_fitting_excludes(database_dir),
     )
     try:
         workbook.save(dest)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import re
 from pathlib import Path
 from typing import Any
@@ -192,7 +194,7 @@ def _clean_stem(stem: str) -> str:
 
 
 _WH_RE = re.compile(
-    r"(?i)(?:w|ｗ)\s*(?P<w>\d+(?:\.\d+)?)\s*[x×*]\s*(?:h|ｈ)\s*(?P<h>\d+(?:\.\d+)?)"
+    r"(?i)(?:w|ｗ)\s*(?P<w>\d+(?:\.\d+)?)\s*[x×*]\s*(?:(?:h|ｈ)\s*(?P<h>\d+(?:\.\d+)?)|(?P<h2>\d+(?:\.\d+)?)\s*(?:h|ｈ))"
 )
 
 
@@ -201,9 +203,11 @@ def _wh_area(text: str) -> float | None:
     match = _WH_RE.search(str(text or ""))
     if not match:
         return None
-    return float(match.group("w")) * float(match.group("h"))
+    height = match.group("h") or match.group("h2")
+    return float(match.group("w")) * float(height)
 
 
+@lru_cache(maxsize=None)
 def spec_match_parts(spec: Any) -> tuple[float | None, str, str, str]:
     """규격에서 (숫자, 단위, 이하/초과, 나머지 말)을 뽑는다. 검색용 단위는 mm2."""
     text = lookup_measure(display_spec(spec or ""))
