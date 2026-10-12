@@ -1,7 +1,7 @@
 """자재 수량 할증(재료의 할증률). 일위대가 자재 수량 칸에 곱하고, 비고에 근거를 적는다.
 
 통신: 정보통신공사 표준품셈 1-1-6 「재료의 할증률 및 철거손실률」 표(옥내/옥외 구분).
-전기: 이 프로그램은 지금까지 전선관·전선·케이블 10% 를 써 왔다. 전기 표준품셈 총칙 표를 확인하면 이 파일만 고치면 된다.
+전기: 전기공사 표준품셈 1-6 「전기재료의 할증률 및 철거손실률」(옥내전선 10, 옥외전선 5, 케이블 옥내 5·옥외 3, 전선관 옥내 10·옥외 5, 트레이·덕트 5, 파형전선관 3).
 """
 
 from __future__ import annotations
@@ -56,7 +56,19 @@ def material_waste(
         if "열수축관" in compact or "점퍼선" in compact:
             return 1.05, f"{base} 자재할증 5%"
         return 1.0, ""
-    # 전기: 기존 규칙(전선관·전선·케이블·m 단위 10%) 유지
-    if is_conduit or is_cable or is_meter:
-        return 1.10, "전기 자재할증 10% (전선관·전선·케이블)"
+    # 전기: 표준품셈 1-6 「전기재료의 할증률 및 철거손실률」
+    if any(w in compact.upper() for w in ("트레이", "덕트", "레이스웨이", "케이블랙", "TRAY")):
+        return 1.05, "전기 1-6 트레이·덕트 자재할증 5%"
+    if is_conduit:
+        if any(w in compact.upper() for w in ("파형", "파상", "ELP")):
+            return 1.03, "전기 1-6 합성수지 파형전선관 자재할증 3%"
+        if outdoor:
+            return 1.05, "전기 1-6 옥외 전선관 자재할증 5%"
+        return 1.10, "전기 1-6 옥내 전선관 자재할증 10%"
+    if is_cable or is_meter:
+        cable = "케이블" in compact or any(w in compact.upper() for w in ("CV", "CCV", "VVF", "VVR", "UTP", "STP"))
+        if cable:
+            return (1.03, "전기 1-6 옥외 케이블 자재할증 3%") if outdoor else (1.05, "전기 1-6 옥내 케이블 자재할증 5%")
+        if "전선" in compact or any(w in compact.upper() for w in ("IV", "HIV", "HFIX", "GV", "연동선")):
+            return (1.05, "전기 1-6 옥외 전선 자재할증 5%") if outdoor else (1.10, "전기 1-6 옥내 전선 자재할증 10%")
     return 1.0, ""

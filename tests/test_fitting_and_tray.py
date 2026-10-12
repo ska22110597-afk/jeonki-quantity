@@ -45,3 +45,13 @@ def test_conduit_aliases_resolve_to_same_item():
         assert "합성수지 파형관 설치" in alias_names(name), name
     assert "강제전선관" in alias_names("RMC")
     assert "경질비닐전선관" in alias_names("VE전선관")
+
+
+def test_telecom_conduit_fitting_rate_follows_3_1_2() -> None:
+    from app.ilwidae import conduit_fitting_rate
+
+    assert conduit_fitting_rate("강제전선관", "아연도 16 mm", "통신") == 0.20
+    assert conduit_fitting_rate("경질비닐전선관", "HI 16 mm", "통신") == 0.20
+    assert conduit_fitting_rate("CD관", "22㎜", "통신") == 0.40
+    assert conduit_fitting_rate("PF관", "16㎜", "통신") == 0.40
+    assert conduit_fitting_rate("강제전선관", "아연도 16 mm", "전기") == 0.15

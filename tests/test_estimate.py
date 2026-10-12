@@ -158,6 +158,8 @@ def test_material_waste_and_basis_note() -> None:
     q, note = material_waste("광케이블(옥외용)", "SM 12c", "M", "통신", is_conduit=False, is_cable=True)
     assert q == 1.03 and "옥외" in note
     assert material_waste("앵커볼트", "M10", "개", "전기", is_conduit=False, is_cable=False) == (1.0, "")
+    assert material_waste("HFIX전선", "2.5㎟", "M", "전기", is_conduit=False, is_cable=True)[0] == 1.10
+    assert material_waste("CV케이블", "1C", "M", "전기", is_conduit=False, is_cable=True)[0] == 1.05
 
 
 def test_summary_has_six_blank_rows_and_no_dotted_qty(session, tmp_path) -> None:

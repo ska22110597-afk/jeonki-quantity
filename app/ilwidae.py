@@ -42,6 +42,7 @@ from app.wages import WAGES_SHEET_NAME, WageRow
 PIPE_WASTE_QTY = 1.1
 CD_FITTING_RATE = 0.40
 CONDUIT_FITTING_RATE = 0.15
+TELECOM_CONDUIT_FITTING_RATE = 0.20  # 통신 표준품셈 3-1-2: 박강·후강·합성수지·금속제 가요 전선관 20%
 SUNDRY_RATE = 0.02
 TOOL_RATE = 0.03
 HO_TITLE_RE = re.compile(r"\(\s*호표\s*\d+\s*\)")
@@ -99,12 +100,15 @@ def is_cable_name(name: Any) -> bool:
     return "케이블" in text or "전선" in text
 
 
-def conduit_fitting_rate(name: Any, spec: Any = None) -> float:
-    """표준품셈 5-2 전선관 부속품률. 후강·박강·합성수지 15%, CD(주름관) 40%."""
+def conduit_fitting_rate(name: Any, spec: Any = None, discipline: str = "전기") -> float:
+    """전선관 부속품률. CD·PF(휨 합성수지관) 40%.
+
+    전기 5-2: 후강·박강·합성수지 15%. 통신 3-1-2: 박강·후강·합성수지·금속제 가요 20%.
+    """
     text = f"{name or ''} {spec or ''}".upper()
-    if "CD" in text or "주름" in text or ("합성수지" in text and "가요" in text):
+    if "CD" in text or "PF" in text or "주름" in text or ("합성수지" in text and "가요" in text):
         return CD_FITTING_RATE
-    return CONDUIT_FITTING_RATE
+    return TELECOM_CONDUIT_FITTING_RATE if discipline == "통신" else CONDUIT_FITTING_RATE
 
 
 def is_meter_unit(unit: Any) -> bool:
@@ -457,7 +461,7 @@ def write_ilwidae_sheet(
         wire = is_cable_name(item.name)
         fitting_rate = 0.0
         if conduit and not fitting_excluded(item.name, item.spec, fitting_excludes):
-            fitting_rate = conduit_fitting_rate(item.name, item.spec)
+            fitting_rate = conduit_fitting_rate(item.name, item.spec, discipline or "전기")
             _write_percent_material_row(
                 sheet,
                 cursor,
