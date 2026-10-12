@@ -538,10 +538,27 @@ def section_label(number: int, title: str) -> str:
     return f"{number}. {strip_section_number(title)}"
 
 
-def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSection | list[EstimateSection]") -> None:
-    """내역서 시트 하나에 공정을 순서대로 이어 쓴다. 제목 줄은 「1. 공정명」으로 번호가 자동으로 붙는다."""
+MODE_ILWIDAE = "일위대가"  # 품목마다 일위대가 호표 단가(재료+노무)를 쓰는 방식
+MODE_QUANTITY = "공량산출"  # 품목에는 재료비만, 노무비는 공량(수량×품셈)을 모아 직종별로 한 줄씩
+QUANTITY_SHEET = "공량산출서"
+QUANTITY_HEAD = ("공정번호", "공 정", "명  칭", "규  격", "단위", "수  량", "직  종", "단위당 인부수", "공량(인)", "품셈근거")
+
+
+def write_estimate_sheet(
+    workbook: Workbook,
+    name: str,
+    sections: "EstimateSection | list[EstimateSection]",
+    mode: str = MODE_ILWIDAE,
+) -> None:
+    """내역서 시트 하나에 공정을 순서대로 이어 쓴다. 제목 줄은 「1. 공정명」으로 번호가 자동으로 붙는다.
+
+    mode=공량산출 이면 품목 줄에는 재료비만 두고, 노무비는 공량산출서 시트의 공량(수량×품셈) 합으로 계산한다.
+    """
     if isinstance(sections, EstimateSection):
         sections = [sections]
+    qty_mode = mode == MODE_QUANTITY
+    qty_rows: list[tuple[int, str, "EstimateLine", int]] = []  # (공정번호, 공정명, 줄, 내역서 행)
+    labor_pos: list[tuple[int, str, int]] = []  # (공정번호, 직종, 노무비 행)
     sheet = workbook.create_sheet(name)
     write_title_banner(sheet, "내   역   서", LAST_COL)
     heads = {1: "명  칭", 2: "규  격", 3: "단위", 4: "수량", 5: "재  료  비", 7: "노  무  비", 9: "경    비", 11: "계", 12: "비  고"}
@@ -600,7 +617,9 @@ def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSecti
             _set_cell(sheet, row, 5, f"={_ref(e.material_row, 'F')}", align=RIGHT, number_format=MONEY_FORMAT)
             _set_cell(sheet, row, 6, f"=D{row}*E{row}", align=RIGHT, number_format=MONEY_FORMAT)
             job_cols = [letter(("job", j)) for j in jobs if e.labor_unit_by_job.get(j, 0) > 0]
-            if job_cols:
+            if qty_mode:
+                qty_rows.append((number, section.title, ln, row))
+            if job_cols and not qty_mode:
                 _set_cell(sheet, row, 7, "=" + "+".join(f"{c}{row}" for c in job_cols), align=RIGHT, number_format=MONEY_FORMAT)
                 _set_cell(sheet, row, 8, f"=D{row}*G{row}", align=RIGHT, number_format=MONEY_FORMAT)
             else:
@@ -617,7 +636,8 @@ def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSecti
                     value = 1 if abs(e.fitting_rate - key[1]) < 1e-9 else None
                 else:
                     refs = e.labor_rows.get(key[1], [])
-                    value = "=" + "+".join(_ref(r, "H") for r in refs) if refs and e.labor_unit_by_job.get(key[1], 0) > 0 else None
+                    column = "D" if qty_mode else "H"  # 공량산출: 단위당 인부수, 일위대가: 노무비 금액
+                    value = "=" + "+".join(_ref(r, column) for r in refs) if refs and e.labor_unit_by_job.get(key[1], 0) > 0 else None
                 sheet.cell(row, col, value)
             row += 1
         last = max(row - 1, first)
@@ -658,7 +678,14 @@ def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSecti
             _set_cell(sheet, summary, 2, job)
             _set_cell(sheet, summary, 3, "인", align=CENTER)
             c = letter(("job", job))
-            _set_cell(sheet, summary, 8, f"=SUMPRODUCT(D{first}:D{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
+            if qty_mode:
+                q = f"'{QUANTITY_SHEET}'!"
+                _set_cell(sheet, summary, 4, f"=SUMIFS({q}$I:$I,{q}$A:$A,{number},{q}$G:$G,\"{job}\")", align=RIGHT, number_format="#,##0.00")
+                _set_cell(sheet, summary, 7, f"=IFERROR(VLOOKUP(\"{job}\",'노임단가'!A:B,2,FALSE),0)", align=RIGHT, number_format=MONEY_FORMAT)
+                _set_cell(sheet, summary, 8, f"=TRUNC(D{summary}*G{summary},0)", align=RIGHT, number_format=MONEY_FORMAT)
+                labor_pos.append((number, job, summary))
+            else:
+                _set_cell(sheet, summary, 8, f"=SUMPRODUCT(D{first}:D{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
             labor_first = labor_first or summary
             labor_last = summary
             summary += 1
@@ -696,12 +723,48 @@ def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSecti
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    if qty_mode:
+        _write_quantity_sheet(workbook, name, qty_rows, col_of)
 
 
-def save_session(session: EstimateSession, sections: list[EstimateSection], dest_dir: Path | None) -> Path:
+def _write_quantity_sheet(workbook: Workbook, est_name: str, qty_rows, col_of: dict) -> None:
+    """공량산출서: 내역서 수량 × 일위대가 인부수 = 공량. 내역서의 노무비가 이 합계를 쓴다."""
+    sheet = workbook.create_sheet(QUANTITY_SHEET)
+    write_title_banner(sheet, "공 량 산 출 서", len(QUANTITY_HEAD))
+    for col, text in enumerate(QUANTITY_HEAD, start=1):
+        _set_cell(sheet, 3, col, text, font=HEADER_FONT, align=CENTER)
+    row = 4
+    q = f"'{est_name}'!"
+    for number, title, ln, est_row in qty_rows:
+        e = ln.entry
+        for job, refs in e.labor_rows.items():
+            if e.labor_unit_by_job.get(job, 0) <= 0:
+                continue
+            helper = get_column_letter(col_of[("job", job)])
+            _set_cell(sheet, row, 1, number, align=CENTER)
+            _set_cell(sheet, row, 2, section_label(number, title))
+            _set_cell(sheet, row, 3, e.name)
+            _set_cell(sheet, row, 4, e.spec)
+            _set_cell(sheet, row, 5, e.unit, align=CENTER)
+            _set_cell(sheet, row, 6, f"={q}D{est_row}", align=RIGHT, number_format=qty_format(ln.qty))
+            _set_cell(sheet, row, 7, job)
+            _set_cell(sheet, row, 8, f"={q}{helper}{est_row}", align=RIGHT, number_format="#,##0.0000")
+            _set_cell(sheet, row, 9, f"=F{row}*H{row}", align=RIGHT, number_format="#,##0.000")
+            _set_cell(sheet, row, 10, f"='{ILWIDAE_SHEET_NAME}'!M{refs[0]}")
+            row += 1
+    last = max(row - 1, 4)
+    _set_cell(sheet, row, 3, "( 합   계 )")
+    _set_cell(sheet, row, 9, f"=SUM(I4:I{last})", align=RIGHT, number_format="#,##0.000")
+    _apply_sheet_look(sheet, row, len(QUANTITY_HEAD), row_height=FORM_ROW_HEIGHT)
+    for letter_, width in zip("ABCDEFGHIJ", (9, 22, 26, 26, 7, 12, 14, 14, 12, 16)):
+        sheet.column_dimensions[letter_].width = width
+    sheet.freeze_panes = "A4"
+
+
+def save_session(session: EstimateSession, sections: list[EstimateSection], dest_dir: Path | None, mode: str = MODE_ILWIDAE) -> Path:
     """원본은 두고, 고른 공정을 한 장의 내역서 시트에 이어서 붙여 새 엑셀 파일로 저장한다."""
     workbook = session.workbook
-    for old in session.estimate_sheets:  # 다시 저장할 때 내역서가 쌓이지 않게 먼저 지운다.
+    for old in list(session.estimate_sheets) + [QUANTITY_SHEET]:  # 다시 저장할 때 내역서가 쌓이지 않게 먼저 지운다.
         if old in workbook.sheetnames:
             del workbook[old]
     session.estimate_sheets = []
@@ -710,12 +773,15 @@ def save_session(session: EstimateSession, sections: list[EstimateSection], dest
     if sections:  # 모든 공정을 시트 하나에 순서대로 쓴다.
         name = _sheet_name(ESTIMATE_SHEET_NAME, taken)
         names.append(name)
-        write_estimate_sheet(workbook, name, list(sections))
+        write_estimate_sheet(workbook, name, list(sections), mode)
     # 일위대가목록 바로 뒤에 내역서를 둔다.
     anchor = workbook.sheetnames.index(ILWIDAE_LIST_SHEET_NAME) if ILWIDAE_LIST_SHEET_NAME in workbook.sheetnames else len(workbook.sheetnames) - 1
     for offset, name in enumerate(names, start=1):
         current = workbook.sheetnames.index(name)
         workbook.move_sheet(name, offset=anchor + offset - current)
+    if mode == MODE_QUANTITY and QUANTITY_SHEET in workbook.sheetnames and names:
+        workbook.move_sheet(QUANTITY_SHEET, offset=workbook.sheetnames.index(names[-1]) + 1 - workbook.sheetnames.index(QUANTITY_SHEET))
+        names.append(QUANTITY_SHEET)
     session.estimate_sheets = list(names)
     _write_check_sheet(workbook, session.entries)
     dest = build_result_path(dest_dir, mode="estimate" if sections else "forward")

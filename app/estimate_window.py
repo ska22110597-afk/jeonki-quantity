@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -48,6 +49,8 @@ from app.estimate_build import (
     set_material_price,
     open_session,
     save_session,
+    MODE_ILWIDAE,
+    MODE_QUANTITY,
     autosave_path,
     convert_with_columns,
     duplicate_rows,
@@ -437,6 +440,13 @@ class EstimateWindow(QMainWindow):
         section_buttons.addWidget(self.edit_section_button)
         section_buttons.addWidget(self.remove_section_button)
         side_layout.addLayout(section_buttons)
+        mode_label = QLabel("내역서 방식")
+        mode_label.setObjectName("stepLabel")
+        side_layout.addWidget(mode_label)
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("일위대가 방식 (품목별 재료비+노무비 단가)", MODE_ILWIDAE)
+        self.mode_combo.addItem("공량산출 방식 (재료비 + 직종별 공량·노무비, 공량산출서 시트 추가)", MODE_QUANTITY)
+        side_layout.addWidget(self.mode_combo)
         self.save_button = QPushButton("저장")
         self.save_button.setObjectName("runButton")
         self.save_button.setMinimumHeight(46)
@@ -1034,7 +1044,8 @@ class EstimateWindow(QMainWindow):
             self._settings.setValue("dest_dir", self.dest_edit.text().strip())
         session, sections = self._session, list(self._sections)
         self.statusBar().showMessage("내역서를 저장하는 중…")
-        self._run_background(lambda: save_session(session, sections, dest), self._on_saved)
+        mode = self.mode_combo.currentData()
+        self._run_background(lambda: save_session(session, sections, dest, mode), self._on_saved)
 
     def _on_saved(self, dest: Path) -> None:
         try:

@@ -299,3 +299,37 @@ def test_ilwidae_note_columns(session) -> None:
     assert notes, "적용 기준 칸에 글자가 있어야 합니다."
     assert all(" · " not in str(ws.cell(r, 13).value or "") for r in range(5, ws.max_row + 1))
     assert ws.cell(5, 14).value is None
+
+
+def test_quantity_mode_labor_from_workload(session, tmp_path) -> None:
+    from app.estimate_build import MODE_QUANTITY
+
+    lines = [EstimateLine(e, 100 + i * 7, "") for i, e in enumerate(_pick(session, rate=0.15, count=3))]
+    lines += [EstimateLine(e, 3, "") for e in _pick(session, rate=0.0, sundry=False, count=2)]
+    dest = save_session(session, [EstimateSection("검산", lines)], tmp_path, MODE_QUANTITY)
+    out = tmp_path / "calc"
+    subprocess.run(["soffice", "--headless", "--convert-to", "xlsx", "--outdir", str(out), str(dest)], check=True, capture_output=True, timeout=170)
+    wb = openpyxl.load_workbook(out / dest.name, data_only=True)
+    assert "공량산출서" in wb.sheetnames
+    ws = wb["내역서"]
+    item_rows = [r for r in range(5, 5 + len(lines) + 1) if ws.cell(r, 5).value]
+    assert all(ws.cell(r, 7).value in (None, "") for r in item_rows)  # 품목 줄에는 노무비 단가가 없다
+    labor_rows = [r for r in range(5, ws.max_row + 1) if ws.cell(r, 1).value == "노 무 비"]
+    assert labor_rows and all(ws.cell(r, 4).value > 0 and ws.cell(r, 7).value > 0 for r in labor_rows)
+    q = wb["공량산출서"]
+    total = next(r for r in range(4, q.max_row + 1) if str(q.cell(r, 3).value).startswith("( 합"))
+    assert q.cell(total, 9).value == pytest.approx(sum(ws.cell(r, 4).value for r in labor_rows), rel=1e-6)
+    expected = sum(l.qty * l.entry.labor_unit for l in lines)
+    total_row = next(r for r in range(6, ws.max_row + 1) if str(ws.cell(r, 1).value).startswith("( 합"))
+    assert ws.cell(total_row, 8).value == pytest.approx(expected * 1.03, rel=0.02)
+
+
+def test_manual_material_price_and_blank_filter(session) -> None:
+    from app.estimate_build import set_material_price
+
+    blank = [e for e in session.entries if e.material_unit == 0]
+    if not blank:
+        pytest.skip("샘플에 단가 공란 품목 없음")
+    entry = blank[0]
+    set_material_price(session, entry, 1234)
+    assert entry.material_unit == pytest.approx(1234, abs=0.2)
