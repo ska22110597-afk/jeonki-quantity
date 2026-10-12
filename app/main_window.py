@@ -650,6 +650,19 @@ class PaperRoot(QWidget):
         bg = ui_background_path()
         self._bg = QPixmap(str(bg)) if bg.is_file() else QPixmap()
 
+    def set_background(self, path: str | None) -> bool:
+        """내가 고른 그림으로 바꾼다. path 가 비어 있으면 기본 문양으로 되돌린다."""
+        if path:
+            pix = QPixmap(path)
+            if pix.isNull():
+                return False
+            self._bg = pix
+        else:
+            bg = ui_background_path()
+            self._bg = QPixmap(str(bg)) if bg.is_file() else QPixmap()
+        self.update()
+        return True
+
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

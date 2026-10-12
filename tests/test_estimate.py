@@ -333,3 +333,25 @@ def test_manual_material_price_and_blank_filter(session) -> None:
     entry = blank[0]
     set_material_price(session, entry, 1234)
     assert entry.material_unit == pytest.approx(1234, abs=0.2)
+
+
+def test_custom_background_and_sound(session, tmp_path) -> None:
+    from PyQt6.QtGui import QImage
+
+    from PyQt6.QtWidgets import QApplication
+
+    from app.estimate_window import EstimateWindow
+    from app.sound import chime_wav
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    assert chime_wav()[:4] == b"RIFF"
+    image = tmp_path / "bg.png"
+    img = QImage(40, 30, QImage.Format.Format_RGB32)
+    img.fill(0xFF3366)
+    assert img.save(str(image))
+    window = EstimateWindow()
+    root = window.centralWidget()
+    assert root.set_background(str(image))
+    assert not root.set_background(str(tmp_path / "none.png"))
+    assert root.set_background(None)
+    assert window.sound_check.isChecked()

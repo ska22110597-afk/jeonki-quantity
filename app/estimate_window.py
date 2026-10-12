@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.sound import play_done
 from app.numbers import parse_number
 from app.link_dialog import ColumnMapDialog, LinkDialog
 from app.pumsam import load_pumsam_database
@@ -453,6 +454,21 @@ class EstimateWindow(QMainWindow):
         self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_button.clicked.connect(self._on_save)
         side_layout.addWidget(self.save_button)
+        look_row = QHBoxLayout()
+        self.bg_button = QPushButton("배경 그림 변경")
+        self.bg_button.setObjectName("smallButton")
+        self.bg_button.clicked.connect(self._on_change_background)
+        self.bg_reset_button = QPushButton("기본 배경")
+        self.bg_reset_button.setObjectName("smallButton")
+        self.bg_reset_button.clicked.connect(self._on_reset_background)
+        look_row.addWidget(self.bg_button, 1)
+        look_row.addWidget(self.bg_reset_button)
+        side_layout.addLayout(look_row)
+        self.sound_check = QCheckBox("완료 알림음")
+        self.sound_check.setChecked(str(self._settings.value("sound", "1")) != "0")
+        self.sound_check.stateChanged.connect(lambda _s: self._settings.setValue("sound", "1" if self.sound_check.isChecked() else "0"))
+        side_layout.addWidget(self.sound_check)
+        self._apply_saved_background()
         self.legacy_button = QPushButton("기존 도구 (역방향 · 공량산출)")
         self.legacy_button.setObjectName("smallButton")
         self.legacy_button.clicked.connect(self._open_legacy)
@@ -544,6 +560,46 @@ class EstimateWindow(QMainWindow):
                 handle.startSystemResize(edges)
                 return
         super().mousePressEvent(event)
+
+    # ----------------------------------------------------- 배경 그림·알림음
+    def _background_store(self) -> Path:
+        from app.activation import marker_path
+
+        return marker_path().parent
+
+    def _apply_saved_background(self) -> None:
+        stored = str(self._settings.value("background", "") or "")
+        if stored and Path(stored).is_file():
+            self.centralWidget().set_background(stored)
+
+    def _on_change_background(self) -> None:
+        start = str(Path(str(self._settings.value("background", "") or "")).parent) if self._settings.value("background", "") else str(Path.home())
+        chosen, _ = QFileDialog.getOpenFileName(self, "배경으로 쓸 그림 선택", start, "그림 파일 (*.png *.jpg *.jpeg *.bmp *.gif *.webp)")
+        if not chosen:
+            return
+        try:  # 원본을 옮기거나 지워도 유지되게 사본을 프로그램 설정 폴더에 둔다.
+            import shutil
+
+            store = self._background_store()
+            store.mkdir(parents=True, exist_ok=True)
+            copy = store / f"background{Path(chosen).suffix.lower()}"
+            shutil.copyfile(chosen, copy)
+        except OSError:
+            copy = Path(chosen)
+        if not self.centralWidget().set_background(str(copy)):
+            QMessageBox.warning(self, "배경 그림", "그림 파일을 열 수 없습니다. 다른 파일을 골라 주세요.")
+            return
+        self._settings.setValue("background", str(copy))
+        self._append_log(f"배경 그림을 바꿨습니다: {Path(chosen).name}")
+
+    def _on_reset_background(self) -> None:
+        self.centralWidget().set_background(None)
+        self._settings.setValue("background", "")
+        self._append_log("기본 배경으로 되돌렸습니다.")
+
+    def _notify_done(self) -> None:
+        if self.sound_check.isChecked():
+            play_done()
 
     def _toggle_maximized(self) -> None:
         if self.isMaximized():
@@ -734,6 +790,7 @@ class EstimateWindow(QMainWindow):
                 self._refresh_state()
                 return
         self._load_session(session)
+        self._notify_done()
         unmatched = sum(1 for e in session.entries if not e.matched)
         if unmatched:
             self._append_log(f"품셈 미매칭 {unmatched}건 — '미매칭만 보기'로 확인하고 [선택 품목 품셈 연결]을 쓰세요.")
@@ -1054,5 +1111,6 @@ class EstimateWindow(QMainWindow):
             pass
         self._append_log(f"새 파일 저장: {dest}")
         self.statusBar().showMessage(f"저장 완료 — {Path(dest).name}")
+        self._notify_done()
         DoneDialog(self, Path(dest), pumsam_filename(self._selected_discipline())).exec()
         self._refresh_state()
