@@ -32,6 +32,7 @@ from app.discipline import (
     pumsam_filename,
 )
 from app.electric_pumsam_data import ELECTRIC_RULES, ELECTRIC_TRADE_GUIDE, electric_pumsam_rows
+from app.electric_adapter import electric_candidates
 from app.telecom_adapter import telecom_candidates
 from app.telecom_pumsam_data import TELECOM_RULES, TELECOM_TRADE_GUIDE, telecom_pumsam_rows
 from app.paths import (
@@ -440,6 +441,16 @@ def _match_telecom_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[
     return []
 
 
+def _match_electric_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """전선·케이블·박스의 긴 품명을 5-3/5-4/5-10/5-13 원표 줄로 바꿔 찾는다(다른 방법이 모두 실패했을 때만)."""
+    for book_name, book_spec, rate in electric_candidates(str(name or ""), str(spec or "")):
+        key = lookup_key(book_name, book_spec)
+        hit = [row for row in _row_index(rows).by_exact.get(key, ()) if has_pumsam_qty(row)]
+        if hit:
+            return hit
+    return []
+
+
 def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """같은 명칭·규격의 인부 행을 모두 반환한다.
 
@@ -451,7 +462,11 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
     """
     if not lookup_key(name, spec):
         return []
-    found = _match_telecom_adapter(name, spec, rows) or _match_pumsam_candidates(alias_names(name), spec, rows)
+    found = (
+        _match_telecom_adapter(name, spec, rows)
+        or _match_pumsam_candidates(alias_names(name), spec, rows)
+        or _match_electric_adapter(name, spec, rows)
+    )
     base, suffix = split_place_name(name)
     if suffix not in PLACE_SURCHARGE_RATES:
         return found

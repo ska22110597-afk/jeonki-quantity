@@ -18,6 +18,7 @@ from app.estimate_parse import (
     normalize_header,
 )
 from app.excel_io import (
+    apply_form_widths,
     AMOUNT_FORMAT,
     BODY_FONT,
     CENTER,
@@ -525,12 +526,7 @@ def _write_generated_estimate(
     )
 
     _apply_sheet_look(sheet, max(excel_row - 1, 4), last_col, row_height=FORM_ROW_HEIGHT)
-    sheet.column_dimensions["A"].width = 32
-    sheet.column_dimensions["B"].width = 18
-    sheet.column_dimensions["C"].width = 8
-    sheet.column_dimensions["D"].width = 10
-    for col in range(5, last_col + 1):
-        sheet.column_dimensions[get_column_letter(col)].width = 12
+    apply_form_widths(sheet, last_col)
     return EstimateSheet(filled=filled, raw=filled, merges=[], title=ILWIDAE_LIST_SHEET_NAME)
 
 

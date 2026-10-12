@@ -48,7 +48,7 @@ from app.main_window import (
     PaperRoot,
     _load_settings,
 )
-from app.paths import ResultDirectoryError, WINDOWS_RESULT_DIR, app_icon_path, display_result_directory
+from app.paths import workspace_dir, ResultDirectoryError, WINDOWS_RESULT_DIR, app_icon_path, display_result_directory
 from app.version import APP_CONTACT, APP_MAKER, APP_NOTICE, APP_TITLE, DROP_HINT
 
 EXTRA_STYLESHEET = """
@@ -396,7 +396,7 @@ class EstimateWindow(QMainWindow):
         section_buttons.addWidget(self.edit_section_button)
         section_buttons.addWidget(self.remove_section_button)
         side_layout.addLayout(section_buttons)
-        self.save_button = QPushButton("내역서 저장")
+        self.save_button = QPushButton("저장")
         self.save_button.setObjectName("runButton")
         self.save_button.setMinimumHeight(46)
         self.save_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -432,7 +432,7 @@ class EstimateWindow(QMainWindow):
 
     def _chosen_dest_dir(self) -> Path | None:
         text = self.dest_edit.text().strip()
-        return Path(text) if text else None
+        return workspace_dir(Path(text)) if text else None
 
     def _selected_discipline(self) -> str:
         return TELECOM if self.telecom_button.isChecked() else ELECTRIC
@@ -498,7 +498,7 @@ class EstimateWindow(QMainWindow):
         selected = bool(self.section_list.selectedItems())
         self.edit_section_button.setEnabled(selected)
         self.remove_section_button.setEnabled(selected)
-        self.save_button.setEnabled(has_session and bool(self._sections) and not busy)
+        self.save_button.setEnabled(has_session and not busy)
         total = self.table.rowCount()
         self.count_label.setText(f"전체 {total}건 · 체크 {checked}건" if has_session else "")
 
@@ -566,7 +566,7 @@ class EstimateWindow(QMainWindow):
             return
         dest = self._chosen_dest_dir()
         if dest is not None:
-            self._settings.setValue("dest_dir", str(dest))
+            self._settings.setValue("dest_dir", self.dest_edit.text().strip())
         disc = self._selected_discipline()
         source = self._source_path
         self._append_log(f"일위대가 생성 중… ({disc} · {pumsam_filename(disc)})")
@@ -776,11 +776,17 @@ class EstimateWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Yes:
                 self._on_add_section()
         if not self._sections:
-            QMessageBox.warning(self, "공정 없음", "내역서에 담을 공정이 없습니다.")
-            return
+            answer = QMessageBox.question(
+                self,
+                "일위대가목록만 저장",
+                "담아 둔 공정이 없습니다.\n내역서 없이 일위대가·일위대가목록까지만 저장할까요?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         dest = self._chosen_dest_dir()
         if dest is not None:
-            self._settings.setValue("dest_dir", str(dest))
+            self._settings.setValue("dest_dir", self.dest_edit.text().strip())
         session, sections = self._session, list(self._sections)
         self.statusBar().showMessage("내역서를 저장하는 중…")
         self._run_background(lambda: save_session(session, sections, dest), self._on_saved)

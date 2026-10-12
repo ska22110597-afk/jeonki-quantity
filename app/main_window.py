@@ -43,6 +43,7 @@ from app.paths import (
     display_result_directory,
     is_windows,
     ui_background_path,
+    workspace_dir,
 )
 from app.pumsam import PUMSAM_SHEET_NAME
 from app.version import APP_CONTACT, APP_EXE_NAME, APP_MAKER, APP_NOTICE, APP_TITLE, DROP_HINT
@@ -1084,7 +1085,7 @@ class MainWindow(QMainWindow):
         text = self.dest_edit.text().strip()
         if not text:
             return None
-        return Path(text)
+        return workspace_dir(Path(text))
 
     def _on_fwd_compare_dropped(self, path_text: str) -> None:
         path = Path(path_text)

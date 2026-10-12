@@ -433,3 +433,30 @@ def test_electric_5472_vehicle_names_are_split() -> None:
     vms = match_pumsam("가변정보표지판", "LED 출력 모듈 2단 10열", rows)
     vms_jobs = {row.get("노무명칭"): row.get("품셈") for row in vms}
     assert vms_jobs == {"내선전공": 0.08, "전기공사산업기사": 0.13}
+
+
+def test_electric_wire_and_box_adapter() -> None:
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+
+    def first(name, spec):
+        found = match_pumsam(name, spec, rows)
+        return [(r["노무명칭"], r["품셈"]) for r in found]
+
+    assert first("접지용비닐절연전선(F-GV)", "16㎟") == [("내선전공", 0.023)]
+    assert first("450/750V 내열비닐절연전선", "HFIX 1.78mm(2.5㎟)") == [("내선전공", 0.01)]
+    assert first("난연제어케이블", "F-CVV-S, 2Cx1.5㎟") == [("저압케이블전공", 0.014)]
+    assert first("아우트렛박스", "8각 54㎜") == [("내선전공", 0.2)]
+    assert first("스위치박스", "1 개용 54 mm") == [("내선전공", 0.2)]
+    assert first("아우트렛박스 커버", "커버, 8각, 둥근구멍(평)") == []
+
+
+def test_workspace_dir_and_qty_format(tmp_path) -> None:
+    from app.estimate_build import qty_format
+    from app.paths import workspace_dir
+
+    assert workspace_dir(tmp_path) == tmp_path / "자동내역서"
+    assert workspace_dir(tmp_path / "자동내역서") == tmp_path / "자동내역서"
+    assert qty_format(1) == "#,##0" and qty_format(2.0) == "#,##0"
+    assert qty_format(1.5) == "#,##0.0##"

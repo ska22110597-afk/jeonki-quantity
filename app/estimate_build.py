@@ -21,6 +21,7 @@ from openpyxl.utils import get_column_letter
 
 from app.discipline import normalize_discipline
 from app.excel_io import (
+    apply_form_widths,
     BODY_FONT,
     CENTER,
     COMPARE_SHEET_NAME,
@@ -42,8 +43,18 @@ from app.paths import assert_safe_save, build_result_path
 from app.wages import WAGES_SHEET_NAME, load_wages, save_wages
 
 MONEY_FORMAT = "#,##0;-#,##0;;@"
-QTY_FORMAT = "#,##0.##"
+QTY_INT_FORMAT = "#,##0"
+QTY_DEC_FORMAT = "#,##0.0##"
+
+
+def qty_format(value) -> str:
+    """수량 뒤에 점이 남지 않게, 정수는 정수로 소수는 소수로 보인다."""
+    try:
+        return QTY_INT_FORMAT if float(value) == int(float(value)) else QTY_DEC_FORMAT
+    except (TypeError, ValueError):
+        return QTY_INT_FORMAT
 LAST_COL = 12
+BLANK_ROWS_BEFORE_TOTAL = 6
 HELPER_START_COL = 14  # N 열부터는 계산용 보조 열(숨김)
 _BAD_SHEET_CHARS = re.compile(r"[\[\]:*?/\\]")
 
@@ -224,7 +235,7 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
         _set_cell(sheet, row, 1, e.name)
         _set_cell(sheet, row, 2, e.spec)
         _set_cell(sheet, row, 3, e.unit, align=CENTER)
-        _set_cell(sheet, row, 4, ln.qty, align=RIGHT, number_format=QTY_FORMAT)
+        _set_cell(sheet, row, 4, ln.qty, align=RIGHT, number_format=qty_format(ln.qty))
         _set_cell(sheet, row, 5, f"={_ref(e.material_row, 'F')}", align=RIGHT, number_format=MONEY_FORMAT)
         _set_cell(sheet, row, 6, f"=D{row}*E{row}", align=RIGHT, number_format=MONEY_FORMAT)
         job_cols = [letter(("job", j)) for j in jobs if e.labor_unit_by_job.get(j, 0) > 0]
@@ -264,7 +275,7 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
         label = f"CD 전선관의 {round(rate * 100)} %" if abs(rate - CD_FITTING_RATE) < 1e-9 else f"전선관의 {round(rate * 100)} %"
         _set_cell(sheet, summary, 2, label)
         _set_cell(sheet, summary, 3, "식", align=CENTER)
-        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_FORMAT)
+        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
         c = letter(("rate", rate))
         _set_cell(sheet, summary, 5, f"=SUMPRODUCT(F{first}:F{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
         _set_cell(sheet, summary, 6, f"=D{summary}*E{summary}*{rate}", align=RIGHT, number_format=MONEY_FORMAT)
@@ -276,7 +287,7 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
         _set_cell(sheet, summary, 1, "[ 소모 잡자재 ]")
         _set_cell(sheet, summary, 2, f"전선, 전선관의 {round(SUNDRY_RATE * 100)} %")
         _set_cell(sheet, summary, 3, "식", align=CENTER)
-        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_FORMAT)
+        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
         c = letter("sundry")
         _set_cell(sheet, summary, 5, f"=SUMPRODUCT(F{first}:F{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
         _set_cell(sheet, summary, 6, f"=D{summary}*E{summary}*{SUNDRY_RATE}", align=RIGHT, number_format=MONEY_FORMAT)
@@ -298,15 +309,16 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
         _set_cell(sheet, summary, 1, "[ 공 구 손 료 ]")
         _set_cell(sheet, summary, 2, f"노무비의 {round(TOOL_RATE * 100)} %")
         _set_cell(sheet, summary, 3, "식", align=CENTER)
-        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_FORMAT)
+        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
         _set_cell(sheet, summary, 7, f"=SUM(H{labor_first}:H{labor_last})", align=RIGHT, number_format=MONEY_FORMAT)
         _set_cell(sheet, summary, 8, f"=D{summary}*G{summary}*{TOOL_RATE}", align=RIGHT, number_format=MONEY_FORMAT)
         tool_row = summary
         summary += 1
     else:
         tool_row = None
-    blank(summary)
-    summary += 1
+    for _ in range(BLANK_ROWS_BEFORE_TOTAL):
+        blank(summary)
+        summary += 1
     total = summary
     blank(total)
     _set_cell(sheet, total, 1, "( 합       계 )")
@@ -317,8 +329,7 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
     _set_cell(sheet, total, 11, f"=F{total}+H{total}+J{total}", align=RIGHT, number_format=MONEY_FORMAT)
 
     _apply_sheet_look(sheet, total, LAST_COL, row_height=FORM_ROW_HEIGHT)
-    for col, width in zip("ABCDEFGHIJKL", (36, 32, 7, 10, 12, 15, 13, 16, 10, 12, 16, 18)):
-        sheet.column_dimensions[col].width = width
+    apply_form_widths(sheet, LAST_COL, remark_col=LAST_COL)
     for col in range(HELPER_START_COL, helper_last + 1):
         sheet.column_dimensions[get_column_letter(col)].hidden = True
     sheet.freeze_panes = "A5"

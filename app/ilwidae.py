@@ -13,6 +13,7 @@ from app.discipline import default_labor_name
 from app.estimate_parse import normalize_header
 from app.pumsam_aliases import alias_group
 from app.excel_io import (
+    apply_form_widths,
     AMOUNT_FORMAT,
     BODY_FONT,
     CENTER,
@@ -496,11 +497,5 @@ def write_ilwidae_sheet(
         cursor += 2
 
     _apply_sheet_look(sheet, max(cursor, 4), 13, row_height=FORM_ROW_HEIGHT)
-    sheet.column_dimensions["A"].width = 40
-    sheet.column_dimensions["B"].width = 28
-    sheet.column_dimensions["C"].width = 8
-    sheet.column_dimensions["D"].width = 11
-    for col in range(5, 13):
-        sheet.column_dimensions[get_column_letter(col)].width = 14
-    sheet.column_dimensions["M"].width = 24
+    apply_form_widths(sheet, 13, remark_col=13)
     return blocks

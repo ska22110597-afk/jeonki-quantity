@@ -31,6 +31,22 @@ class ResultDirectoryError(OSError):
     """결과 폴더를 만들거나 쓸 수 없을 때."""
 
 
+WORKSPACE_FOLDER_NAME = "자동내역서"
+
+
+def workspace_dir(base: Path | None) -> Path | None:
+    """고른 저장 위치 안에 폴더 하나(자동내역서)를 만들어 결과·데이터베이스를 모두 그 안에 둔다.
+
+    바탕화면 같은 곳을 골라도 파일이 흩어지지 않는다. 이미 그 폴더이거나 기본 결과 폴더면 그대로 쓴다.
+    """
+    if base is None:
+        return None
+    base = Path(base)
+    if base.name in (WORKSPACE_FOLDER_NAME, RESULT_FOLDER_NAME):
+        return base
+    return base / WORKSPACE_FOLDER_NAME
+
+
 def is_windows() -> bool:
     return sys.platform == "win32"
 

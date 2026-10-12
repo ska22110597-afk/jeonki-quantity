@@ -73,7 +73,7 @@ def test_run_button_requires_file_and_confirm(tmp_path) -> None:
         window.dest_edit.setText(str(chosen))
         window.confirm_box.setChecked(True)
         assert window.run_button.isEnabled() is True
-        assert window._chosen_dest_dir() == chosen
+        assert window._chosen_dest_dir() == chosen / "자동내역서"
         assert "일위대가목록_결과_날짜시간.xlsx" in window.confirm_note.text()
 
         window._on_reset()

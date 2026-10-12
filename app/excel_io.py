@@ -248,6 +248,21 @@ def write_title_banner(
     sheet.row_dimensions[2].height = row_height
 
 
+FORM_WIDTHS = (34, 28, 8, 10)  # A~D 공통
+FORM_VALUE_WIDTH = 14  # 금액·수량 칸
+FORM_REMARK_WIDTH = 22
+
+
+def apply_form_widths(sheet, last_col: int, remark_col: int | None = None) -> None:
+    """일위대가·일위대가목록·내역서가 같은 칸 너비를 쓰게 한다."""
+    for idx, width in enumerate(FORM_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(idx)].width = width
+    for col in range(len(FORM_WIDTHS) + 1, last_col + 1):
+        sheet.column_dimensions[get_column_letter(col)].width = FORM_VALUE_WIDTH
+    if remark_col:
+        sheet.column_dimensions[get_column_letter(remark_col)].width = FORM_REMARK_WIDTH
+
+
 def _apply_sheet_look(
     sheet: Worksheet,
     max_row: int,
@@ -374,12 +389,7 @@ def _write_estimate_sheet(sheet: Worksheet, estimate: EstimateSheet) -> None:
         _safe_merge(sheet, min_row, min_col, end_row, end_col)
 
     _apply_sheet_look(sheet, max_row, max_col, row_height=FORM_ROW_HEIGHT)
-    sheet.column_dimensions["A"].width = 32
-    sheet.column_dimensions["B"].width = 18
-    sheet.column_dimensions["C"].width = 8
-    sheet.column_dimensions["D"].width = 10
-    for col in range(5, max_col + 1):
-        sheet.column_dimensions[get_column_letter(col)].width = 12
+    apply_form_widths(sheet, max_col)
 
 
 def _write_pumsam_sheet(sheet: Worksheet, rows: list[PumsamRow]) -> None:
