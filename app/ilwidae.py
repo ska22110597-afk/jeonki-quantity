@@ -275,6 +275,25 @@ def parse_ilwidae_blocks(sheet: Worksheet) -> list[IlwidaeBlock]:
     return blocks
 
 
+NOTE_COL = 15  # 비고(13) 오른쪽 한 칸을 띄우고 적용 기준을 적는다.
+_NO_PUMSAM_ACCESSORY = ("부속", "부품", "행거", "커넥터", "앵커", "볼트", "너트", "브라켓", "BRACKET", "커버", "COVER", "클램프", "CLAMP", "새들", "철물", "서포트", "고정", "밴드", "엘보")
+
+
+def _note(sheet: Worksheet, row: int, text: str | None) -> None:
+    """적용 기준 칸. 표 테두리 밖 빈 칸에 글자만 둔다."""
+    cell = sheet.cell(row=row, column=NOTE_COL, value=text or None)
+    cell.font = BODY_FONT
+    cell.alignment = LEFT
+
+
+def no_pumsam_reason(name: Any) -> str:
+    """품셈 수량이 0으로 들어간 이유."""
+    text = str(name or "").upper()
+    if any(word.upper() in text for word in _NO_PUMSAM_ACCESSORY):
+        return "품셈 없음: 부속품(모체 자재 설치품에 포함)"
+    return "품셈 없음: 해당 품셈을 찾지 못함(직접 입력)"
+
+
 def _write_ilwidae_header(sheet: Worksheet) -> None:
     write_title_banner(sheet, "일 위 대 가", 13)
     labels = {
@@ -423,6 +442,7 @@ def write_ilwidae_sheet(
             continue
         ho_no += 1
         labors = match_pumsam_rows(item.name, item.spec, pumsam_rows)
+        pumsam_found = bool(labors)
         if not labors:
             labors = [
                 {
@@ -453,8 +473,8 @@ def write_ilwidae_sheet(
         _amount(sheet, cursor, 6, _qty_times_price(cursor, "E"))
         _idle_labor_expense(sheet, cursor)
         _cost_totals(sheet, cursor)
-        material_note = " · ".join(part for part in (ref, waste_note) if part)
-        _set_cell(sheet, cursor, 13, material_note or None, font=BODY_FONT, align=LEFT)
+        _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=LEFT)
+        _note(sheet, cursor, waste_note)
         cursor += 1
 
         conduit = is_conduit_name(item.name)
@@ -511,7 +531,10 @@ def write_ilwidae_sheet(
                 applied = applied_spec_note(item.spec, labor)
                 if applied:
                     notes.append(applied)
-                _set_cell(sheet, cursor, 13, " · ".join(notes) or None, font=BODY_FONT, align=LEFT)
+                if not pumsam_found:
+                    notes.append(no_pumsam_reason(item.name))
+                _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=LEFT)
+                _note(sheet, cursor, " · ".join(notes))
             else:
                 _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)

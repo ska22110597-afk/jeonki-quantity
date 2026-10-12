@@ -41,6 +41,7 @@ from app.drop_zone import DropZone
 from app.estimate_build import (
     EstimateLine,
     EstimateSection,
+    strip_section_number,
     EstimateSession,
     generate_session,
     open_session,
@@ -391,7 +392,7 @@ class EstimateWindow(QMainWindow):
         side_layout.addWidget(step5)
         self.title_edit = QLineEdit()
         self.title_edit.setObjectName("sectionTitle")
-        self.title_edit.setPlaceholderText("예) 1.아파트전기공사::1-1.단위세대설비공사")
+        self.title_edit.setPlaceholderText("공정 제목만 입력 (번호는 자동) 예) 내선설비공사")
         self.title_edit.textChanged.connect(self._refresh_state)
         side_layout.addWidget(self.title_edit)
         self.add_button = QPushButton("체크한 품목을 이 공정에 담기")
@@ -843,7 +844,7 @@ class EstimateWindow(QMainWindow):
     def _on_add_section(self) -> None:
         if self._session is None:
             return
-        title = self.title_edit.text().strip()
+        title = strip_section_number(self.title_edit.text())
         if not title:
             QMessageBox.warning(self, "공정 제목", "공정 제목을 입력해 주세요.")
             return

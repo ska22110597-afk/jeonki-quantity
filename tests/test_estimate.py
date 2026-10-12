@@ -45,14 +45,16 @@ def test_entries_carry_rules(session) -> None:
 def test_save_two_sections_and_layout(session, tmp_path) -> None:
     lines = [EstimateLine(e, 10 + i, "비고") for i, e in enumerate(_pick(session, rate=0.15, count=2))]
     lines += [EstimateLine(e, 5, "") for e in _pick(session, rate=0.0, sundry=False, count=1)]
-    sections = [EstimateSection("1.공사::1-1.세대", lines), EstimateSection("2.공용부", lines[:1])]
+    sections = [EstimateSection("1.공사", lines), EstimateSection("2.공용부", lines[:1])]
     dest = save_session(session, sections, tmp_path)
     wb = openpyxl.load_workbook(dest)
     names = wb.sheetnames
     assert names.index("내역서") == names.index("일위대가목록") + 1
-    assert "내역서(2)" in names
+    assert "내역서(2)" not in names  # 공정이 여러 개여도 시트 하나에 이어 쓴다
     ws = wb["내역서"]
-    assert ws["A5"].value == "1.공사::1-1.세대"
+    assert ws["A5"].value == "1. 공사"  # 번호는 자동, 직접 적은 번호는 지운다
+    titles = [ws.cell(r, 1).value for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value or "")[:3] in ("1. ", "2. ")]
+    assert titles[-1] == "2. 공용부"
     assert ws["A6"].value == lines[0].entry.name
     assert ws["E6"].value.startswith("='일위대가'!F")
     labels = [ws.cell(r, 1).value for r in range(6, ws.max_row + 1)]
@@ -117,7 +119,7 @@ def test_window_select_and_add(session) -> None:
         window._on_edit_section() if window.section_list.selectedItems() else None
         window.section_list.setCurrentRow(0)
         window._on_edit_section()
-        assert window.title_edit.text() == "1.아파트전기공사"
+        assert window.title_edit.text() == "아파트전기공사"
         assert window._sections == []
     finally:
         window.close()
@@ -129,7 +131,7 @@ def test_saving_twice_does_not_stack_sheets(session, tmp_path) -> None:
     second = save_session(session, [EstimateSection("C", lines)], tmp_path)
     names = openpyxl.load_workbook(second).sheetnames
     assert [n for n in names if n.startswith("내역서")] == ["내역서"]
-    assert openpyxl.load_workbook(second)["내역서"]["A5"].value == "C"
+    assert openpyxl.load_workbook(second)["내역서"]["A5"].value == "1. C"
 
 
 def test_resume_from_saved_ilwidae_list(session, tmp_path) -> None:
@@ -288,3 +290,12 @@ def test_window_has_status_column_and_filters(session) -> None:
         assert hidden == sum(1 for e in session.entries if e.matched)
     finally:
         window.close()
+
+
+def test_ilwidae_note_columns(session) -> None:
+    """비고(13)에는 품셈근거만, 한 칸 띄운 15열에 적용 기준·품셈 없음 사유를 적는다."""
+    ws = session.workbook["일위대가"]
+    notes = [ws.cell(r, 15).value for r in range(5, ws.max_row + 1) if ws.cell(r, 15).value]
+    assert notes, "적용 기준 칸에 글자가 있어야 합니다."
+    assert all(" · " not in str(ws.cell(r, 13).value or "") for r in range(5, ws.max_row + 1))
+    assert ws.cell(5, 14).value is None

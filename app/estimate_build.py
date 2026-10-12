@@ -512,7 +512,27 @@ def _ref(row: int, col: str) -> str:
     return f"'{ILWIDAE_SHEET_NAME}'!{col}{row}"
 
 
-def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection) -> None:
+_LEADING_NUMBER = re.compile(r"^\s*\d+\s*[.)．]\s*")
+
+
+def strip_section_number(title: str) -> str:
+    """사용자가 「1. 내선설비공사」처럼 번호를 붙여 적어도 제목만 남긴다. 번호는 순서대로 자동으로 붙인다."""
+    text = str(title or "").strip()
+    while True:
+        cut = _LEADING_NUMBER.sub("", text, count=1)
+        if cut == text:
+            return text
+        text = cut.strip()
+
+
+def section_label(number: int, title: str) -> str:
+    return f"{number}. {strip_section_number(title)}"
+
+
+def write_estimate_sheet(workbook: Workbook, name: str, sections: "EstimateSection | list[EstimateSection]") -> None:
+    """내역서 시트 하나에 공정을 순서대로 이어 쓴다. 제목 줄은 「1. 공정명」으로 번호가 자동으로 붙는다."""
+    if isinstance(sections, EstimateSection):
+        sections = [sections]
     sheet = workbook.create_sheet(name)
     write_title_banner(sheet, "내   역   서", LAST_COL)
     heads = {1: "명  칭", 2: "규  격", 3: "단위", 4: "수량", 5: "재  료  비", 7: "노  무  비", 9: "경    비", 11: "계", 12: "비  고"}
@@ -524,10 +544,10 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
     for rng in ("A3:A4", "B3:B4", "C3:C4", "D3:D4", "E3:F3", "G3:H3", "I3:J3", "K3:K4", "L3:L4"):
         sheet.merge_cells(rng)
 
-    lines = section.lines
-    rates = sorted({ln.entry.fitting_rate for ln in lines if ln.entry.fitting_rate > 0})
+    all_lines = [ln for sec in sections for ln in sec.lines]
+    rates = sorted({ln.entry.fitting_rate for ln in all_lines if ln.entry.fitting_rate > 0})
     jobs: list[str] = []
-    for ln in lines:
+    for ln in all_lines:
         for job, amount in ln.entry.labor_unit_by_job.items():
             if amount > 0 and job not in jobs:
                 jobs.append(job)
@@ -546,111 +566,117 @@ def write_estimate_sheet(workbook: Workbook, name: str, section: EstimateSection
     def letter(key: Any) -> str:
         return get_column_letter(col_of[key])
 
-    title_row = 5
-    _set_cell(sheet, title_row, 1, section.title, font=HEADER_FONT, align=LEFT)
-    for col in range(2, LAST_COL + 1):
-        _set_cell(sheet, title_row, col, None)
-    sheet.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=LAST_COL)
-
-    first = title_row + 1
-    row = first
-    for ln in lines:
-        e = ln.entry
-        _set_cell(sheet, row, 1, e.name)
-        _set_cell(sheet, row, 2, e.spec)
-        _set_cell(sheet, row, 3, e.unit, align=CENTER)
-        _set_cell(sheet, row, 4, ln.qty, align=RIGHT, number_format=qty_format(ln.qty))
-        _set_cell(sheet, row, 5, f"={_ref(e.material_row, 'F')}", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, row, 6, f"=D{row}*E{row}", align=RIGHT, number_format=MONEY_FORMAT)
-        job_cols = [letter(("job", j)) for j in jobs if e.labor_unit_by_job.get(j, 0) > 0]
-        if job_cols:
-            _set_cell(sheet, row, 7, "=" + "+".join(f"{c}{row}" for c in job_cols), align=RIGHT, number_format=MONEY_FORMAT)
-            _set_cell(sheet, row, 8, f"=D{row}*G{row}", align=RIGHT, number_format=MONEY_FORMAT)
-        else:
-            _set_cell(sheet, row, 7, None)
-            _set_cell(sheet, row, 8, None)
-        _set_cell(sheet, row, 9, None)
-        _set_cell(sheet, row, 10, None)
-        _set_cell(sheet, row, 11, f"=F{row}+H{row}+J{row}", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, row, 12, ln.remark or None)
-        for key, col in col_of.items():
-            if key == "sundry":
-                value = 1 if e.has_sundry else None
-            elif key[0] == "rate":
-                value = 1 if abs(e.fitting_rate - key[1]) < 1e-9 else None
-            else:
-                refs = e.labor_rows.get(key[1], [])
-                value = "=" + "+".join(_ref(r, "H") for r in refs) if refs and e.labor_unit_by_job.get(key[1], 0) > 0 else None
-            sheet.cell(row, col, value)
-        row += 1
-    last = max(row - 1, first)
-
-    material_rows: list[int] = []
-    labor_first = labor_last = None
-    summary = row
-
     def blank(r: int) -> None:
         for c in range(1, LAST_COL + 1):
             _set_cell(sheet, r, c, None)
 
-    for rate in rates:
-        blank(summary)
-        _set_cell(sheet, summary, 1, "[ 배관 부속재 ]")
-        label = f"CD 전선관의 {round(rate * 100)} %" if abs(rate - CD_FITTING_RATE) < 1e-9 else f"전선관의 {round(rate * 100)} %"
-        _set_cell(sheet, summary, 2, label)
-        _set_cell(sheet, summary, 3, "식", align=CENTER)
-        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
-        c = letter(("rate", rate))
-        _set_cell(sheet, summary, 5, f"=SUMPRODUCT(F{first}:F{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, summary, 6, f"=D{summary}*E{summary}*{rate}", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, summary, 11, f"=F{summary}+H{summary}+J{summary}", align=RIGHT, number_format=MONEY_FORMAT)
-        material_rows.append(summary)
-        summary += 1
-    if any(ln.entry.has_sundry for ln in lines):
-        blank(summary)
-        _set_cell(sheet, summary, 1, "[ 소모 잡자재 ]")
-        _set_cell(sheet, summary, 2, f"전선, 전선관의 {round(SUNDRY_RATE * 100)} %")
-        _set_cell(sheet, summary, 3, "식", align=CENTER)
-        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
-        c = letter("sundry")
-        _set_cell(sheet, summary, 5, f"=SUMPRODUCT(F{first}:F{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, summary, 6, f"=D{summary}*E{summary}*{SUNDRY_RATE}", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, summary, 11, f"=F{summary}+H{summary}+J{summary}", align=RIGHT, number_format=MONEY_FORMAT)
-        material_rows.append(summary)
-        summary += 1
-    for job in jobs:
-        blank(summary)
-        _set_cell(sheet, summary, 1, "노 무 비")
-        _set_cell(sheet, summary, 2, job)
-        _set_cell(sheet, summary, 3, "인", align=CENTER)
-        c = letter(("job", job))
-        _set_cell(sheet, summary, 8, f"=SUMPRODUCT(D{first}:D{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
-        labor_first = labor_first or summary
-        labor_last = summary
-        summary += 1
-    if jobs:
-        blank(summary)
-        _set_cell(sheet, summary, 1, "[ 공 구 손 료 ]")
-        _set_cell(sheet, summary, 2, f"노무비의 {round(TOOL_RATE * 100)} %")
-        _set_cell(sheet, summary, 3, "식", align=CENTER)
-        _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
-        _set_cell(sheet, summary, 7, f"=SUM(H{labor_first}:H{labor_last})", align=RIGHT, number_format=MONEY_FORMAT)
-        _set_cell(sheet, summary, 8, f"=D{summary}*G{summary}*{TOOL_RATE}", align=RIGHT, number_format=MONEY_FORMAT)
-        tool_row = summary
-        summary += 1
-    else:
-        tool_row = None
-    for _ in range(BLANK_ROWS_BEFORE_TOTAL):
-        blank(summary)
-        summary += 1
-    total = summary
-    blank(total)
-    _set_cell(sheet, total, 1, "( 합       계 )")
-    parts = [f"SUM(F{first}:F{last})"] + [f"F{r}" for r in material_rows]
-    _set_cell(sheet, total, 6, "=" + "+".join(parts), align=RIGHT, number_format=MONEY_FORMAT)
-    if tool_row:
-        _set_cell(sheet, total, 8, f"=SUM(H{labor_first}:H{tool_row})", align=RIGHT, number_format=MONEY_FORMAT)
-    _set_cell(sheet, total, 11, f"=F{total}+H{total}+J{total}", align=RIGHT, number_format=MONEY_FORMAT)
+    row = 5
+    total = row
+    for number, section in enumerate(sections, start=1):
+        lines = section.lines
+        title_row = row
+        _set_cell(sheet, title_row, 1, section_label(number, section.title), font=HEADER_FONT, align=LEFT)
+        for col in range(2, LAST_COL + 1):
+            _set_cell(sheet, title_row, col, None)
+        sheet.merge_cells(start_row=title_row, start_column=1, end_row=title_row, end_column=LAST_COL)
+
+        first = title_row + 1
+        row = first
+        for ln in lines:
+            e = ln.entry
+            _set_cell(sheet, row, 1, e.name)
+            _set_cell(sheet, row, 2, e.spec)
+            _set_cell(sheet, row, 3, e.unit, align=CENTER)
+            _set_cell(sheet, row, 4, ln.qty, align=RIGHT, number_format=qty_format(ln.qty))
+            _set_cell(sheet, row, 5, f"={_ref(e.material_row, 'F')}", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, row, 6, f"=D{row}*E{row}", align=RIGHT, number_format=MONEY_FORMAT)
+            job_cols = [letter(("job", j)) for j in jobs if e.labor_unit_by_job.get(j, 0) > 0]
+            if job_cols:
+                _set_cell(sheet, row, 7, "=" + "+".join(f"{c}{row}" for c in job_cols), align=RIGHT, number_format=MONEY_FORMAT)
+                _set_cell(sheet, row, 8, f"=D{row}*G{row}", align=RIGHT, number_format=MONEY_FORMAT)
+            else:
+                _set_cell(sheet, row, 7, None)
+                _set_cell(sheet, row, 8, None)
+            _set_cell(sheet, row, 9, None)
+            _set_cell(sheet, row, 10, None)
+            _set_cell(sheet, row, 11, f"=F{row}+H{row}+J{row}", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, row, 12, ln.remark or None)
+            for key, col in col_of.items():
+                if key == "sundry":
+                    value = 1 if e.has_sundry else None
+                elif key[0] == "rate":
+                    value = 1 if abs(e.fitting_rate - key[1]) < 1e-9 else None
+                else:
+                    refs = e.labor_rows.get(key[1], [])
+                    value = "=" + "+".join(_ref(r, "H") for r in refs) if refs and e.labor_unit_by_job.get(key[1], 0) > 0 else None
+                sheet.cell(row, col, value)
+            row += 1
+        last = max(row - 1, first)
+        sec_rates = sorted({ln.entry.fitting_rate for ln in lines if ln.entry.fitting_rate > 0})
+        sec_jobs = [j for j in jobs if any(ln.entry.labor_unit_by_job.get(j, 0) > 0 for ln in lines)]
+
+        material_rows: list[int] = []
+        labor_first = labor_last = None
+        summary = row
+        for rate in sec_rates:
+            blank(summary)
+            _set_cell(sheet, summary, 1, "[ 배관 부속재 ]")
+            label = f"CD 전선관의 {round(rate * 100)} %" if abs(rate - CD_FITTING_RATE) < 1e-9 else f"전선관의 {round(rate * 100)} %"
+            _set_cell(sheet, summary, 2, label)
+            _set_cell(sheet, summary, 3, "식", align=CENTER)
+            _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
+            c = letter(("rate", rate))
+            _set_cell(sheet, summary, 5, f"=SUMPRODUCT(F{first}:F{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, summary, 6, f"=D{summary}*E{summary}*{rate}", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, summary, 11, f"=F{summary}+H{summary}+J{summary}", align=RIGHT, number_format=MONEY_FORMAT)
+            material_rows.append(summary)
+            summary += 1
+        if any(ln.entry.has_sundry for ln in lines):
+            blank(summary)
+            _set_cell(sheet, summary, 1, "[ 소모 잡자재 ]")
+            _set_cell(sheet, summary, 2, f"전선, 전선관의 {round(SUNDRY_RATE * 100)} %")
+            _set_cell(sheet, summary, 3, "식", align=CENTER)
+            _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
+            c = letter("sundry")
+            _set_cell(sheet, summary, 5, f"=SUMPRODUCT(F{first}:F{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, summary, 6, f"=D{summary}*E{summary}*{SUNDRY_RATE}", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, summary, 11, f"=F{summary}+H{summary}+J{summary}", align=RIGHT, number_format=MONEY_FORMAT)
+            material_rows.append(summary)
+            summary += 1
+        for job in sec_jobs:
+            blank(summary)
+            _set_cell(sheet, summary, 1, "노 무 비")
+            _set_cell(sheet, summary, 2, job)
+            _set_cell(sheet, summary, 3, "인", align=CENTER)
+            c = letter(("job", job))
+            _set_cell(sheet, summary, 8, f"=SUMPRODUCT(D{first}:D{last},{c}{first}:{c}{last})", align=RIGHT, number_format=MONEY_FORMAT)
+            labor_first = labor_first or summary
+            labor_last = summary
+            summary += 1
+        if sec_jobs:
+            blank(summary)
+            _set_cell(sheet, summary, 1, "[ 공 구 손 료 ]")
+            _set_cell(sheet, summary, 2, f"노무비의 {round(TOOL_RATE * 100)} %")
+            _set_cell(sheet, summary, 3, "식", align=CENTER)
+            _set_cell(sheet, summary, 4, 1, align=RIGHT, number_format=QTY_INT_FORMAT)
+            _set_cell(sheet, summary, 7, f"=SUM(H{labor_first}:H{labor_last})", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, summary, 8, f"=D{summary}*G{summary}*{TOOL_RATE}", align=RIGHT, number_format=MONEY_FORMAT)
+            tool_row = summary
+            summary += 1
+        else:
+            tool_row = None
+        for _ in range(BLANK_ROWS_BEFORE_TOTAL):
+            blank(summary)
+            summary += 1
+        total = summary
+        blank(total)
+        _set_cell(sheet, total, 1, "( 합       계 )")
+        parts = [f"SUM(F{first}:F{last})"] + [f"F{r}" for r in material_rows]
+        _set_cell(sheet, total, 6, "=" + "+".join(parts), align=RIGHT, number_format=MONEY_FORMAT)
+        if tool_row:
+            _set_cell(sheet, total, 8, f"=SUM(H{labor_first}:H{tool_row})", align=RIGHT, number_format=MONEY_FORMAT)
+        _set_cell(sheet, total, 11, f"=F{total}+H{total}+J{total}", align=RIGHT, number_format=MONEY_FORMAT)
+        row = total + 1
 
     _apply_sheet_look(sheet, total, LAST_COL, row_height=FORM_ROW_HEIGHT)
     apply_form_widths(sheet, LAST_COL, remark_col=LAST_COL)
@@ -672,12 +698,10 @@ def save_session(session: EstimateSession, sections: list[EstimateSection], dest
     session.estimate_sheets = []
     taken = set(workbook.sheetnames)
     names: list[str] = []
-    for index, section in enumerate(sections):
-        base = ESTIMATE_SHEET_NAME if index == 0 else f"{ESTIMATE_SHEET_NAME}({index + 1})"
-        name = _sheet_name(base, taken)
-        taken.add(name)
+    if sections:  # 모든 공정을 시트 하나에 순서대로 쓴다.
+        name = _sheet_name(ESTIMATE_SHEET_NAME, taken)
         names.append(name)
-        write_estimate_sheet(workbook, name, section)
+        write_estimate_sheet(workbook, name, list(sections))
     # 일위대가목록 바로 뒤에 내역서를 둔다.
     anchor = workbook.sheetnames.index(ILWIDAE_LIST_SHEET_NAME) if ILWIDAE_LIST_SHEET_NAME in workbook.sheetnames else len(workbook.sheetnames) - 1
     for offset, name in enumerate(names, start=1):
