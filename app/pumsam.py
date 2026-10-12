@@ -497,6 +497,13 @@ def match_pumsam(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]
     """
     if not lookup_key(name, spec):
         return []
+    from app.pumsam_links import linked_target
+
+    target = linked_target(name, spec)
+    if target is not None:
+        hit = [row for row in _row_index(rows).by_exact.get(lookup_key(*target), ()) if has_pumsam_qty(row)]
+        if hit:
+            return hit
     found = (
         _match_telecom_adapter(name, spec, rows)
         or _match_pumsam_candidates(alias_names(name), spec, rows)
@@ -600,10 +607,42 @@ def _load_rows_from_path(path: Path) -> list[PumsamRow]:
     return rows_from_grid(trim_grid(table[header_idx:]))
 
 
+DB_NOTICES: list[str] = []
+
+
+def _refresh_old_database(dest: Path, disc: str) -> None:
+    """내장 품셈이 새로 나왔는데 사용자 폴더에 옛 파일이 남아 있으면, 옛 파일을 백업하고 새 파일로 바꾼다."""
+    from datetime import datetime
+
+    from app.version import PUMSAM_DB_VERSION
+
+    stamp = dest.with_name(f".버전_{dest.stem}.txt")
+    try:
+        current = stamp.read_text(encoding="utf-8").strip() if stamp.exists() else ""
+    except OSError:
+        current = ""
+    if current == PUMSAM_DB_VERSION:
+        return
+    bundled = bundled_pumsam_path(disc)
+    if not bundled.exists():
+        return
+    try:
+        backup_dir = dest.parent / "백업"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup = backup_dir / f"{dest.stem}_{datetime.now():%Y%m%d_%H%M%S}{dest.suffix}"
+        backup.write_bytes(dest.read_bytes())
+        dest.write_bytes(bundled.read_bytes())
+        stamp.write_text(PUMSAM_DB_VERSION, encoding="utf-8")
+        DB_NOTICES.append(f"{dest.name} 이(가) 새 표준품셈({PUMSAM_DB_VERSION})으로 갱신되었습니다. 이전 파일은 백업 폴더에 보관했습니다: {backup.name}")
+    except OSError:
+        pass
+
+
 def ensure_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> Path:
     disc = normalize_discipline(discipline)
     dest = pumsam_db_path(directory, disc)
     if dest.exists():
+        _refresh_old_database(dest, disc)
         if dest.stat().st_size < 50_000:
             bundled = bundled_pumsam_path(disc)
             if bundled.exists() and bundled.stat().st_size > dest.stat().st_size:
@@ -612,7 +651,13 @@ def ensure_pumsam_database(directory: Path | None = None, discipline: str | None
     dest.parent.mkdir(parents=True, exist_ok=True)
     bundled = bundled_pumsam_path(disc)
     if bundled.exists():
+        from app.version import PUMSAM_DB_VERSION
+
         dest.write_bytes(bundled.read_bytes())
+        try:
+            dest.with_name(f".버전_{dest.stem}.txt").write_text(PUMSAM_DB_VERSION, encoding="utf-8")
+        except OSError:
+            pass
         return dest
     if disc == ELECTRIC:
         shared = user_database_dir(directory) / PUMSAM_DB_FILENAME
@@ -1022,6 +1067,12 @@ def save_pumsam_database(
             cell.alignment = _align("center")
             cell.border = THIN
     workbook.save(path)
+    try:
+        from app.version import PUMSAM_DB_VERSION
+
+        path.with_name(f".버전_{path.stem}.txt").write_text(PUMSAM_DB_VERSION, encoding="utf-8")
+    except OSError:
+        pass
     workbook.close()
     return path
 

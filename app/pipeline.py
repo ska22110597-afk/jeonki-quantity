@@ -52,7 +52,7 @@ from app.ilwidae import (
     write_ilwidae_sheet,
 )
 from app.items import LineItem, first_filled, parse_line_items
-from app.paths import assert_safe_save, build_result_path
+from app.paths import assert_safe_save, build_result_path, save_workbook_safely
 from app.pumsam import PUMSAM_SHEET_NAME, PumsamRow
 from app.wages import (
     WAGE_COL_WIDTHS,
@@ -768,7 +768,7 @@ def run_pipeline(
         fitting_excludes=load_fitting_excludes(database_dir),
     )
     try:
-        workbook.save(dest)
+        dest = save_workbook_safely(workbook, dest)
     finally:
         workbook.close()
     return dest

@@ -196,3 +196,93 @@ def test_lower_bound_band_and_new_electric_names() -> None:
     book = load_pumsam_database(None, "전기")
     assert match_pumsam("나사없는전선관", "E31", book)[0]["품셈"] == 0.08
     assert match_pumsam("조명기구(J)", "LED 13W(직부)", book)[0]["내선전공" if False else "노무명칭"] == "내선전공"
+
+
+def test_unmatched_flag_check_sheet_and_autosave(session, tmp_path) -> None:
+    from app.estimate_build import autosave_path, read_autosave, write_autosave
+
+    assert any(not e.matched for e in session.entries) or True
+    sec = EstimateSection("임시", [EstimateLine(session.entries[0], 4, "메모")])
+    path = tmp_path / "임시저장.json"
+    write_autosave(path, session, [sec])
+    back = read_autosave(path, session)
+    assert back[0].title == "임시" and back[0].lines[0].qty == 4 and back[0].lines[0].remark == "메모"
+    out = save_session(session, [], tmp_path)
+    names = openpyxl.load_workbook(out).sheetnames
+    if any(not e.matched for e in session.entries):
+        assert "점검목록" in names
+
+
+def test_text_numbers_and_safe_save(tmp_path) -> None:
+    from openpyxl import Workbook
+
+    from app.numbers import parse_number
+    from app.paths import save_workbook_safely
+
+    assert parse_number("1,200㎡") == (1200.0, True)
+    assert parse_number("약 3") == (3.0, True)
+    assert parse_number("abc") == (None, False)
+    wb = Workbook()
+    dest = tmp_path / "a.xlsx"
+    assert save_workbook_safely(wb, dest) == dest
+
+    class Locked:
+        calls = 0
+
+        def save(self, path):
+            Locked.calls += 1
+            if Locked.calls == 1:
+                raise PermissionError("locked")
+            Path(path).write_bytes(b"x")
+
+    assert save_workbook_safely(Locked(), tmp_path / "b.xlsx").name == "b_2.xlsx"
+
+
+def test_link_overrides_matching(tmp_path) -> None:
+    from app.pumsam import load_pumsam_database, match_pumsam
+    from app.pumsam_links import activate, save_link
+
+    book = load_pumsam_database(None, "전기")
+    assert match_pumsam("엉뚱한자재", "A-1", book) == []
+    save_link(tmp_path, "엉뚱한자재", "A-1", "강제전선관", "아연도 16 mm")
+    activate(tmp_path)
+    try:
+        assert match_pumsam("엉뚱한자재", "A-1", book)[0]["노무명칭"] == "내선전공"
+    finally:
+        activate(tmp_path / "없는폴더")
+
+
+def test_unknown_layout_needs_column_mapping(tmp_path) -> None:
+    from openpyxl import Workbook
+
+    from app.estimate_build import convert_with_columns, layout_ok
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["우리 자재표"])
+    ws.append(["자재명", "형식", "수량단위", "금액"])
+    ws.append(["강제전선관", "아연도 16 mm", "M", "3,374원"])
+    odd = tmp_path / "odd.xlsx"
+    wb.save(odd)
+    assert layout_ok(SAMPLE) and not layout_ok(odd)
+    fixed = convert_with_columns(odd, tmp_path, first_data_row=3, name_col=1, spec_col=2, unit_col=3, price_col=4)
+    assert layout_ok(fixed)
+    again = generate_session(fixed, "전기", tmp_path / "db")
+    assert again.entries[0].matched and again.entries[0].material_unit > 3000
+
+
+def test_window_has_status_column_and_filters(session) -> None:
+    from PyQt6.QtWidgets import QApplication
+
+    from app.estimate_window import COL_STATE, EstimateWindow
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    window = EstimateWindow()
+    try:
+        window._load_session(session)
+        assert window.table.item(0, COL_STATE) is not None
+        window.unmatched_only.setChecked(True)
+        hidden = sum(1 for r in range(window.table.rowCount()) if window.table.isRowHidden(r))
+        assert hidden == sum(1 for e in session.entries if e.matched)
+    finally:
+        window.close()

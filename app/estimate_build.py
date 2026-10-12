@@ -20,6 +20,7 @@ from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from app.discipline import normalize_discipline
+from app.estimate_parse import load_estimate_sheet
 from app.excel_io import (
     apply_form_widths,
     BODY_FONT,
@@ -39,7 +40,7 @@ from app.excel_io import (
 )
 from app.fitting_rules import load_fitting_excludes
 from app.ilwidae import CD_FITTING_RATE, SUNDRY_RATE, TOOL_RATE, IlwidaeBlock
-from app.paths import assert_safe_save, build_result_path
+from app.paths import assert_safe_save, build_result_path, save_workbook_safely
 from app.wages import WAGES_SHEET_NAME, load_wages, save_wages
 
 MONEY_FORMAT = "#,##0;-#,##0;;@"
@@ -79,6 +80,7 @@ class IlwidaeEntry:
     fitting_rate: float
     has_sundry: bool
     pumsam_ref: str = ""
+    matched: bool = True  # 품셈 인부가 붙었는지(미매칭이면 False)
 
     @property
     def labor_unit(self) -> float:
@@ -109,6 +111,10 @@ class EstimateSession:
     discipline: str
     source_path: Path | None = None
     estimate_sheets: list[str] = field(default_factory=list)  # 앞서 저장할 때 붙인 내역서 시트
+    pumsam_rows: list = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    notices: list[str] = field(default_factory=list)
+    db_dir: Path | None = None
 
 
 def extract_entries(workbook: Workbook, blocks: list[IlwidaeBlock], wage_rows: list[dict]) -> list[IlwidaeEntry]:
@@ -139,6 +145,7 @@ def extract_entries(workbook: Workbook, blocks: list[IlwidaeBlock], wage_rows: l
                 fitting_rate=block.fitting_rate,
                 has_sundry=block.has_sundry,
                 pumsam_ref=block.pumsam_ref,
+                matched=bool(block.pumsam_ref) or any(q > 0 for q in block.labor_qtys),
             )
         )
     return entries
@@ -152,8 +159,14 @@ def generate_session(
     """단가대비표 → 일위대가·일위대가목록을 메모리에 만들고, 고를 수 있는 품목 목록을 돌려준다."""
     from app.pipeline import _load_optional, build_result_workbook
 
+    from app.pumsam_links import activate
+
     disc = normalize_discipline(discipline)
     source = Path(unit_price_path)
+    from app import numbers
+
+    activate(db_dir)
+    numbers.NOTICES.clear()
     compare = _load_optional(source)
     pumsam_rows = collect_pumsam_rows(source, db_dir, None, db_dir=db_dir, discipline=disc)
     wage_rows = load_wages(db_dir)
@@ -170,7 +183,11 @@ def generate_session(
         blocks_out=blocks,
     )
     entries = extract_entries(workbook, blocks, wage_rows)
-    return EstimateSession(workbook=workbook, entries=entries, discipline=disc, source_path=source)
+    session = EstimateSession(
+        workbook=workbook, entries=entries, discipline=disc, source_path=source, pumsam_rows=pumsam_rows, db_dir=db_dir
+    )
+    session.notices = list(numbers.NOTICES)
+    return session
 
 
 _PCT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -190,6 +207,157 @@ def _number(value: Any) -> float | None:
             result *= float(part)
         return result
     return None
+
+
+CHECK_SHEET_NAME = "점검목록"
+AUTOSAVE_NAME = "임시저장.json"
+
+
+def autosave_path(dest_dir: Path | None) -> Path:
+    from app.paths import ensure_result_directory
+
+    return ensure_result_directory(dest_dir) / AUTOSAVE_NAME
+
+
+def write_autosave(path: Path, session: EstimateSession, sections: list[EstimateSection]) -> None:
+    """담아 둔 공정을 파일로 남겨, 프로그램이 꺼져도 다시 불러올 수 있게 한다."""
+    import json
+
+    if not sections:
+        path.unlink(missing_ok=True)
+        return
+    payload = {
+        "source": session.source_path.name if session.source_path else "",
+        "discipline": session.discipline,
+        "sections": [
+            {
+                "title": sec.title,
+                "lines": [{"ho": ln.entry.ho_no, "qty": ln.qty, "remark": ln.remark} for ln in sec.lines],
+            }
+            for sec in sections
+        ],
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def read_autosave(path: Path, session: EstimateSession) -> list[EstimateSection]:
+    """임시저장 파일에서 같은 원본의 공정을 되살린다. 맞지 않으면 빈 목록."""
+    import json
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if data.get("source") != (session.source_path.name if session.source_path else ""):
+        return []
+    by_ho = {e.ho_no: e for e in session.entries}
+    sections: list[EstimateSection] = []
+    for sec in data.get("sections", []):
+        lines = [
+            EstimateLine(by_ho[int(item["ho"])], float(item["qty"]), str(item.get("remark") or ""))
+            for item in sec.get("lines", [])
+            if int(item.get("ho", 0)) in by_ho
+        ]
+        if lines:
+            sections.append(EstimateSection(str(sec.get("title") or ""), lines))
+    return sections
+
+
+def duplicate_rows(entries: list[IlwidaeEntry]) -> set[int]:
+    """같은 품명·규격이 앞에 이미 있는 줄(0부터 센 표 줄 번호)."""
+    from app.estimate_parse import lookup_key
+
+    seen: set[str] = set()
+    dup: set[int] = set()
+    for index, entry in enumerate(entries):
+        key = lookup_key(entry.name, entry.spec)
+        if key in seen:
+            dup.add(index)
+        seen.add(key)
+    return dup
+
+
+def _write_check_sheet(workbook: Workbook, entries: list[IlwidaeEntry]) -> None:
+    """품셈 미매칭·중복 품목을 한 시트에 모아 둔다. 문제가 없으면 시트를 만들지 않는다."""
+    if CHECK_SHEET_NAME in workbook.sheetnames:
+        del workbook[CHECK_SHEET_NAME]
+    dup = duplicate_rows(entries)
+    problems = [(e, "품셈 미매칭" if not e.matched else "") for e in entries]
+    problems = [(e, why) for i, (e, why) in enumerate(problems) if why or i in dup]
+    if not problems:
+        return
+    sheet = workbook.create_sheet(CHECK_SHEET_NAME)
+    sheet.append(["호표", "명칭", "규격", "단위", "점검 내용", "조치"])
+    index_of = {id(e): i for i, e in enumerate(entries)}
+    for entry, why in problems:
+        notes = [why] if why else []
+        if index_of[id(entry)] in dup:
+            notes.append("같은 품명·규격이 중복")
+        action = "품셈 연결 기능으로 연결하거나 일위대가의 인부 수량을 직접 입력" if not entry.matched else "하나만 남길지 확인"
+        sheet.append([entry.ho_no, entry.name, entry.spec, entry.unit, " · ".join(notes), action])
+    for col, width in zip("ABCDEF", (8, 30, 30, 8, 24, 50)):
+        sheet.column_dimensions[col].width = width
+
+
+def layout_ok(path: Path) -> bool:
+    """이 프로그램이 읽는 단가대비표 양식인지(품목이 하나 이상 읽히는지)."""
+    from app.items import parse_line_items
+
+    try:
+        sheet = load_estimate_sheet(Path(path))
+        items = [i for i in parse_line_items(sheet) if not i.section and i.name]
+        with_form = [i for i in items if i.spec or i.unit]
+        priced = [i for i in with_form if isinstance(i.material_price, (int, float))]
+        return bool(with_form) and bool(priced)
+    except Exception:
+        return False
+
+
+def read_preview(path: Path, rows: int = 14) -> list[list[Any]]:
+    from app.numbers import NOTICES
+
+    sheet = load_estimate_sheet(Path(path))
+    del NOTICES[:]
+    return [list(r) for r in sheet.filled[:rows]]
+
+
+def convert_with_columns(
+    path: Path,
+    out_dir: Path,
+    *,
+    first_data_row: int,
+    name_col: int,
+    spec_col: int | None,
+    unit_col: int | None,
+    price_col: int,
+) -> Path:
+    """사용자가 열을 직접 지정한 낯선 양식을 이 프로그램의 단가대비표 양식으로 바꿔 새 파일로 쓴다. 열 번호는 1부터."""
+    from openpyxl import Workbook
+
+    from app.numbers import clean_price
+
+    grid = load_estimate_sheet(Path(path)).filled
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "단가대비표"
+    ws.append(["단 가 대 비 표"])
+    ws.append([])
+    ws.append(["코  드", "품      명", "규격", "단위", "재  료  비"])
+    ws.append([None, None, None, None, "적용단가"])
+
+    def cell(row: list[Any], col: int | None) -> Any:
+        return row[col - 1] if col and col - 1 < len(row) else None
+
+    for row in grid[first_data_row - 1 :]:
+        name = cell(row, name_col)
+        if name in (None, ""):
+            continue
+        ws.append([None, name, cell(row, spec_col), cell(row, unit_col), clean_price(cell(row, price_col))])
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / f"변환_{Path(path).stem}.xlsx"
+    wb.save(dest)
+    return dest
 
 
 def is_result_workbook(path: Path) -> bool:
@@ -238,6 +406,7 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
         return 0.0
 
     entries: list[IlwidaeEntry] = []
+    warnings: list[str] = []
     max_row = sheet.max_row
     row = 5
     while row <= max_row:
@@ -252,12 +421,20 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
             sheet.cell(row, 1).value = new_title
         material_row = row + 1
         end = material_row
+        found_sum = False
         while end + 1 <= max_row:
             head = sheet.cell(end + 1, 1).value
             if isinstance(head, str) and head.strip().startswith("[ 합"):
                 end += 1
+                found_sum = True
                 break
+            if isinstance(head, str) and "호표" in head and sheet.cell(end + 1, 2).value is None and sheet.cell(end + 1, 3).value is None:
+                break  # 다음 호표가 시작되었는데 합계 줄이 없다
             end += 1
+        if not found_sum:
+            warnings.append(f"일위대가 {row}행 「{str(title).strip()[:30]}」 호표에 [ 합계 ] 줄이 없어 건너뛰었습니다.")
+            row += 1
+            continue
         sum_row = end
         qty = _number(sheet.cell(material_row, 4).value) or 1.0
         labor_rows: dict[str, list[int]] = {}
@@ -279,6 +456,12 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
                 labor_unit[label] = labor_unit.get(label, 0.0) + trunc1(wages.get(label, 0.0) * q)
         head_note = str(sheet.cell(material_row, 13).value or "")
         ref = head_note.split(" · ")[0].strip() if head_note else ""
+        if not str(sheet.cell(material_row, 1).value or "").strip():
+            warnings.append(f"일위대가 {material_row}행: 자재 줄의 품명이 비어 있습니다 (호표 {ho_no}).")
+        elif _number(sheet.cell(material_row, 4).value) is None:
+            warnings.append(f"일위대가 {material_row}행 「{sheet.cell(material_row, 1).value}」: 자재 수량을 숫자로 읽지 못해 1로 봤습니다.")
+        if not labor_rows:
+            warnings.append(f"일위대가 {material_row}행 「{sheet.cell(material_row, 1).value}」: 인부 줄이 없습니다.")
         entries.append(
             IlwidaeEntry(
                 index=len(entries),
@@ -293,12 +476,16 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
                 fitting_rate=fitting_rate,
                 has_sundry=has_sundry,
                 pumsam_ref=ref,
+                matched=any(
+                    (_number(sheet.cell(r, 4).value) or 0) > 0 for rows_ in labor_rows.values() for r in rows_
+                ),
             )
         )
         row = sum_row + 1
     if not entries:
         raise ValueError("일위대가 호표를 찾지 못했습니다. 이 프로그램으로 만든 일위대가목록 파일인지 확인해 주세요.")
     session = EstimateSession(workbook=workbook, entries=entries, discipline=disc, source_path=path)
+    session.warnings = warnings
     session.estimate_sheets = [n for n in workbook.sheetnames if n == ESTIMATE_SHEET_NAME or n.startswith(f"{ESTIMATE_SHEET_NAME}(")]
     return session
 
@@ -497,8 +684,8 @@ def save_session(session: EstimateSession, sections: list[EstimateSection], dest
         current = workbook.sheetnames.index(name)
         workbook.move_sheet(name, offset=anchor + offset - current)
     session.estimate_sheets = list(names)
+    _write_check_sheet(workbook, session.entries)
     dest = build_result_path(dest_dir, mode="estimate" if sections else "forward")
     if session.source_path is not None:
         assert_safe_save(session.source_path, dest)
-    workbook.save(dest)
-    return dest
+    return save_workbook_safely(workbook, dest)

@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QBrush, QColor, QIcon
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QButtonGroup,
+    QCheckBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -30,6 +32,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.numbers import parse_number
+from app.link_dialog import ColumnMapDialog, LinkDialog
+from app.pumsam import load_pumsam_database
+from app.pumsam_links import save_link
 from app.discipline import ELECTRIC, TELECOM, normalize_discipline, pumsam_filename
 from app.drop_zone import DropZone
 from app.estimate_build import (
@@ -39,6 +45,14 @@ from app.estimate_build import (
     generate_session,
     open_session,
     save_session,
+    autosave_path,
+    convert_with_columns,
+    duplicate_rows,
+    layout_ok,
+    read_preview,
+    read_autosave,
+    write_autosave,
+    is_result_workbook,
 )
 from app.main_window import (
     APP_STYLESHEET,
@@ -127,8 +141,8 @@ QLabel#stepLabel {
 QLabel#countLabel { color: #7A6A52; font-size: 12px; font-weight: 700; }
 """
 
-COL_CHECK, COL_HO, COL_NAME, COL_SPEC, COL_UNIT, COL_QTY, COL_MAT, COL_LAB, COL_NOTE = range(9)
-HEADERS = ["선택", "호표", "명  칭", "규  격", "단위", "수량", "재료비 단가", "노무비 단가", "비  고"]
+COL_CHECK, COL_HO, COL_NAME, COL_SPEC, COL_UNIT, COL_QTY, COL_MAT, COL_LAB, COL_NOTE, COL_STATE = range(10)
+HEADERS = ["선택", "호표", "명  칭", "규  격", "단위", "수량", "재료비 단가", "노무비 단가", "비  고", "품셈"]
 
 
 class FuncWorker(QThread):
@@ -175,6 +189,8 @@ class EstimateWindow(QMainWindow):
         self._source_path: Path | None = None
         self._session: EstimateSession | None = None
         self._sections: list[EstimateSection] = []
+        self._dup_rows: set[int] = set()
+        self._hide_dups = False
         self._updating = False
         self._busy_dialog: BusyDialog | None = None
         self._worker: FuncWorker | None = None
@@ -337,6 +353,13 @@ class EstimateWindow(QMainWindow):
         self.uncheck_all_button = QPushButton("체크 모두 해제")
         self.uncheck_all_button.setObjectName("smallButton")
         self.uncheck_all_button.clicked.connect(lambda: self._set_all_checked(False))
+        self.unmatched_only = QCheckBox("미매칭만 보기")
+        self.unmatched_only.stateChanged.connect(self._apply_filter)
+        self.link_button = QPushButton("선택 품목 품셈 연결")
+        self.link_button.setObjectName("smallButton")
+        self.link_button.clicked.connect(self._on_link)
+        tools.addWidget(self.unmatched_only)
+        tools.addWidget(self.link_button)
         tools.addWidget(self.check_visible_button)
         tools.addWidget(self.uncheck_all_button)
         list_layout.addLayout(tools)
@@ -350,7 +373,7 @@ class EstimateWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(30)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for col, width in zip(range(9), (46, 46, 190, 190, 46, 78, 92, 92, 140)):
+        for col, width in zip(range(10), (46, 46, 190, 190, 46, 78, 92, 92, 140, 120)):
             self.table.setColumnWidth(col, width)
         header.setStretchLastSection(True)
         self.table.itemChanged.connect(self._on_item_changed)
@@ -472,6 +495,33 @@ class EstimateWindow(QMainWindow):
             self.dest_edit.setText(chosen)
             self._settings.setValue("dest_dir", chosen)
 
+    def _on_link(self) -> None:
+        """선택한 미매칭 품목에 품셈 항목을 직접 연결하고, 다시 일위대가를 만든다."""
+        if self._session is None:
+            return
+        rows = sorted({i.row() for i in self.table.selectedItems()})
+        if not rows:
+            QMessageBox.information(self, "품목 선택", "연결할 품목 줄을 먼저 눌러 선택하세요.")
+            return
+        if self._source_path is None or is_result_workbook(self._source_path):
+            QMessageBox.information(
+                self,
+                "단가대비표에서 적용",
+                "품셈 연결은 단가대비표에서 일위대가를 새로 만들 때 적용됩니다.\n단가대비표를 넣고 다시 생성해 주세요. (연결은 저장해 둘 수 있습니다.)",
+            )
+        entry = self._session.entries[rows[0]]
+        book = self._session.pumsam_rows or load_pumsam_database(None, self._session.discipline)
+        dialog = LinkDialog(self, entry.label, book)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.chosen() is None:
+            return
+        book_name, book_spec = dialog.chosen()
+        for row in rows:
+            e = self._session.entries[row]
+            save_link(self._chosen_dest_dir(), e.name, e.spec, book_name, book_spec)
+        self._append_log(f"품셈 연결 저장: {len(rows)}건 → {book_name} {book_spec}")
+        if self._source_path is not None and not is_result_workbook(self._source_path):
+            self._on_generate()
+
     def _open_legacy(self) -> None:
         if self._legacy is None:
             self._legacy = LegacyWindow()
@@ -501,7 +551,10 @@ class EstimateWindow(QMainWindow):
         self.remove_section_button.setEnabled(selected)
         self.save_button.setEnabled(has_session and not busy)
         total = self.table.rowCount()
-        self.count_label.setText(f"전체 {total}건 · 체크 {checked}건" if has_session else "")
+        unmatched = sum(1 for e in self._session.entries if not e.matched) if has_session else 0
+        self.link_button.setEnabled(has_session and not busy)
+        self.unmatched_only.setEnabled(has_session)
+        self.count_label.setText(f"전체 {total}건 · 미매칭 {unmatched}건 · 체크 {checked}건" if has_session else "")
 
     # ------------------------------------------------------------- source
     def _on_source_dropped(self, path_text: str) -> None:
@@ -570,18 +623,85 @@ class EstimateWindow(QMainWindow):
             self._settings.setValue("dest_dir", self.dest_edit.text().strip())
         disc = self._selected_discipline()
         source = self._source_path
+        if not is_result_workbook(source) and not layout_ok(source):
+            source = self._ask_columns(source, dest)
+            if source is None:
+                return
         self._append_log(f"일위대가 생성 중… ({disc} · {pumsam_filename(disc)})")
         self.statusBar().showMessage("일위대가를 생성하는 중…")
         self._run_background(lambda: open_session(source, disc, dest), self._on_generated)
 
+    def _ask_columns(self, source: Path, dest: Path | None) -> Path | None:
+        """양식을 못 읽으면 열을 직접 고르게 하고, 이 프로그램 양식으로 바꾼 파일을 돌려준다."""
+        try:
+            preview = read_preview(source)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "파일 읽기 실패", f"엑셀 파일을 읽지 못했습니다.\n{exc}")
+            return None
+        dialog = ColumnMapDialog(self, preview)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        mapping = dialog.mapping()
+        try:
+            from app.paths import user_database_dir
+
+            converted = convert_with_columns(source, user_database_dir(dest), **mapping)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "변환 실패", str(exc))
+            return None
+        if not layout_ok(converted):
+            QMessageBox.warning(self, "열 지정 확인", "지정한 열에서 품목을 읽지 못했습니다. 행 번호와 열을 다시 확인해 주세요.")
+            return None
+        self._append_log(f"열 지정으로 변환했습니다: {converted.name}")
+        return converted
+
     def _on_generated(self, session: EstimateSession) -> None:
+        if session.warnings:
+            shown = "\n".join(session.warnings[:8]) + ("\n…" if len(session.warnings) > 8 else "")
+            answer = QMessageBox.question(
+                self,
+                "불러온 파일 확인",
+                f"읽는 중 문제가 {len(session.warnings)}건 있었습니다.\n\n{shown}\n\n인식된 호표만으로 계속할까요?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._append_log("불러오기를 취소했습니다. 파일을 고친 뒤 다시 넣어 주세요.")
+                self.statusBar().showMessage("불러오기 취소")
+                self._refresh_state()
+                return
         self._load_session(session)
+        unmatched = sum(1 for e in session.entries if not e.matched)
+        if unmatched:
+            self._append_log(f"품셈 미매칭 {unmatched}건 — '미매칭만 보기'로 확인하고 [선택 품목 품셈 연결]을 쓰세요.")
+        if self._dup_rows:
+            names = ", ".join(session.entries[i].label for i in sorted(self._dup_rows)[:5])
+            answer = QMessageBox.question(
+                self,
+                "중복 품목",
+                f"같은 품명·규격이 {len(self._dup_rows)}건 중복되어 있습니다.\n({names} …)\n\n중복 줄을 선택 목록에서 숨길까요?",
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._hide_dups = True
+                self._apply_filter()
+        for warning in session.warnings:
+            self._append_log(f"주의: {warning}")
+        self._offer_restore(session)
+        for notice in session.notices[:10]:
+            self._append_log(f"정리: {notice}")
+        if len(session.notices) > 10:
+            self._append_log(f"정리: 문자로 적힌 단가 {len(session.notices)}건을 숫자로 읽었습니다.")
+        from app.pumsam import DB_NOTICES
+
+        while DB_NOTICES:
+            self._append_log(DB_NOTICES.pop(0))
         self._append_log(f"일위대가 {len(session.entries)}건을 불러왔습니다. 내역서에 넣을 품목을 체크하세요.")
         self.statusBar().showMessage("일위대가목록이 만들어졌습니다.")
 
     def _load_session(self, session: EstimateSession) -> None:
         self._session = session
         self._sections = []
+        duplicates = duplicate_rows(session.entries)
+        self._dup_rows = set(duplicates)
+        self._hide_dups = False
         self.section_list.clear()
         self._updating = True
         try:
@@ -601,6 +721,12 @@ class EstimateWindow(QMainWindow):
                 self._put(row, COL_MAT, _money(entry.material_unit), right=True)
                 self._put(row, COL_LAB, _money(entry.labor_unit), right=True)
                 self._put(row, COL_NOTE, "", editable=True)
+                state_text = entry.pumsam_ref if entry.matched else "미매칭"
+                if row in duplicates:
+                    state_text += " · 중복"
+                self._put(row, COL_STATE, state_text)
+                if not entry.matched:
+                    self.table.item(row, COL_STATE).setForeground(QBrush(QColor("#B3261E")))
         finally:
             self._updating = False
         self._apply_filter()
@@ -622,6 +748,15 @@ class EstimateWindow(QMainWindow):
     def _on_item_changed(self, item: QTableWidgetItem) -> None:
         if self._updating:
             return
+        if item.column() == COL_QTY and item.text().strip():
+            number, cleaned = parse_number(item.text())
+            if cleaned and number is not None:
+                self._updating = True
+                try:
+                    self._append_log(f"수량 「{item.text().strip()}」 → {number:g} 로 정리했습니다.")
+                    item.setText(f"{number:g}")
+                finally:
+                    self._updating = False
         if item.column() == COL_CHECK:
             qty_item = self.table.item(item.row(), COL_QTY)
             if qty_item is not None:
@@ -639,7 +774,10 @@ class EstimateWindow(QMainWindow):
             haystack = " ".join(
                 (self.table.item(row, c).text() if self.table.item(row, c) else "") for c in (COL_NAME, COL_SPEC)
             ).lower()
-            self.table.setRowHidden(row, not all(t in haystack for t in tokens))
+            hide = not all(t in haystack for t in tokens) or (self._hide_dups and row in self._dup_rows)
+            if not hide and self.unmatched_only.isChecked() and self._session is not None:
+                hide = self._session.entries[row].matched
+            self.table.setRowHidden(row, hide)
 
     def _set_visible_checked(self, state: bool) -> None:
         self._updating = True
@@ -679,11 +817,8 @@ class EstimateWindow(QMainWindow):
     # ------------------------------------------------------------ sections
     @staticmethod
     def _parse_qty(text: str) -> float | None:
-        try:
-            value = float(text.replace(",", "").strip())
-        except ValueError:
-            return None
-        return value if value > 0 else None
+        value, _cleaned = parse_number(text)
+        return value if value is not None and value > 0 else None
 
     def _collect_lines(self) -> list[EstimateLine] | None:
         assert self._session is not None
@@ -717,6 +852,7 @@ class EstimateWindow(QMainWindow):
             return
         self._sections.append(EstimateSection(title, lines))
         self.section_list.addItem(f"{len(self._sections)}. {title}  ({len(lines)}품목)")
+        self._autosave()
         self._append_log(f"공정 담기: {title} — {len(lines)}품목")
         self._set_all_checked(False)
         self.title_edit.clear()
@@ -727,7 +863,40 @@ class EstimateWindow(QMainWindow):
         rows = self.section_list.selectedIndexes()
         return rows[0].row() if rows else None
 
+    def _autosave(self) -> None:
+        if self._session is None:
+            return
+        try:
+            write_autosave(autosave_path(self._chosen_dest_dir()), self._session, self._sections)
+        except OSError:
+            pass
+
+    def _offer_restore(self, session: EstimateSession) -> None:
+        try:
+            path = autosave_path(self._chosen_dest_dir())
+        except OSError:
+            return
+        if not path.exists():
+            return
+        restored = read_autosave(path, session)
+        if not restored:
+            return
+        count = sum(len(sec.lines) for sec in restored)
+        answer = QMessageBox.question(
+            self,
+            "이전 작업 복구",
+            f"저장하지 못한 공정 {len(restored)}개({count}품목)가 임시저장되어 있습니다.\n불러올까요?",
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self._sections = restored
+            self._renumber_sections()
+            self._append_log(f"임시저장된 공정 {len(restored)}개를 불러왔습니다.")
+            self._refresh_state()
+        else:
+            path.unlink(missing_ok=True)
+
     def _renumber_sections(self) -> None:
+        self._autosave()
         self.section_list.clear()
         for number, section in enumerate(self._sections, start=1):
             self.section_list.addItem(f"{number}. {section.title}  ({len(section.lines)}품목)")
@@ -793,6 +962,10 @@ class EstimateWindow(QMainWindow):
         self._run_background(lambda: save_session(session, sections, dest), self._on_saved)
 
     def _on_saved(self, dest: Path) -> None:
+        try:
+            autosave_path(self._chosen_dest_dir()).unlink(missing_ok=True)
+        except OSError:
+            pass
         self._append_log(f"새 파일 저장: {dest}")
         self.statusBar().showMessage(f"저장 완료 — {Path(dest).name}")
         DoneDialog(self, Path(dest), pumsam_filename(self._selected_discipline())).exec()

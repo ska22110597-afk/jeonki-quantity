@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.numbers import clean_price
 from app.estimate_parse import (
     EstimateSheet,
     find_column_index,
@@ -127,7 +128,7 @@ def extract_price_fields(row: list[Any], labels: list[str]) -> dict[str, Any]:
             if last_key:
                 result[f"{last_key}_PAGE"] = _pick(row, index)
             continue
-        result[token] = _pick(row, index)
+        result[token] = clean_price(_pick(row, index))
         last_key = token
     return result
 
@@ -182,7 +183,7 @@ def parse_line_items(sheet: EstimateSheet) -> list[LineItem]:
                     fields.get("조달청"),
                     fields.get("조사가격2"),
                     fields.get("조사가격3"),
-                    _pick(row, price_idx),
+                    clean_price(_pick(row, price_idx), f"{excel_row}행 {name}"),
                 ),
                 section=section,
                 price_col=price_idx,

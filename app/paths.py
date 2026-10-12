@@ -181,6 +181,27 @@ def build_result_path(
     return ensure_result_directory(directory) / build_result_filename(now, mode=mode)
 
 
+def save_workbook_safely(workbook, dest: Path) -> Path:
+    """엑셀이 파일을 열고 있어 저장이 막히면 이름 뒤에 번호를 붙여 다른 이름으로 저장한다. 실제 저장 경로를 돌려준다."""
+    dest = Path(dest)
+    try:
+        workbook.save(dest)
+        return dest
+    except PermissionError as first_error:
+        for number in range(2, 20):
+            alt = dest.with_name(f"{dest.stem}_{number}{dest.suffix}")
+            if alt.exists():
+                continue
+            try:
+                workbook.save(alt)
+                return alt
+            except PermissionError:
+                continue
+        raise ResultDirectoryError(
+            f"파일을 저장할 수 없습니다: {dest}\n같은 이름의 엑셀 파일이 열려 있거나 폴더에 쓸 권한이 없습니다. 열린 파일을 닫고 다시 저장하세요."
+        ) from first_error
+
+
 def app_icon_path() -> Path:
     """창·실행 파일 아이콘. exe로 묶이면 해제 폴더의 assets 를 본다."""
     extract = bundle_extract_dir()

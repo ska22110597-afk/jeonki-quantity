@@ -148,6 +148,24 @@ def labor_base_qty_formula(row: PumsamRow) -> str:
     return f"={text}"
 
 
+def applied_spec_note(item_spec: Any, row: PumsamRow) -> str:
+    """단가대비표 규격과 다른 구간·규격의 품을 썼으면 어느 규격을 적용했는지 적는다."""
+    from app.pumsam import spec_match_parts
+
+    book_spec = str(row.get("규격") or "").strip()
+    if not book_spec or not row.get("품셈근거"):
+        return ""
+    a_size, a_unit, _a_qual, _ = spec_match_parts(item_spec)
+    b_size, b_unit, b_qual, _ = spec_match_parts(book_spec)
+    if b_size is None:
+        return ""
+    if b_qual in ("이하", "이상", "미만", "초과"):
+        return f"적용 규격 {book_spec}"
+    if a_size is not None and a_unit == b_unit and abs(a_size - b_size) > 1e-9:
+        return f"적용 규격 {book_spec}"
+    return ""
+
+
 def labor_qty_formula_with_place(row: PumsamRow) -> str:
     """인부 수량 칸. 노출·지중 같은 장소 할증이 붙은 품은 `=원표품*할증` 으로 보이게 둔다."""
     base = labor_base_qty_formula(row)
@@ -482,9 +500,14 @@ def write_ilwidae_sheet(
             _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
             _cost_totals(sheet, cursor)
             if labor_index == 0:
+                notes: list[str] = []
                 rate_pct = round(pumsam_rate_value(labor) * 100)
-                note = f"장소 품 할증 {rate_pct}% ({ref})" if rate_pct != 100 and ref else (f"장소 품 할증 {rate_pct}%" if rate_pct != 100 else "")
-                _set_cell(sheet, cursor, 13, note or None, font=BODY_FONT, align=LEFT)
+                if rate_pct != 100:
+                    notes.append(f"장소 품 할증 {rate_pct}%")
+                applied = applied_spec_note(item.spec, labor)
+                if applied:
+                    notes.append(applied)
+                _set_cell(sheet, cursor, 13, " · ".join(notes) or None, font=BODY_FONT, align=LEFT)
             else:
                 _set_cell(sheet, cursor, 13, None)
             labor_rows.append(cursor)
