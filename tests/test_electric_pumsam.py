@@ -460,3 +460,20 @@ def test_workspace_dir_and_qty_format(tmp_path) -> None:
     assert workspace_dir(tmp_path / "자동내역서") == tmp_path / "자동내역서"
     assert qty_format(1) == "#,##0" and qty_format(2.0) == "#,##0"
     assert qty_format(1.5) == "#,##0.0##"
+
+
+def test_multicore_power_cable_uses_5_11_core_rate():
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+    hit = match_pumsam("F-CV", "3Cx16㎟", rows)
+    assert hit and hit[0]["할증%"] == 200 and abs(hit[0]["품셈"] - 0.023) < 1e-9
+    small = match_pumsam("F-CV", "2Cx4㎟", rows)
+    assert small and abs(small[0]["품셈"] - 0.016) < 1e-9  # 10㎟ 이하는 제어용케이블 준용
+    assert match_pumsam("F-CV", "5Cx16㎟", rows) == []
+
+
+def test_2026_supplement_rows_present():
+    keys = {(r["명칭"], r["규격"]) for r in electric_pumsam_rows()}
+    assert ("LED가로등기구", "150 W 이하") in keys
+    assert ("커버나이프스위치", "100 A") in keys

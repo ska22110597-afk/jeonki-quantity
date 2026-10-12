@@ -2,7 +2,7 @@
 
 예) 접지용비닐절연전선(F-GV) 16㎟, 450/750V 내열비닐절연전선 HFIX 2.5㎟ → 옥내배선(5-10).
     F-CVV-S 2Cx1.5㎟ → 제어용케이블(5-13).
-다심 전력케이블(F-CV 2C×4㎟ 등)은 5-11 표가 1C 기준이라 임의로 환산하지 않고 비워 둔다.
+다심 전력케이블은 5-11 해설에 따라 10㎟ 이하는 제어용케이블, 초과는 1C 품의 2심 140%·3심 200%·4심 260%.
 """
 
 from __future__ import annotations
@@ -156,7 +156,18 @@ def electric_candidates(name: str, spec: str) -> list[tuple[str, str, int]]:
         return out
     if cable:
         if cores not in (None, 1):
-            return []
+            if area <= 10:  # 5-11 해설②: 10㎟ 이하는 제어용케이블 설치 준용
+                b = _bucket(area, CONTROL_BUCKETS)
+                return [("제어용케이블", f"{_fmt(b)} ㎟ 이하 {cores}C", 100)] if b is not None and cores <= 50 else []
+            rate = {2: 140, 3: 200, 4: 260}.get(cores)  # 5-11 해설④ 2심 140%, 3심 200%, 4심 260%
+            if rate is None:
+                return []
+            b = _bucket(area, POWER_SIZES)
+            if b is None:
+                return []
+            if area <= 16:
+                return [("전력케이블", "16 ㎟ 이하×1C", rate)]
+            return [("전력케이블", f"{_fmt(b)} ㎟×1C", rate)]
         if area <= 16:
             out.append(("전력케이블", "16 ㎟ 이하×1C", 100))
         else:

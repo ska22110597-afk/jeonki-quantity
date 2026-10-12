@@ -482,7 +482,15 @@ def _match_electric_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list
         key = lookup_key(book_name, book_spec)
         hit = [row for row in _row_index(rows).by_exact.get(key, ()) if has_pumsam_qty(row)]
         if hit:
-            return hit
+            if rate == 100:
+                return hit
+            out = []
+            for row in hit:  # 다심 케이블: 1C 품에 심수 할증(5-11 해설)을 곱한다
+                copy = dict(row)
+                copy["할증%"] = float(row.get("할증%") or 100) * rate / 100
+                copy["품셈근거"] = f"{row.get('품셈근거') or ''} 해설 다심 {rate}%".strip()
+                out.append(copy)
+            return out
     return []
 
 

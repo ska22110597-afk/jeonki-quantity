@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 APP_VERSION = "1.0.0"
-PUMSAM_DB_VERSION = "2026.10.12"  # 내장 표준품셈 데이터를 새로 만들면 올린다. 옛 사용자 DB 는 백업 후 갱신된다.
+PUMSAM_DB_VERSION = "2026.10.12b"  # 내장 표준품셈 데이터를 새로 만들면 올린다. 옛 사용자 DB 는 백업 후 갱신된다.
 APP_EXE_NAME = "전기·통신 서식 생성"
 APP_TITLE = f"자동 내역서식 프로그램 V.{APP_VERSION}"
 APP_MAKER = "◇ 제작자 : 박남석"
