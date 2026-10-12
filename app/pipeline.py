@@ -222,6 +222,16 @@ def _write_wages_sheet(sheet: Worksheet, rows: list[WageRow]) -> None:
 SUNDRY_LABOR_JOBS = ("내선전공", "저압케이블전공", "통신케이블공")
 
 
+def _used_labor_jobs(blocks: list[Any]) -> tuple[str, ...]:
+    """일위대가에 실제로 쓰인 직종을 처음 나온 순서로 모은다. 없으면 기본 세 직종."""
+    seen: list[str] = []
+    for block in blocks:
+        for job in getattr(block, "labor_jobs", None) or []:
+            if job and job not in seen:
+                seen.append(job)
+    return tuple(seen) or SUNDRY_LABOR_JOBS
+
+
 def _write_estimate_sundry_form(
     sheet: Worksheet,
     excel_row: int,
@@ -230,6 +240,7 @@ def _write_estimate_sundry_form(
     item_last_row: int,
     last_col: int,
     filled: list[list[Any]],
+    jobs: tuple[str, ...] = SUNDRY_LABOR_JOBS,
 ) -> int:
     """내역서 아래에 직종별 노무비 합을 붙인다. 부속·잡재료·공구손료는 호표에 있다."""
     first = item_first_row
@@ -246,7 +257,7 @@ def _write_estimate_sundry_form(
         return f"=TRUNC(F{row}+H{row}+J{row},1)"
 
     rows: list[tuple[str, str, str, Any, str | None, str | None]] = []
-    for job in SUNDRY_LABOR_JOBS:
+    for job in jobs:
         job_lit = str(job).replace('"', '""')
         qty = f"=TRUNC(SUMIF('{ILWIDAE_SHEET_NAME}'!$A:$A,\"{job_lit}\",'{ILWIDAE_SHEET_NAME}'!$D:$D),0)"
         amount = f"=SUMIF('{ILWIDAE_SHEET_NAME}'!$A:$A,\"{job_lit}\",'{ILWIDAE_SHEET_NAME}'!$H:$H)"
@@ -510,6 +521,7 @@ def _write_generated_estimate(
         item_last_row=max(item_last_row, 5),
         last_col=last_col,
         filled=filled,
+        jobs=_used_labor_jobs(blocks),
     )
 
     _apply_sheet_look(sheet, max(excel_row - 1, 4), last_col, row_height=FORM_ROW_HEIGHT)
