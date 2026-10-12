@@ -224,6 +224,9 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
             return []
         label = f"{size:,} ㎟ 이하" if size >= 1000 else f"{size} ㎟ 이하"
         return [("전력케이블 단말처리", label, 100, "단말처리 1개소당 기준(러그 1개=1개소)")]
+    # --- 터널 관통형 커넥터(커버 포함): 5-11-1 은 개소당 3개 기준 → 1개 = 1/3, 커버 동시설치 5% 가산
+    if "분기접속제" in compact and "관통형" in compact:
+        return [("저압 케이블 관통형 커넥터 설치", "터널 내부", 35, "개소당 3개 기준 1/3, 커버 동시 5% 가산(개당)")]
     # --- 직선접속제: 4-36 전력케이블 직선접속
     if "직선접속" in compact:
         n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")

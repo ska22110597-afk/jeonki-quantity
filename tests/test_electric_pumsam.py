@@ -499,3 +499,11 @@ def test_misc_unmatched_items_now_match() -> None:
     assert first("가로등철주", "11m POLE, 2.8m ARM(분체도장)")["규격"] == "12 m 이하 1등용 인력"
     assert first("무정전전원장치(UPS)", "3상 20kVA")["품셈근거"].startswith("전기5-45")
     assert not match_pumsam("분전반", "L-1(휴게소)세종방향", rows)  # 용량 규격이 없으면 고르지 않는다
+
+
+def test_tunnel_through_connector_uses_5_11_1() -> None:
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+    m = match_pumsam("분기접속제(관통형/커버)", "95㎟", rows)
+    assert m and m[0]["품셈"] == 0.036 and m[0]["할증%"] == 35 and m[0]["품셈근거"].startswith("전기5-11-1")
