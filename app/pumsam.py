@@ -298,6 +298,38 @@ def _match_pumsam_ceiling(name: Any, spec: Any, rows: list[PumsamRow]) -> list[P
     return max(groups.values(), key=len)
 
 
+def _match_pumsam_band(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
+    """「3.5 mm 이상 / 6 mm 이상 / 8.5 mm 이상」 처럼 하한 구간표에서 4.3 mm 는 3.5 mm 이상 줄을 쓴다.
+
+    이상·초과 줄은 값보다 작거나 같은(초과는 작은) 하한 중 가장 큰 것을,
+    그런 줄이 없으면 「N 미만」 줄 중 값보다 큰 가장 작은 것을 쓴다.
+    """
+    name_key = lookup_key(name, "")
+    item_size, item_unit, _, item_stem = spec_match_parts(spec)
+    if not name_key or item_size is None or not item_unit:
+        return []
+    lower: dict[float, dict[str, list[PumsamRow]]] = {}
+    upper: dict[float, dict[str, list[PumsamRow]]] = {}
+    for row in _row_index(rows).by_name.get(name_key, ()):
+        book_size, book_unit, book_qual, book_stem = spec_match_parts(row.get("규격"))
+        if book_qual not in ("이상", "초과", "미만") or book_size is None or book_unit != item_unit:
+            continue
+        if _clean_stem(book_stem) != _clean_stem(item_stem):
+            continue
+        spec_key = lookup_key(row.get("명칭"), row.get("규격"))
+        if book_qual == "이상" and book_size <= item_size + 1e-9:
+            lower.setdefault(book_size, {}).setdefault(spec_key, []).append(row)
+        elif book_qual == "초과" and book_size < item_size - 1e-9:
+            lower.setdefault(book_size, {}).setdefault(spec_key, []).append(row)
+        elif book_qual == "미만" and book_size > item_size + 1e-9:
+            upper.setdefault(book_size, {}).setdefault(spec_key, []).append(row)
+    if lower:
+        return max(lower[max(lower)].values(), key=len)
+    if upper:
+        return max(upper[min(upper)].values(), key=len)
+    return []
+
+
 def _match_pumsam_same_size(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """같은 명칭에서 숫자·단위가 같고, 아연도/G/HI 앞말만 다른 규격을 같은 품으로 본다."""
     name_key = lookup_key(name, "")
@@ -418,6 +450,9 @@ def _match_pumsam_candidates(names: list[str], spec: Any, rows: list[PumsamRow])
         ceiling = _match_pumsam_ceiling(candidate, spec, rows)
         if ceiling:
             return _preferred_match_group(candidate, ceiling)
+        band = _match_pumsam_band(candidate, spec, rows)
+        if band:
+            return _preferred_match_group(candidate, band)
         unique = _match_pumsam_unique_item(candidate, rows)
         if unique:
             return [row for row in unique if has_pumsam_qty(row)]

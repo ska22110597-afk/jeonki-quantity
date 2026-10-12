@@ -245,8 +245,11 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
         if not (isinstance(title, str) and "호표" in title and sheet.cell(row, 2).value is None and sheet.cell(row, 3).value is None):
             row += 1
             continue
-        matched_no = re.search(r"호표\s*(\d+)", title)
-        ho_no = int(matched_no.group(1)) if matched_no else len(entries) + 1
+        # 중간에 호표를 끼워 넣거나 지웠어도 위에서부터 1, 2, 3… 으로 번호를 다시 매긴다.
+        ho_no = len(entries) + 1
+        new_title = re.sub(r"호표\s*\d*", f"호표 {ho_no}", title, count=1)
+        if new_title != title:
+            sheet.cell(row, 1).value = new_title
         material_row = row + 1
         end = material_row
         while end + 1 <= max_row:

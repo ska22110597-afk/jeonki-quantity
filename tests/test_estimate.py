@@ -168,3 +168,31 @@ def test_summary_has_six_blank_rows_and_no_dotted_qty(session, tmp_path) -> None
     assert ws.cell(7, 4).number_format == "#,##0.0##"
     total = next(r for r in range(1, ws.max_row + 1) if "합" in str(ws.cell(r, 1).value or "") and "계" in str(ws.cell(r, 1).value or ""))
     assert all(ws.cell(total - k, 1).value is None for k in range(1, 7))
+
+
+def test_resume_renumbers_ho_pyo_after_manual_insert(session, tmp_path) -> None:
+    from app.estimate_build import open_session
+
+    saved = save_session(session, [], tmp_path)
+    wb = openpyxl.load_workbook(saved)
+    ws = wb["일위대가"]
+    titles = [r for r in range(5, ws.max_row + 1) if "호표" in str(ws.cell(r, 1).value or "")]
+    ws.cell(titles[1], 1).value = "새로 끼운 호표 ( 호표 )"
+    ws.cell(titles[2], 1).value = "아무거나 ( 호표 77 )"
+    edited = tmp_path / "edited.xlsx"
+    wb.save(edited)
+    again = open_session(edited, "전기", tmp_path)
+    assert [e.ho_no for e in again.entries[:4]] == [1, 2, 3, 4]
+    assert "( 호표 3 )" in again.workbook["일위대가"].cell(titles[2], 1).value
+
+
+def test_lower_bound_band_and_new_electric_names() -> None:
+    from app.electric_pumsam_data import _row
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = [_row("테스트선", s, "M", "내선전공", q, 100, "전기9-9") for s, q in (("3.5 mm 이상", 0.2), ("6 mm 이상", 0.3), ("8.5 mm 이상", 0.4))]
+    assert match_pumsam("테스트선", "4.3mm", rows)[0]["품셈"] == 0.2
+    assert match_pumsam("테스트선", "7mm", rows)[0]["품셈"] == 0.3
+    book = load_pumsam_database(None, "전기")
+    assert match_pumsam("나사없는전선관", "E31", book)[0]["품셈"] == 0.08
+    assert match_pumsam("조명기구(J)", "LED 13W(직부)", book)[0]["내선전공" if False else "노무명칭"] == "내선전공"

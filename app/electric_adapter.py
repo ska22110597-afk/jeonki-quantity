@@ -73,11 +73,63 @@ def _box_candidates(name: str, spec: str) -> list[tuple[str, str, int]] | None:
     return None
 
 
+_LED_BUCKETS = (15, 25, 35, 45, 55)
+_LED_TYPES = (
+    ("다운라이트", "LED등기구_다운라이트"),
+    ("펜던트", "LED등기구_펜던트"),
+    ("펜단트", "LED등기구_펜던트"),
+    ("반매입", "LED등기구_반매입"),
+    ("매입", "LED등기구_매입"),
+    ("직부", "LED등기구_직부"),
+    ("벽부", "LED등기구_직부"),
+    ("레이스웨이", "LED등기구_직부"),
+)
+
+
+def _lamp_candidates(name: str, spec: str) -> list[tuple[str, str, int]] | None:
+    """조명기구(A) LED 40W(슬림매입등) 같은 표기를 5-25-3 LED등기구 줄로."""
+    compact = f"{name} {spec}".replace(" ", "")
+    if "LED" not in compact.upper() or not any(w in compact for w in ("조명기구", "등기구", "LED등")):
+        return None
+    watts = re.search(r"(\d+(?:\.\d+)?)\s*W", f"{name} {spec}", re.I)
+    if not watts:
+        return []
+    bucket = _bucket(float(watts.group(1)), _LED_BUCKETS)
+    if bucket is None:
+        return []
+    for word, book in _LED_TYPES:
+        if word in compact:
+            return [(book, f"{bucket} W 이하", 100)]
+    return []
+
+
+def _conduit_size_candidates(name: str, spec: str) -> list[tuple[str, str, int]] | None:
+    """나사없는전선관 E31 → 31 mm, 폴리에틸렌 전선관 CD-P 42㎜ → CD 42 mm."""
+    compact = f"{name}{spec}".replace(" ", "")
+    if any(w in compact for w in _ACCESSORY) or "노말밴드" in compact or "포설" in compact:
+        return None
+    if "나사없는전선관" in compact or "박강" in compact:
+        m = re.search(r"[EC]\s*-?\s*(\d+)", spec or "") or _MM.search(spec or "")
+        if m:
+            return [("나사없는전선관", f"{m.group(1)} mm", 100)]
+    if "폴리에틸렌전선관" in compact and "CD" in compact.upper():
+        m = _MM.search(spec or "")
+        if m:
+            return [("CD전선관", f"CD {m.group(1)} mm", 100)]
+    return None
+
+
 def electric_candidates(name: str, spec: str) -> list[tuple[str, str, int]]:
     text = f"{name} {spec}"
     boxed = _box_candidates(name, spec)
     if boxed is not None:
         return boxed
+    lamp = _lamp_candidates(name, spec)
+    if lamp is not None:
+        return lamp
+    sized = _conduit_size_candidates(name, spec)
+    if sized is not None:
+        return sized
     if "가요" in text and "전선관" in text and not any(w in text for w in _ACCESSORY):
         mm = _MM.search(spec or "")
         if mm:
