@@ -575,6 +575,7 @@ def build_result_workbook(
     dropped_ilwidae: EstimateSheet | None = None,
     companion_sheets: dict[str, EstimateSheet] | None = None,
     fitting_excludes: tuple[str, ...] | None = None,
+    blocks_out: list | None = None,
 ) -> Workbook:
     if fitting_excludes is None:
         fitting_excludes = DEFAULT_FITTING_EXCLUDES
@@ -661,6 +662,8 @@ def build_result_workbook(
                 discipline=discipline,
                 fitting_excludes=fitting_excludes,
             )
+            if blocks_out is not None:
+                blocks_out.extend(blocks)
         if estimate is not None:
             copied = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_estimate_sheet(copied, estimate)

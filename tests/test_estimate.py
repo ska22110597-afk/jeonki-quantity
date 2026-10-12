@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import openpyxl
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+from app.estimate_build import EstimateLine, EstimateSection, generate_session, save_session
+
+SAMPLE = Path(__file__).resolve().parent.parent / "samples" / "단가대비표_샘플.xlsx"
+
+
+@pytest.fixture(scope="module")
+def session(tmp_path_factory):
+    db = tmp_path_factory.mktemp("db")
+    return generate_session(SAMPLE, "전기", db)
+
+
+def _pick(session, *, rate=None, sundry=None, count=2):
+    found = []
+    for entry in session.entries:
+        if rate is not None and abs(entry.fitting_rate - rate) > 1e-9:
+            continue
+        if sundry is not None and entry.has_sundry != sundry:
+            continue
+        found.append(entry)
+        if len(found) == count:
+            break
+    return found
+
+
+def test_entries_carry_rules(session) -> None:
+    assert session.entries
+    conduits = _pick(session, rate=0.15)
+    assert conduits, "샘플에 전선관 15% 품목이 있어야 합니다."
+    assert all(e.has_sundry for e in conduits)
+    assert all(e.material_unit > 0 for e in conduits)
+
+
+def test_save_two_sections_and_layout(session, tmp_path) -> None:
+    lines = [EstimateLine(e, 10 + i, "비고") for i, e in enumerate(_pick(session, rate=0.15, count=2))]
+    lines += [EstimateLine(e, 5, "") for e in _pick(session, rate=0.0, sundry=False, count=1)]
+    sections = [EstimateSection("1.공사::1-1.세대", lines), EstimateSection("2.공용부", lines[:1])]
+    dest = save_session(session, sections, tmp_path)
+    wb = openpyxl.load_workbook(dest)
+    names = wb.sheetnames
+    assert names.index("내역서") == names.index("일위대가목록") + 1
+    assert "내역서(2)" in names
+    ws = wb["내역서"]
+    assert ws["A5"].value == "1.공사::1-1.세대"
+    assert ws["A6"].value == lines[0].entry.name
+    assert ws["E6"].value.startswith("='일위대가'!F")
+    labels = [ws.cell(r, 1).value for r in range(6, ws.max_row + 1)]
+    assert "[ 배관 부속재 ]" in labels
+    assert "[ 소모 잡자재 ]" in labels
+    assert "노 무 비" in labels
+    assert "[ 공 구 손 료 ]" in labels
+    assert "( 합       계 )" in labels
+    assert ws.column_dimensions["N"].hidden is True
+
+
+@pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice 없음")
+def test_totals_match_python(session, tmp_path) -> None:
+    lines = [EstimateLine(e, 100 + i * 7, "") for i, e in enumerate(_pick(session, rate=0.15, count=3))]
+    lines += [EstimateLine(e, 3, "") for e in _pick(session, rate=0.0, sundry=False, count=2)]
+    dest = save_session(session, [EstimateSection("검산", lines)], tmp_path)
+    out = tmp_path / "calc"
+    subprocess.run(
+        ["soffice", "--headless", "--convert-to", "xlsx", "--outdir", str(out), str(dest)],
+        check=True,
+        capture_output=True,
+        timeout=170,
+    )
+    ws = openpyxl.load_workbook(out / dest.name, data_only=True)["내역서"]
+    mat_items = sum(l.qty * l.entry.material_unit for l in lines)
+    fit = sum(l.qty * l.entry.material_unit * l.entry.fitting_rate for l in lines)
+    sundry = sum(l.qty * l.entry.material_unit * 0.02 for l in lines if l.entry.has_sundry)
+    labor = sum(l.qty * l.entry.labor_unit for l in lines)
+    total_row = next(r for r in range(6, ws.max_row + 1) if str(ws.cell(r, 1).value).startswith("( 합"))
+    assert ws.cell(total_row, 6).value == pytest.approx(mat_items + fit + sundry, abs=1)
+    assert ws.cell(total_row, 8).value == pytest.approx(labor * 1.03, abs=1)
+    assert ws.cell(total_row, 11).value == pytest.approx(mat_items + fit + sundry + labor * 1.03, abs=2)
+
+
+def test_window_select_and_add(session) -> None:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+
+    from app.estimate_window import COL_NOTE, COL_QTY, EstimateWindow
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841 — 참조를 잡아 둔다
+    window = EstimateWindow()
+    try:
+        assert window.save_button.isEnabled() is False
+        window._load_session(session)
+        assert window.table.rowCount() == len(session.entries)
+        window.table.item(0, 0).setCheckState(Qt.CheckState.Checked)
+        assert window.table.item(0, COL_QTY).text() == "1"  # 체크하면 수량 1 자동
+        window.table.item(0, COL_QTY).setText("12")
+        window.table.item(0, COL_NOTE).setText("설치품 포함")
+        assert window.add_button.isEnabled() is False  # 제목이 없으면 담을 수 없다
+        window.title_edit.setText("1.아파트전기공사")
+        assert window.add_button.isEnabled() is True
+        window._on_add_section()
+        assert len(window._sections) == 1
+        line = window._sections[0].lines[0]
+        assert (line.qty, line.remark) == (12.0, "설치품 포함")
+        assert window._checked_rows() == []  # 담은 뒤 체크가 풀린다
+        assert window.save_button.isEnabled() is True
+        window.search_edit.setText("zzzz없는품목")
+        assert all(window.table.isRowHidden(r) for r in range(window.table.rowCount()))
+        window._on_edit_section() if window.section_list.selectedItems() else None
+        window.section_list.setCurrentRow(0)
+        window._on_edit_section()
+        assert window.title_edit.text() == "1.아파트전기공사"
+        assert window._sections == []
+    finally:
+        window.close()
+
+
+def test_saving_twice_does_not_stack_sheets(session, tmp_path) -> None:
+    lines = [EstimateLine(e, 1, "") for e in _pick(session, rate=0.15, count=1)]
+    first = save_session(session, [EstimateSection("A", lines), EstimateSection("B", lines)], tmp_path)
+    second = save_session(session, [EstimateSection("C", lines)], tmp_path)
+    names = openpyxl.load_workbook(second).sheetnames
+    assert [n for n in names if n.startswith("내역서")] == ["내역서"]
+    assert openpyxl.load_workbook(second)["내역서"]["A5"].value == "C"

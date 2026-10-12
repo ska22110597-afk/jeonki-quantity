@@ -55,6 +55,11 @@ class IlwidaeBlock:
     sum_row: int
     labor_rows: list[int] = field(default_factory=list)
     pumsam_ref: str = ""
+    fitting_rate: float = 0.0  # 전선관부속품비율(0 이면 부속품비 행 없음)
+    has_sundry: bool = False  # 잡재료비 행 여부
+    material_qty: float = 1.0  # 자재 수량(할증 포함)
+    labor_jobs: list[str] = field(default_factory=list)
+    labor_qtys: list[float] = field(default_factory=list)
 
 
 _CONDUIT_ANCHORS = (
@@ -410,6 +415,7 @@ def write_ilwidae_sheet(
 
         conduit = is_conduit_name(item.name)
         wire = is_cable_name(item.name)
+        fitting_rate = 0.0
         if conduit and not fitting_excluded(item.name, item.spec, fitting_excludes):
             fitting_rate = conduit_fitting_rate(item.name, item.spec)
             _write_percent_material_row(
@@ -480,6 +486,11 @@ def write_ilwidae_sheet(
                 sum_row=sum_row,
                 labor_rows=labor_rows,
                 pumsam_ref=ref,
+                fitting_rate=fitting_rate,
+                has_sundry=bool(conduit or wire),
+                material_qty=qty,
+                labor_jobs=[str(l.get("노무명칭") or fallback_labor) for l in labors],
+                labor_qtys=[pumsam_qty_value(l) for l in labors],
             )
         )
         cursor += 2

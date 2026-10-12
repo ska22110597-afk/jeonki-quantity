@@ -22,6 +22,7 @@ RESULT_FILENAME_PREFIX_BY_MODE = {
     "forward": "일위대가목록_결과_",
     "reverse": "단가대비표_결과_",
     "quantity": "공량산출_결과_",
+    "estimate": "내역서_결과_",
 }
 ALLOWED_EXCEL_SUFFIXES = (".xlsx", ".xlsm")
 
