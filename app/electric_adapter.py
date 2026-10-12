@@ -119,8 +119,127 @@ def _conduit_size_candidates(name: str, spec: str) -> list[tuple[str, str, int]]
     return None
 
 
-def electric_candidates(name: str, spec: str) -> list[tuple[str, str, int]]:
+_CD_SIZES = (14, 16, 22, 28, 36, 42, 54, 70, 82, 92, 104, 125)
+_TERMINAL_SIZES = (10, 16, 25, 35, 50, 70, 95, 120, 185, 240, 300, 400, 500, 630, 800, 1000, 2000)
+_POLE_HEIGHTS = (5, 6, 7, 8, 9, 10, 12, 14)
+_UPS_BANDS = ((3, "3 kVA 이하"), (10, "3 kVA 초과 ~ 10 kVA 이하"), (20, "10 kVA 초과 ~ 20 kVA 이하"), (30, "20 kVA 초과 ~ 30 kVA 이하"),
+              (100, "30 kVA 초과 ~ 100 kVA 이하"), (250, "100 kVA 초과 ~ 250 kVA 이하"), (500, "250 kVA 초과 ~ 500 kVA 이하"))
+_NOT_SWITCH = ("박스", "BOX", "센서", "제어", "콘트롤러", "컨트롤러", "차단기", "나이프", "마그넷", "소등")
+
+
+def _first_number(text: str, pattern: str) -> float | None:
+    m = re.search(pattern, text, re.I)
+    return float(m.group(1)) if m else None
+
+
+def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
+    """5-1 파상관, 5-23 스위치·콘센트, 5-26 LED 등기구, 5-27 폴, 5-42 피뢰침, 5-45 UPS, 3-38 접지, 4-36/4-37 접속·단말, 5-9-1 레이스웨이 등.
+
+    해당 품목이 아니면 None. 부속품·자재 단품은 [] (품셈 없음).
+    """
     text = f"{name} {spec}"
+    compact = text.replace(" ", "")
+    upper = compact.upper()
+    # --- 파상형(파형) 폴리에틸렌 전선관 → 5-1 CD(PE) 전선관, 같거나 큰 호칭
+    if "파상형" in compact and "전선관" in compact:
+        n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:mm|㎜)")
+        size = next((s for s in _CD_SIZES if n is not None and s >= n), None)
+        return [("CD전선관", f"CD {size} mm", 100, "파상형관은 CD관 호칭 기준 준용")] if size else []
+    # --- 레이스웨이: 본체만 5-9-1, 부속(END CAP·COVER 등)은 품셈 없음
+    if "레이스웨이" in compact:
+        if "BODY" in upper:
+            dims = re.findall(r"\d+", spec or "")[-2:]
+            table = {("40", "40"): "(40×40) 1,600 ㎟ 이하", ("70", "40"): "(70×40) 2,800 ㎟ 이하", ("110", "50"): "(110×50) 5,500 ㎟ 이하"}
+            label = table.get(tuple(dims))
+            return [("레이스웨이 설치", label, 100)] if label else []
+        return []
+    # --- 케이블트레이 부속·행거·볼트 류는 모체(트레이/관) 설치품에 포함
+    if "트레이부속" in compact:
+        return []
+    # --- 스위치: 1로=단로용, 3로, 4로. N구는 구수만큼 적용(품셈에 구수 규정 없음)
+    if "스위치" in compact and not any(w in upper for w in _NOT_SWITCH):
+        ways = _first_number(spec, r"(\d)\s*로")
+        gangs = int(_first_number(spec, r"(\d)\s*구") or 1)
+        kind = {None: "단로용", 1: "단로용", 3: "3로용", 4: "4로용"}.get(int(ways) if ways else None)
+        if kind is None:
+            return []
+        rate = 100 * gangs
+        note = f"{gangs}구 = 1구 품 × {gangs}(구수 규정 없음)" if gangs > 1 else "해설 매입 기준"
+        return [(f"텀블러스위치 {kind}", "일반", rate, note)]
+    # --- 콘센트: 매입 기준. 접지형은 접지극부, 시스템박스용은 하이텐션
+    if "콘센트" in compact and not any(w in upper for w in _NOT_SWITCH if w != "소등"):
+        gangs = int(_first_number(spec, r"(\d)\s*구") or 1)
+        amp = _first_number(spec, r"(\d+)\s*A")
+        base_rate = 120 if "노출" in compact else 100
+        rate = base_rate * gangs
+        note = f"{'노출 120% ' if base_rate == 120 else ''}{gangs}구 = 1구 품 × {gangs}(구수 규정 없음)".strip() if (gangs > 1 or base_rate == 120) else "해설 매입 기준"
+        if "SYSTEMBOX" in upper:
+            return [("하이텐션콘센트", "2P", rate, "해설③ 시스템 박스 내 콘센트는 하이텐션 적용" + (f" {gangs}구" if gangs > 1 else ""))]
+        a = 15 if amp is None or amp <= 15 else (20 if amp <= 20 else 30)
+        if "접지" in compact:
+            return [(f"콘센트 접지극부 {a} A", "2P", rate, note)]
+        return [("콘센트 15 A", "2P", rate, note)] if a == 15 else []
+    # --- LED 가로등/터널/보안등기구
+    if "LED" in upper and any(w in compact for w in ("가로등기구", "터널등기구", "보안등")) and "설치" not in name:
+        watts = _first_number(text, r"(\d+(?:\.\d+)?)\s*W")
+        if watts is None:
+            return []
+        if "터널" in compact:
+            band = next((b for b in (100, 150, 200, 250) if watts <= b), None)
+            return [("LED 터널등기구 설치", f"{band} W 이하", 100)] if band else []
+        if "보안등" in compact:
+            band = next((b for b in (50, 100) if watts <= b), None)
+            return [("LED 보안등기구 설치", f"{band} W 이하", 100)] if band else []
+        band = next((b for b in (100, 150, 200, 250) if watts <= b), None)
+        return [("LED 가로등기구 설치", f"{band} W 이하", 100)] if band else []
+    # --- 가로등철주(Pole): 5-27 인력 설치
+    if "가로등철주" in compact or "가로등주" in compact and "기계경비" not in compact:
+        height = _first_number(text, r"(\d+(?:\.\d+)?)\s*[mM](?!m)")
+        band = next((h for h in _POLE_HEIGHTS if height is not None and height <= h), None)
+        if band is None:
+            return []
+        lamps = "2등용" if re.search(r"2\s*등", text) else "1등용"
+        return [("PoleLight", f"{band} m 이하 {lamps} 인력", 100, "전기 5-27 Pole 인력설치(1등용 기준)")]
+    # --- 접지
+    if "접지봉" in compact and "천공" not in compact:
+        return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100)]
+    if "접지" in compact and "단자함" in compact:
+        return [("접지시험단자함", "일반", 100)]
+    # --- 피뢰침(일반형, 높이 1~1.5 m)
+    if "피뢰침" in compact:
+        return [("피뢰침 설치", "길이 7.5 m 이하", 100)]
+    # --- UPS
+    if "무정전" in compact or "UPS" in upper:
+        kva = _first_number(text, r"(\d+(?:\.\d+)?)\s*kVA")
+        label = next((l for b, l in _UPS_BANDS if kva is not None and kva <= b), None)
+        return [("무정전 전원장치(UPS, CVCF) 설치", label, 100)] if label else []
+    # --- 케이블 헤드 지지금구
+    if "케이블헤드지지금구" in compact:
+        return [("케이블 헤드 지지금구 설치", "지지금구 설치", 100)]
+    # --- 압착단자·러그: 4-37 전력케이블 단말처리 1개소 (러그 1개 = 1개소로 계산)
+    if "러그" in compact or "압착단자" in compact:
+        n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
+        size = next((s for s in _TERMINAL_SIZES if n is not None and n <= s), None)
+        if size is None:
+            return []
+        label = f"{size:,} ㎟ 이하" if size >= 1000 else f"{size} ㎟ 이하"
+        return [("전력케이블 단말처리", label, 100, "단말처리 1개소당 기준(러그 1개=1개소)")]
+    # --- 직선접속제: 4-36 전력케이블 직선접속
+    if "직선접속" in compact:
+        n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
+        size = next((s for s in _TERMINAL_SIZES if n is not None and n <= s), None)
+        if size is None:
+            return []
+        label = f"{size:,} ㎟ 이하" if size >= 1000 else f"{size} ㎟ 이하"
+        return [("전력케이블 직선접속", label, 100)]
+    return None
+
+
+def electric_candidates(name: str, spec: str) -> list[tuple]:
+    text = f"{name} {spec}"
+    misc = _misc_candidates(name, spec)
+    if misc is not None:
+        return misc
     boxed = _box_candidates(name, spec)
     if boxed is not None:
         return boxed

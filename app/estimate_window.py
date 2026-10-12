@@ -393,7 +393,7 @@ class EstimateWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(30)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for col, width in zip(range(10), (46, 46, 190, 190, 46, 78, 92, 92, 140, 120)):
+        for col, width in zip(range(10), (44, 44, 170, 170, 44, 66, 86, 86, 110, 110)):
             self.table.setColumnWidth(col, width)
         header.setStretchLastSection(True)
         self.table.itemChanged.connect(self._on_item_changed)

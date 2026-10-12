@@ -286,11 +286,25 @@ def _note(sheet: Worksheet, row: int, text: str | None) -> None:
     cell.alignment = LEFT
 
 
-def no_pumsam_reason(name: Any) -> str:
-    """품셈 수량이 0으로 들어간 이유."""
-    text = str(name or "").upper()
+_PANEL_WORDS = ("분전반", "배전반", "저압반", "동력반", "변압기반", "특고압반", "제어반", "차단기함", "개폐기", "발전기", "수배전")
+_CIVIL_WORDS = ("터파기", "되메우기", "맨홀", "레미콘", "철근", "합판", "각재", "형틀", "이형제", "WIRE MESH", "장비운반", "기계경비", "코아", "비트", "리밍", "천공", "부가가치세", "방화포", "조명탑")
+_MATERIAL_WORDS = ("와샤", "WASHER", "너트", "NUT", "볼트", "BOLT", "철선", "철못", "산소", "아세틸렌", "철판", "강판", "강봉", "환봉", "형광", "용융아연", "RAIL", "CHANNEL", "JOINER", "MOLD", "POWDER", "FLINT", "표지시트", "애자", "밴드", "단자카바", "스리브", "슬리브", "접지크램프", "저감제", "수막처리")
+_TELECOM_WORDS = ("광케이블", "UTP", "MODULE", "CPU", "POWER SUPPLY", "I/O", "통신", "감시장치", "프로그래밍", "연동시험", "종합시험", "원격")
+
+
+def no_pumsam_reason(name: Any, spec: Any = None) -> str:
+    """품셈 수량이 0으로 들어간 이유(비고 오른쪽 칸에 적는다)."""
+    text = f"{name or ''} {spec or ''}".upper()
     if any(word.upper() in text for word in _NO_PUMSAM_ACCESSORY):
         return "품셈 없음: 부속품(모체 자재 설치품에 포함)"
+    if any(word.upper() in text for word in _CIVIL_WORDS):
+        return "품셈 없음: 전기 품셈 범위 밖(토목·건축·장비 공종)"
+    if any(word.upper() in text for word in _TELECOM_WORDS):
+        return "품셈 없음: 통신·제어 품셈 대상(통신 파트로 생성하거나 직접 입력)"
+    if any(word.upper() in text for word in _PANEL_WORDS):
+        return "품셈 없음: 규격에 용량(AF·회로수·kVA)이 없어 품셈을 고를 수 없음(품셈 연결로 지정)"
+    if any(word.upper() in text for word in _MATERIAL_WORDS):
+        return "품셈 없음: 자재 단품(별도 설치 품셈 없음)"
     return "품셈 없음: 해당 품셈을 찾지 못함(직접 입력)"
 
 
@@ -532,7 +546,7 @@ def write_ilwidae_sheet(
                 if applied:
                     notes.append(applied)
                 if not pumsam_found:
-                    notes.append(no_pumsam_reason(item.name))
+                    notes.append(no_pumsam_reason(item.name, item.spec))
                 _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=LEFT)
                 _note(sheet, cursor, " · ".join(notes))
             else:

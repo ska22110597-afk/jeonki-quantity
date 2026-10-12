@@ -477,3 +477,25 @@ def test_2026_supplement_rows_present():
     keys = {(r["명칭"], r["규격"]) for r in electric_pumsam_rows()}
     assert ("LED가로등기구", "150 W 이하") in keys
     assert ("커버나이프스위치", "100 A") in keys
+
+
+def test_misc_unmatched_items_now_match() -> None:
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+
+    def first(name, spec):
+        m = match_pumsam(name, spec, rows)
+        assert m, (name, spec)
+        return m[0]
+
+    assert first("파상형 폴리에틸렌 전선관", "30㎜(가로등,신호,구내)")["품셈근거"].startswith("전기5-1")
+    assert first("매입스위치", "15A, 250V 3로1구")["명칭"] == "텀블러스위치 3로용"
+    two = first("매입스위치", "15A, 250V 1로2구")
+    assert two["할증%"] == 200
+    assert first("콘센트", "매입-접지형, 15A 250V 1구")["명칭"] == "콘센트 접지극부 15 A"
+    assert first("러그단자(IEC 90)", "동관단자 2 HOLE 240 ㎟")["품셈근거"].startswith("전기4-37")
+    assert first("직선접속제", "95㎟")["품셈근거"].startswith("전기4-36")
+    assert first("가로등철주", "11m POLE, 2.8m ARM(분체도장)")["규격"] == "12 m 이하 1등용 인력"
+    assert first("무정전전원장치(UPS)", "3상 20kVA")["품셈근거"].startswith("전기5-45")
+    assert not match_pumsam("분전반", "L-1(휴게소)세종방향", rows)  # 용량 규격이 없으면 고르지 않는다

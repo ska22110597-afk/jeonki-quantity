@@ -478,17 +478,20 @@ def _match_telecom_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[
 
 def _match_electric_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """전선·케이블·박스의 긴 품명을 5-3/5-4/5-10/5-13 원표 줄로 바꿔 찾는다(다른 방법이 모두 실패했을 때만)."""
-    for book_name, book_spec, rate in electric_candidates(str(name or ""), str(spec or "")):
+    for cand in electric_candidates(str(name or ""), str(spec or "")):
+        book_name, book_spec, rate = cand[:3]
+        note = cand[3] if len(cand) > 3 else f"해설 다심 {rate}%"
         key = lookup_key(book_name, book_spec)
         hit = [row for row in _row_index(rows).by_exact.get(key, ()) if has_pumsam_qty(row)]
         if hit:
-            if rate == 100:
+            if rate == 100 and (len(cand) <= 3 or note == "해설 매입 기준"):
                 return hit
             out = []
             for row in hit:  # 다심 케이블: 1C 품에 심수 할증(5-11 해설)을 곱한다
                 copy = dict(row)
-                copy["할증%"] = float(row.get("할증%") or 100) * rate / 100
-                copy["품셈근거"] = f"{row.get('품셈근거') or ''} 해설 다심 {rate}%".strip()
+                if rate != 100:
+                    copy["할증%"] = float(row.get("할증%") or 100) * rate / 100
+                copy["품셈근거"] = f"{row.get('품셈근거') or ''} {note}".strip()
                 out.append(copy)
             return out
     return []
