@@ -419,12 +419,6 @@ def _match_pumsam_candidates(names: list[str], spec: Any, rows: list[PumsamRow])
         unique = _match_pumsam_unique_item(candidate, rows)
         if unique:
             return [row for row in unique if has_pumsam_qty(row)]
-    compact = lookup_key(names[0] if names else "", "").lower()
-    if "tray" in compact or "트레이" in compact:
-        for candidate in names:
-            ceiling = _match_pumsam_ceiling(candidate, "1 mm2", rows)
-            if ceiling:
-                return _preferred_match_group(candidate, ceiling)
     return []
 
 

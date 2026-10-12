@@ -20,10 +20,11 @@ def test_fittings_excluded_but_conduit_kept():
 def test_user_exclude_file(tmp_path):
     words = load_fitting_excludes(tmp_path)
     assert (tmp_path / EXCLUDE_FILE_NAME).exists()
-    (tmp_path / EXCLUDE_FILE_NAME).write_text("# 설명\n파상형\n", encoding="utf-8")
+    (tmp_path / EXCLUDE_FILE_NAME).write_text("# 설명\n시험관\n", encoding="utf-8")
     words = load_fitting_excludes(tmp_path)
-    assert fitting_excluded("파상형 폴리에틸렌 전선관", "65㎜", words)
-    assert not fitting_excluded("파상형 폴리에틸렌 전선관", "65㎜")
+    assert fitting_excluded("시험관 전선관", "65㎜", words)
+    assert not fitting_excluded("시험관 전선관", "65㎜")
+    assert fitting_excluded("파상형 폴리에틸렌 전선관", "65㎜")  # 품셈 부속품률 표에 없는 관은 기본 제외
 
 
 def test_fitting_rate_follows_pumsam_5_2():

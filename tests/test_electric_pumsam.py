@@ -230,8 +230,8 @@ def test_pe_cd_paren_place_and_tray_size_match() -> None:
     assert tray[0]["품셈"] == 0.23
     assert "30000" in str(tray[0]["규격"]).replace(",", "")
     angle = match_pumsam("Hi-Tec Tray부속(분체도장)", "BEARING ANGLE, L370", rows)
-    assert angle
-    assert angle[0]["품셈"] == 0.18
+    # 규격(폭×높이)이 없는 트레이 지지·부속품은 표준품셈 5-8 해설상 트레이 설치품에 포함 → 별도 품 없음
+    assert not angle
 
 
 def test_ceiling_3mm2_and_6mm2_bands_pick_nearest_이상_이하() -> None:
