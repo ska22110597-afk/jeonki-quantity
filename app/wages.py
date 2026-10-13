@@ -17,7 +17,7 @@ from app.paths import bundled_data_dir, ensure_result_directory, is_allowed_exce
 WAGES_SHEET_NAME = "노임단가"
 WAGES_DB_FILENAME = "노임단가.xlsx"
 WAGES_HEADERS = ["직종", "노임단가", "비고"]
-WAGE_COL_WIDTHS = (17, 17, 40)
+WAGE_COL_WIDTHS = (17, 17, 70)
 WAGE_ROW_HEIGHT = 25
 WAGE_NUMBER_FORMAT = "#,##0"
 WAGE_FONT = Font(name="굴림", size=11)

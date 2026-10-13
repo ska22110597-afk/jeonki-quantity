@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -62,6 +63,7 @@ class IlwidaeBlock:
     material_qty: float = 1.0  # 자재 수량(할증 포함)
     labor_jobs: list[str] = field(default_factory=list)
     labor_qtys: list[float] = field(default_factory=list)
+    explain: list[list[Any]] = field(default_factory=list)  # 일위대가 품 해설 시트 행
 
 
 _CONDUIT_ANCHORS = (
@@ -306,7 +308,90 @@ def parse_ilwidae_blocks(sheet: Worksheet) -> list[IlwidaeBlock]:
     return blocks
 
 
-NOTE_COL = 15  # 비고(13) 오른쪽 한 칸을 띄우고 적용 기준을 적는다.
+NOTE_COL = 16  # 비고(13) 오른쪽 두 칸을 띄우고 적용 기준을 적는다.
+_REF_RE = re.compile(r"^((?:전기|통신) ?\d+(?:-\d+)+)\s*(.*)$")
+
+
+def split_pumsam_ref(text: str) -> tuple[str, str]:
+    """`전기 4-31 해설⑧ …` → (`전기 4-31`, `해설⑧ …`). 비고 칸에는 앞부분만 둔다."""
+    matched = _REF_RE.match(text or "")
+    if not matched:
+        return text or "", ""
+    return matched.group(1), matched.group(2).strip()
+
+
+EXPLAIN_SHEET_NAME = "일위대가 품 해설"
+EXPLAIN_HEADERS = ["호표", "명칭", "규격", "단위", "적용 품셈(명칭 · 규격)", "품셈근거", "직종", "품셈 원표 품", "적용 할증", "일위대가 인부 수량", "자재 부속·잡재료", "적용 방법 해설"]
+
+
+def _explain_rows(ho_no, item, labors, found, ref, ref_extra, qty, waste_note, fitting_rate, has_sundry):
+    rows: list[list[Any]] = []
+    extras: list[str] = []
+    if fitting_rate:
+        label = "CD전선관" if abs(fitting_rate - CD_FITTING_RATE) < 1e-9 else "전선관"
+        extras.append(f"전선관부속품비 {label}의 {round(fitting_rate * 100)}%")
+    if has_sundry:
+        extras.append(f"잡재료비 {round(SUNDRY_RATE * 100)}%")
+    if qty and abs(qty - 1) > 1e-9:
+        extras.append(f"자재 할증 반영 수량 {qty:g}" + (f" ({waste_note})" if waste_note else ""))
+    for index, labor in enumerate(labors):
+        if not found:
+            how = "품셈표에 없어 인부 수량 0 — " + no_pumsam_reason(item.name, item.spec)
+        else:
+            parts: list[str] = []
+            book = str(labor.get("명칭") or "")
+            lspec = str(labor.get("규격") or "")
+            if book and lspec and item.spec and lspec.replace(" ", "") != str(item.spec).replace(" ", ""):
+                parts.append(f"단가대비표 규격과 달라 품셈 '{lspec}' 구간 적용")
+            rate = pumsam_rate_value(labor)
+            if abs(rate - 1) > 1e-9:
+                parts.append(f"장소·조건 할증 {round(rate * 100)}% 곱함")
+            if labor.get("환산"):
+                parts.append(str(labor["환산"]))
+            if "CD" in f"{book}{lspec}".upper() or "PE" in lspec.upper():
+                parts.append("CD·PE관: 합성수지 전선관 품의 80% (100mm 이상은 100%) — 품셈표에 환산해 둔 값")
+            if ref_extra:
+                parts.append(ref_extra)
+            how = " · ".join(parts) or "품셈표 값을 그대로 적용"
+        rows.append([
+            ho_no if index == 0 else None,
+            item.name if index == 0 else None,
+            item.spec if index == 0 else None,
+            item.unit if index == 0 else None,
+            f"{labor.get('명칭') or ''} · {labor.get('규격') or ''}".strip(" ·") if found else "-",
+            ref if (found and index == 0) else None,
+            labor.get("노무명칭"),
+            labor.get("품셈") if found else 0,
+            f"{round(pumsam_rate_value(labor) * 100)}%" if found else None,
+            pumsam_qty_value(labor) * pumsam_rate_value(labor),
+            ", ".join(extras) if index == 0 else None,
+            how,
+        ])
+    return rows
+
+
+def write_explain_sheet(sheet: Worksheet, blocks: list["IlwidaeBlock"]) -> None:
+    """일위대가마다 품셈을 어떻게 적용했는지 한 줄씩 적는다."""
+    sheet.title = EXPLAIN_SHEET_NAME
+    sheet.append(EXPLAIN_HEADERS)
+    for block in blocks:
+        for row in block.explain:
+            sheet.append(row)
+    widths = (7, 28, 24, 6, 34, 11, 12, 11, 9, 13, 34, 70)
+    for idx, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(idx)].width = width
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill("solid", fgColor="D9E1F2")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    for row in sheet.iter_rows(min_row=2):
+        row[11].alignment = Alignment(wrap_text=True, vertical="top")
+        row[7].number_format = "General"
+        row[9].number_format = "General"
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:L{max(sheet.max_row, 1)}"
+
+
 _NO_PUMSAM_ACCESSORY = ("부속", "부품", "행거", "커넥터", "앵커", "볼트", "너트", "브라켓", "BRACKET", "커버", "COVER", "클램프", "CLAMP", "새들", "철물", "서포트", "고정", "밴드", "엘보")
 
 
@@ -438,7 +523,7 @@ def _write_percent_material_row(
     _set_cell(sheet, row, 1, name, font=BODY_FONT)
     _set_cell(sheet, row, 2, spec, font=BODY_FONT)
     _set_cell(sheet, row, 3, "식", font=BODY_FONT, align=CENTER)
-    _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+    _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="General")
     _price(sheet, row, 5, f"=IF(D{row}=0,0,TRUNC(F{row}/D{row},2))")
     _amount(sheet, row, 6, f"=TRUNC(F{material_row}*{rate},1)")
     _idle_labor_expense(sheet, row)
@@ -451,7 +536,7 @@ def _write_tool_loss_row(sheet: Worksheet, row: int, labor_rows: list[int]) -> N
     _set_cell(sheet, row, 1, "공구손료", font=BODY_FONT)
     _set_cell(sheet, row, 2, "직접노무비의 3%", font=BODY_FONT)
     _set_cell(sheet, row, 3, "식", font=BODY_FONT, align=CENTER)
-    _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="0.000")
+    _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="General")
     _price(sheet, row, 5, _zero_price())
     _amount(sheet, row, 6, _qty_times_price(row, "E"))
     _price(sheet, row, 7, _zero_price())
@@ -500,7 +585,7 @@ def write_ilwidae_sheet(
                     "품셈근거": "",
                 }
             ]
-        ref = format_pumsam_ref(labors[0].get("품셈근거") or "")
+        ref, ref_extra = split_pumsam_ref(format_pumsam_ref(labors[0].get("품셈근거") or ""))
         title = f"{item.name} {item.spec or ''}  ( 호표 {ho_no} )".strip()
         title_row = cursor
         _set_cell(sheet, cursor, 1, title, font=BODY_FONT, align=LEFT)
@@ -514,7 +599,7 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 1, item.name, font=BODY_FONT)
         _set_cell(sheet, cursor, 2, item.spec, font=BODY_FONT)
         _set_cell(sheet, cursor, 3, item.unit or "개", font=BODY_FONT, align=CENTER)
-        _set_cell(sheet, cursor, 4, qty, font=BODY_FONT, align=RIGHT, number_format="0.000")
+        _set_cell(sheet, cursor, 4, qty, font=BODY_FONT, align=RIGHT, number_format="General")
         _price(sheet, cursor, 5, _price_ref(item, compare_sheet))
         _amount(sheet, cursor, 6, _qty_times_price(cursor, "E"))
         _idle_labor_expense(sheet, cursor)
@@ -532,7 +617,11 @@ def write_ilwidae_sheet(
                 sheet,
                 cursor,
                 "전선관부속품비",
-                f"전선관의 {round(fitting_rate * 100)}%",
+                (
+                    f"CD전선관의 {round(fitting_rate * 100)}%"
+                    if abs(fitting_rate - CD_FITTING_RATE) < 1e-9
+                    else f"전선관의 {round(fitting_rate * 100)}%"
+                ),
                 material_row,
                 fitting_rate,
             )
@@ -557,7 +646,7 @@ def write_ilwidae_sheet(
                 labor_qty_formula_with_place(labor),
                 font=BODY_FONT,
                 align=RIGHT,
-                number_format="0.000",
+                number_format="General",
             )
             job_lit = str(job).replace('"', '""')
             _idle_material_expense(sheet, cursor)
@@ -579,6 +668,10 @@ def write_ilwidae_sheet(
                 applied = applied_spec_note(item.spec, labor)
                 if applied:
                     notes.append(applied)
+                if ref_extra:
+                    notes.append(ref_extra)
+                if pumsam_found and ("CD" in f"{labor.get('명칭')}{labor.get('규격')}".upper() or "PE" in str(labor.get("규격") or "").upper()):
+                    notes.append("합성수지 전선관 품의 80%(100mm 이상 100%)")
                 if not pumsam_found:
                     notes.append(no_pumsam_reason(item.name, item.spec))
                 _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=LEFT)
@@ -602,6 +695,10 @@ def write_ilwidae_sheet(
         _amount(sheet, cursor, 10, f"=SUM(J{first_data}:J{last_data})")
         _amount(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
         _set_cell(sheet, cursor, 13, None)
+        explain_rows = _explain_rows(
+            ho_no, item, labors, pumsam_found, ref, ref_extra, qty, waste_note,
+            fitting_rate, bool(conduit or wire),
+        )
         blocks.append(
             IlwidaeBlock(
                 item=item,
@@ -616,6 +713,7 @@ def write_ilwidae_sheet(
                 material_qty=qty,
                 labor_jobs=[str(l.get("노무명칭") or fallback_labor) for l in labors],
                 labor_qtys=[pumsam_qty_value(l) * pumsam_rate_value(l) for l in labors],
+                explain=explain_rows,
             )
         )
         cursor += 2

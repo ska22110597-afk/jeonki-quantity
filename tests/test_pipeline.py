@@ -81,7 +81,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         wages = result[WAGES_SHEET_NAME]
         assert wages.column_dimensions["A"].width == 17
         assert wages.column_dimensions["B"].width == 17
-        assert wages.column_dimensions["C"].width == 40
+        assert wages.column_dimensions["C"].width == 70
         assert wages["B4"].number_format == "#,##0"
         assert wages.row_dimensions[4].height == 25
 
@@ -587,7 +587,7 @@ def test_quantity_mode_keeps_estimate_parts(tmp_path: Path) -> None:
         wages = result[WAGES_SHEET_NAME]
         assert wages.column_dimensions["A"].width == 17
         assert wages.column_dimensions["B"].width == 17
-        assert wages.column_dimensions["C"].width == 40
+        assert wages.column_dimensions["C"].width == 70
         assert wages["B4"].number_format == "#,##0"
         assert wages.row_dimensions[4].height == 25
     finally:

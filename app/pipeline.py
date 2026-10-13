@@ -672,6 +672,9 @@ def build_result_workbook(
             )
             if blocks_out is not None:
                 blocks_out.extend(blocks)
+            from app.ilwidae import write_explain_sheet
+
+            write_explain_sheet(sheets.take("일위대가 품 해설"), blocks)
         if estimate is not None:
             copied = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_estimate_sheet(copied, estimate)

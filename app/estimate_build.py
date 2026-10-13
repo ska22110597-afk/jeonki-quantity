@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from app.discipline import normalize_discipline
@@ -286,26 +286,66 @@ def duplicate_rows(entries: list[IlwidaeEntry]) -> set[int]:
     return dup
 
 
+def _check_category(entry: IlwidaeEntry) -> tuple[int, str, str]:
+    """(정렬순위, 분류, 사유). 직접 손볼 수 있는 것이 먼저 오게 한다."""
+    from app.ilwidae import no_pumsam_reason
+
+    if entry.matched:
+        return 9, "중복", "같은 품명·규격이 두 번 나옴"
+    reason = no_pumsam_reason(entry.name, entry.spec)
+    text = reason.replace("품셈 없음: ", "")
+    if "부속품" in text:
+        return 5, "부속품", text
+    if "토목" in text or "건축" in text:
+        return 6, "토목·건축", text
+    if "자재" in text:
+        return 7, "자재 단품", text
+    if "통신" in text:
+        return 4, "통신 설비", text
+    if "용량" in text or "규격" in text:
+        return 2, "규격·용량 없음", text
+    if "찾지" in text or "연결" in text:
+        return 1, "품셈 못 찾음", text
+    return 3, "기타", text
+
+
 def _write_check_sheet(workbook: Workbook, entries: list[IlwidaeEntry]) -> None:
     """품셈 미매칭·중복 품목을 한 시트에 모아 둔다. 문제가 없으면 시트를 만들지 않는다."""
     if CHECK_SHEET_NAME in workbook.sheetnames:
         del workbook[CHECK_SHEET_NAME]
     dup = duplicate_rows(entries)
-    problems = [(e, "품셈 미매칭" if not e.matched else "") for e in entries]
-    problems = [(e, why) for i, (e, why) in enumerate(problems) if why or i in dup]
+    problems = [(i, e) for i, e in enumerate(entries) if not e.matched or i in dup]
     if not problems:
         return
     sheet = workbook.create_sheet(CHECK_SHEET_NAME)
-    sheet.append(["호표", "명칭", "규격", "단위", "점검 내용", "조치"])
-    index_of = {id(e): i for i, e in enumerate(entries)}
-    for entry, why in problems:
-        notes = [why] if why else []
-        if index_of[id(entry)] in dup:
+    sheet.append(["호표", "명칭", "규격", "단위", "분류", "점검 내용", "조치"])
+    rows = []
+    for i, entry in problems:
+        order, kind, reason = _check_category(entry)
+        notes = []
+        if not entry.matched:
+            notes.append(reason if order != 9 else "품셈 미매칭")
+        if i in dup:
             notes.append("같은 품명·규격이 중복")
-        action = "품셈 연결 기능으로 연결하거나 일위대가의 인부 수량을 직접 입력" if not entry.matched else "하나만 남길지 확인"
-        sheet.append([entry.ho_no, entry.name, entry.spec, entry.unit, " · ".join(notes), action])
-    for col, width in zip("ABCDEF", (8, 30, 30, 8, 24, 50)):
+            if entry.matched:
+                kind = "중복"
+        action = (
+            "품셈 연결 기능으로 연결하거나 일위대가의 인부 수량을 직접 입력"
+            if not entry.matched and order in (1, 2, 3)
+            else "품셈이 없는 항목이라 대부분 그대로 둠(필요하면 인부 수량 직접 입력)"
+            if not entry.matched
+            else "하나만 남길지 확인"
+        )
+        rows.append((order if not (i in dup and entry.matched) else 9, entry.ho_no, [entry.ho_no, entry.name, entry.spec, entry.unit, kind, " · ".join(notes), action]))
+    rows.sort(key=lambda r: (r[0], r[1] if isinstance(r[1], (int, float)) else 0))
+    for _, _, row in rows:
+        sheet.append(row)
+    for col, width in zip("ABCDEFG", (8, 30, 30, 8, 14, 44, 50)):
         sheet.column_dimensions[col].width = width
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:G{sheet.max_row}"
 
 
 def layout_ok(path: Path) -> bool:

@@ -295,7 +295,7 @@ def test_window_has_status_column_and_filters(session) -> None:
 def test_ilwidae_note_columns(session) -> None:
     """비고(13)에는 품셈근거만, 한 칸 띄운 15열에 적용 기준·품셈 없음 사유를 적는다."""
     ws = session.workbook["일위대가"]
-    notes = [ws.cell(r, 15).value for r in range(5, ws.max_row + 1) if ws.cell(r, 15).value]
+    notes = [ws.cell(r, 16).value for r in range(5, ws.max_row + 1) if ws.cell(r, 16).value]
     assert notes, "적용 기준 칸에 글자가 있어야 합니다."
     assert all(" · " not in str(ws.cell(r, 13).value or "") for r in range(5, ws.max_row + 1))
     assert ws.cell(5, 14).value is None
