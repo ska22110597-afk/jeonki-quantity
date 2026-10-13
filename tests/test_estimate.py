@@ -355,3 +355,15 @@ def test_custom_background_and_sound(session, tmp_path) -> None:
     assert not root.set_background(str(tmp_path / "none.png"))
     assert root.set_background(None)
     assert window.sound_check.isChecked()
+
+
+def test_per_100m_and_km_pumsam_scaled_to_one_meter() -> None:
+    from app.ilwidae import length_unit_divisor, scale_to_unit
+
+    row = {"명칭": "접지공사", "규격": "접지선(38 ㎟ )매설", "단위": "100 m", "노무명칭": "내선전공", "품셈": 0.56, "할증%": 100}
+    out = scale_to_unit([row], "m")[0]
+    assert out["품셈"] == pytest.approx(0.0056) and "÷100" in out["환산"]
+    km = dict(row, 단위="km", 품셈=16.67)
+    assert scale_to_unit([km], "M")[0]["품셈"] == pytest.approx(0.01667)
+    assert scale_to_unit([row], "개")[0]["품셈"] == 0.56  # m 단위 품목이 아니면 건드리지 않는다
+    assert length_unit_divisor(dict(row, 단위="M"), "m") == 1.0

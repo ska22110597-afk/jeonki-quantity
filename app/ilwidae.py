@@ -137,6 +137,37 @@ def match_pumsam(item: LineItem, rows: list[PumsamRow]) -> list[PumsamRow]:
     return match_pumsam_rows(item.name, item.spec, rows)
 
 
+_PER_LENGTH = {"100m": 100.0, "10m": 10.0, "1000m": 1000.0, "km": 1000.0}
+_PER_COUNT = {"10개": 10.0, "100개": 100.0, "10개소": 10.0, "100개소": 100.0}
+_COUNT_UNITS = {"개", "ea", "개소", "pcs"}
+
+
+def length_unit_divisor(row: PumsamRow, item_unit: Any) -> float:
+    """품셈이 100 m·km 당으로 적혀 있고 단가대비표 품목이 m 단위면 몇으로 나눌지(아니면 1)."""
+    book = re.sub(r"\s+", "", str(row.get("단위") or "")).lower()
+    item = re.sub(r"\s+", "", str(item_unit or "")).lower()
+    if item == "m":
+        return _PER_LENGTH.get(book, 1.0)
+    if item in _COUNT_UNITS:
+        return _PER_COUNT.get(book, 1.0)
+    return 1.0
+
+
+def scale_to_unit(labors: list[PumsamRow], item_unit: Any) -> list[PumsamRow]:
+    """100 m 당·km 당 품을 1 m 당으로 환산한 복사본을 돌려준다. 근거 칸에 환산 사실을 남긴다."""
+    out: list[PumsamRow] = []
+    for row in labors:
+        divisor = length_unit_divisor(row, item_unit)
+        if divisor == 1.0:
+            out.append(row)
+            continue
+        copy = dict(row)
+        copy["품셈"] = round(pumsam_qty_value(row) / divisor, 8)
+        copy["환산"] = f"품셈 {str(row.get('단위')).strip()} 기준 → 1 {str(item_unit).strip()} 환산(÷{divisor:g})"
+        out.append(copy)
+    return out
+
+
 def labor_qty_formula(row: PumsamRow) -> str:
     qty = pumsam_qty_value(row)
     rate = pumsam_rate_value(row)
@@ -457,6 +488,7 @@ def write_ilwidae_sheet(
         ho_no += 1
         labors = match_pumsam_rows(item.name, item.spec, pumsam_rows)
         pumsam_found = bool(labors)
+        labors = scale_to_unit(labors, item.unit)
         if not labors:
             labors = [
                 {
@@ -542,6 +574,8 @@ def write_ilwidae_sheet(
                 rate_pct = round(pumsam_rate_value(labor) * 100)
                 if rate_pct != 100:
                     notes.append(f"장소 품 할증 {rate_pct}%")
+                if labor.get("환산"):
+                    notes.append(str(labor["환산"]))
                 applied = applied_spec_note(item.spec, labor)
                 if applied:
                     notes.append(applied)
