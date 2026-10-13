@@ -408,9 +408,22 @@ _MATERIAL_WORDS = ("와샤", "WASHER", "너트", "NUT", "볼트", "BOLT", "철�
 _TELECOM_WORDS = ("광케이블", "UTP", "MODULE", "CPU", "POWER SUPPLY", "I/O", "통신", "감시장치", "프로그래밍", "연동시험", "종합시험", "원격")
 
 
+def small_cable_joint(name: Any, spec: Any = None) -> bool:
+    """10㎟ 이하 전력케이블 단말처리·직선접속. 4-36/4-37 해설④ 에 따라 5-13 포설 품에 포함되므로 따로 품을 붙이지 않는다."""
+    from app.pumsam import spec_match_parts
+
+    text = f"{name or ''}"
+    if not (("단말처리" in text or "직선접속" in text) and "케이블" in text):
+        return False
+    size, unit, _qual, _ = spec_match_parts(spec)
+    return size is not None and str(unit or "mm2") in ("mm2", "㎟") and size < 16
+
+
 def no_pumsam_reason(name: Any, spec: Any = None) -> str:
     """품셈 수량이 0으로 들어간 이유(비고 오른쪽 칸에 적는다)."""
     text = f"{name or ''} {spec or ''}".upper()
+    if any(w in text for w in ("단말처리", "직선접속")) and "케이블" in text:
+        return "품셈 없음: 10㎟ 이하 케이블 단말·접속은 4-36/4-37 해설④에 따라 5-13 포설 품에 포함(별도 계상 안 함)"
     if any(word.upper() in text for word in _NO_PUMSAM_ACCESSORY):
         return "품셈 없음: 부속품(모체 자재 설치품에 포함)"
     if any(word.upper() in text for word in _CIVIL_WORDS):
@@ -571,7 +584,7 @@ def write_ilwidae_sheet(
         if item.section or (item.spec is None and item.unit is None):
             continue
         ho_no += 1
-        labors = match_pumsam_rows(item.name, item.spec, pumsam_rows)
+        labors = [] if small_cable_joint(item.name, item.spec) else match_pumsam_rows(item.name, item.spec, pumsam_rows)
         pumsam_found = bool(labors)
         labors = scale_to_unit(labors, item.unit)
         if not labors:
