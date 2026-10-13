@@ -489,7 +489,11 @@ def test_misc_unmatched_items_now_match() -> None:
         assert m, (name, spec)
         return m[0]
 
-    assert first("파상형 폴리에틸렌 전선관", "30㎜(가로등,신호,구내)")["품셈근거"].startswith("전기5-1")
+    rows30 = match_pumsam("파상형 폴리에틸렌 전선관", "30㎜(가로등,신호,구내)", rows)
+    assert {r["노무명칭"] for r in rows30} == {"배전전공", "보통인부"}
+    assert all(r["품셈근거"].startswith("전기4-31") and r["할증%"] == 150 for r in rows30)  # 4-31 해설⑧ 50% 가산
+    assert {r["품셈"] for r in rows30} == {0.006, 0.014}
+    assert match_pumsam("파상형 폴리에틸렌 전선관", "65㎜", rows)[0]["규격"] == "80 mm 이하"
     assert first("매입스위치", "15A, 250V 3로1구")["명칭"] == "텀블러스위치 3로용"
     two = first("매입스위치", "15A, 250V 1로2구")
     assert two["할증%"] == 200
@@ -507,3 +511,21 @@ def test_tunnel_through_connector_uses_5_11_1() -> None:
     rows = load_pumsam_database(None, "전기")
     m = match_pumsam("분기접속제(관통형/커버)", "95㎟", rows)
     assert m and m[0]["품셈"] == 0.036 and m[0]["할증%"] == 35 and m[0]["품셈근거"].startswith("전기5-11-1")
+
+
+def test_duct_laying_rows_and_street_light_surcharge() -> None:
+    import pytest
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+    steel = {r["노무명칭"]: r for r in match_pumsam("강관 포설", "Φ200x2열", rows)}
+    assert steel["배전전공"]["품셈"] == 0.061 and steel["배전전공"]["할증%"] == 180
+    lamp = {r["노무명칭"]: r for r in match_pumsam("강관 포설(가로등)", "Φ200x2열", rows)}
+    assert lamp["보통인부"]["품셈"] == 0.122 and lamp["보통인부"]["할증%"] == pytest.approx(180 * 1.3)
+    corr = {r["노무명칭"]: r for r in match_pumsam("전선관 포설(가로등)", "Φ30x1열", rows)}
+    assert corr["배전전공"]["품셈"] == 0.006 and corr["배전전공"]["할증%"] == pytest.approx(150)
+    combo = {r["노무명칭"]: r for r in match_pumsam("전선관 포설", "Φ80x3열,Φ50x2열", rows)}  # 5열
+    assert combo["배전전공"]["품셈"] == pytest.approx((0.009 * 3 + 0.007 * 2) / 5)
+    assert combo["배전전공"]["할증%"] == pytest.approx(380) and "보간" in combo["배전전공"]["품셈근거"]
+    ten = {r["노무명칭"]: r for r in match_pumsam("전선관 포설", "Φ80x6열,Φ50x4열", rows)}
+    assert ten["배전전공"]["할증%"] == 580

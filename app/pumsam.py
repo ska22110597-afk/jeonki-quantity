@@ -476,11 +476,38 @@ def _match_telecom_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[
     return []
 
 
+def _combine_duct_rows(parts: list, rate: float, note: str, rows: list[PumsamRow]) -> list[PumsamRow]:
+    total = sum(n for _, _, n in parts)
+    per_part: list[tuple[int, dict]] = []
+    for book_name, book_spec, count in parts:
+        hit = [row for row in _row_index(rows).by_exact.get(lookup_key(book_name, book_spec), ()) if has_pumsam_qty(row)]
+        if not hit:
+            return []
+        per_part.append((count, {str(r.get("노무명칭")): r for r in hit}))
+    jobs = list(per_part[0][1])
+    out: list[PumsamRow] = []
+    for job in jobs:
+        if any(job not in table for _, table in per_part):
+            return []
+        base = per_part[0][1][job]
+        copy = dict(base)
+        copy["품셈"] = round(sum(pumsam_qty_value(table[job]) * count for count, table in per_part) / total, 8)
+        copy["할증%"] = rate
+        copy["품셈근거"] = f"{base.get('품셈근거') or ''} 해설 {note}".strip()
+        out.append(copy)
+    return out
+
+
 def _match_electric_adapter(name: Any, spec: Any, rows: list[PumsamRow]) -> list[PumsamRow]:
     """전선·케이블·박스의 긴 품명을 5-3/5-4/5-10/5-13 원표 줄로 바꿔 찾는다(다른 방법이 모두 실패했을 때만)."""
     for cand in electric_candidates(str(name or ""), str(spec or "")):
         book_name, book_spec, rate = cand[:3]
         note = cand[3] if len(cand) > 3 else f"해설 다심 {rate}%"
+        if book_name == "__combo__":  # 관 여러 열(동시 배열): (기본품×열수 합)÷총열수 에 동시적용율
+            merged = _combine_duct_rows(book_spec, rate, note, rows)
+            if merged:
+                return merged
+            continue
         key = lookup_key(book_name, book_spec)
         hit = [row for row in _row_index(rows).by_exact.get(key, ()) if has_pumsam_qty(row)]
         if hit:

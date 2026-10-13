@@ -119,6 +119,7 @@ def _conduit_size_candidates(name: str, spec: str) -> list[tuple[str, str, int]]
     return None
 
 
+_CORRUGATED_SIZES = (16, 30, 50, 80, 100, 125, 150, 175, 200)
 _CD_SIZES = (14, 16, 22, 28, 36, 42, 54, 70, 82, 92, 104, 125)
 _TERMINAL_SIZES = (10, 16, 25, 35, 50, 70, 95, 120, 185, 240, 300, 400, 500, 630, 800, 1000, 2000)
 _POLE_HEIGHTS = (5, 6, 7, 8, 9, 10, 12, 14)
@@ -132,6 +133,55 @@ def _first_number(text: str, pattern: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
+_ROWS_RATE = {1: 100, 2: 180, 3: 260, 4: 340, 6: 420, 8: 500, 10: 580, 12: 660, 14: 740, 16: 820}  # 4-29·4-31 해설 동시 배열
+_STEEL_SIZES = (16, 22, 36, 54, 75, 100, 125, 150, 175, 200, 250, 300)
+_DUCT_PART = re.compile(r"[ΦφøØ∅]\s*(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+)\s*열")
+
+
+def _duct_candidates(name: str, spec: str) -> list[tuple] | None:
+    """강관 포설 Φ200x2열 → 4-29 강관 설치, 전선관 포설 Φ30x1열 → 4-31 합성수지 파형관 설치.
+
+    열 수는 해설의 동시 배열 할증(2열 180%, 3열 260%, 4열 340%, 6열 420%…), 서로 다른 관을 함께 적으면
+    (기본품×열수의 합)×동시적용율÷총열수. 가로등·신호등·보안등·구내는 강관 30%, 파형관 50% 가산.
+    """
+    compact = f"{name}{spec}".replace(" ", "")
+    if "포설" not in compact or not ("강관" in compact or "전선관" in compact) or "케이블" in compact:
+        return None
+    parts_raw = _DUCT_PART.findall(spec or "")
+    if not parts_raw:
+        return None
+    steel = "강관" in compact
+    parts: list[tuple[str, str, int]] = []
+    for size_text, rows in parts_raw:
+        size = float(size_text)
+        sizes = _STEEL_SIZES if steel else _CORRUGATED_SIZES
+        bucket = next((b for b in sizes if size <= b), None)
+        if bucket is None:
+            return []
+        if steel:
+            parts.append(("강관 설치", f"ø{bucket} mm 이하", int(rows)))
+        else:
+            parts.append(("합성수지 파형관 설치", f"{bucket} mm 이하", int(rows)))
+    total = sum(n for _, _, n in parts)
+    base = _ROWS_RATE.get(total)
+    interpolated = False
+    if base is None:  # 해설 표에 없는 열 수(5, 7, 9열 등)는 앞뒤 값을 직선으로 이어 계산하고 비고에 밝힌다.
+        keys = sorted(_ROWS_RATE)
+        lower = max((k for k in keys if k < total), default=None)
+        upper = min((k for k in keys if k > total), default=None)
+        if lower is None or upper is None:
+            return []
+        base = _ROWS_RATE[lower] + (_ROWS_RATE[upper] - _ROWS_RATE[lower]) * (total - lower) / (upper - lower)
+        interpolated = True
+    if steel and total > 10:
+        return []
+    extra_rate = 0.30 if steel else 0.50
+    extra = any(w in compact for w in ("가로등", "신호", "보안등", "구내"))
+    rate = base * (1 + extra_rate) if extra else base
+    note = f"{'4-29 강관' if steel else '4-31 파형관(전선관 포설)'} {total}열 {base:g}%" + ("(표에 없어 보간)" if interpolated else "") + (f" ×가산 {round(extra_rate*100)}%" if extra else "")
+    return [("__combo__", parts, rate, note)]
+
+
 def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
     """5-1 파상관, 5-23 스위치·콘센트, 5-26 LED 등기구, 5-27 폴, 5-42 피뢰침, 5-45 UPS, 3-38 접지, 4-36/4-37 접속·단말, 5-9-1 레이스웨이 등.
 
@@ -140,11 +190,19 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
     text = f"{name} {spec}"
     compact = text.replace(" ", "")
     upper = compact.upper()
-    # --- 파상형(파형) 폴리에틸렌 전선관 → 5-1 CD(PE) 전선관, 같거나 큰 호칭
-    if "파상형" in compact and "전선관" in compact:
+    # --- 파상형(파형) 전선관: 4-31 합성수지 파형관 설치(배전전공+보통인부, 지중). 가로등·신호등·보안등·구내는 50% 가산(해설⑧)
+    if "파상형" in compact or "파형관" in compact:
         n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:mm|㎜)")
-        size = next((s for s in _CD_SIZES if n is not None and s >= n), None)
-        return [("CD전선관", f"CD {size} mm", 100, "파상형관은 CD관 호칭 기준 준용")] if size else []
+        size = next((s for s in _CORRUGATED_SIZES if n is not None and s >= n), None)
+        if size is None:
+            return []
+        extra = any(w in compact for w in ("가로등", "신호", "보안등", "구내"))
+        if extra:
+            return [("합성수지 파형관 설치", f"{size} mm 이하", 150, "해설⑧ 가로등·신호등·보안등·구내 50% 가산")]
+        return [("합성수지 파형관 설치", f"{size} mm 이하", 100, "지중 파형관 설치 기준")]
+    duct = _duct_candidates(name, spec)
+    if duct is not None:
+        return duct
     # --- 레이스웨이: 본체만 5-9-1, 부속(END CAP·COVER 등)은 품셈 없음
     if "레이스웨이" in compact:
         if "BODY" in upper:
@@ -220,7 +278,7 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
     if "러그" in compact or "압착단자" in compact:
         n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
         size = next((s for s in _TERMINAL_SIZES if n is not None and n <= s), None)
-        if size is None:
+        if size is None or size < 16:  # 4-37 1 kV 이하 1C 의 10 ㎟ 이하 칸은 원문에 값이 없음("-")
             return []
         label = f"{size:,} ㎟ 이하" if size >= 1000 else f"{size} ㎟ 이하"
         return [("전력케이블 단말처리", label, 100, "단말처리 1개소당 기준(러그 1개=1개소)")]
@@ -231,7 +289,7 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
     if "직선접속" in compact:
         n = _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
         size = next((s for s in _TERMINAL_SIZES if n is not None and n <= s), None)
-        if size is None:
+        if size is None or size < 16:  # 4-36 도 1 kV 이하 1C 의 10 ㎟ 이하 칸이 "-" (해설④: 10㎟ 이하는 5-13 준용)
             return []
         label = f"{size:,} ㎟ 이하" if size >= 1000 else f"{size} ㎟ 이하"
         return [("전력케이블 직선접속", label, 100)]
