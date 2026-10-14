@@ -585,6 +585,7 @@ def build_result_workbook(
     fitting_excludes: tuple[str, ...] | None = None,
     blocks_out: list | None = None,
 ) -> Workbook:
+    explain_blocks: list = []
     if fitting_excludes is None:
         fitting_excludes = DEFAULT_FITTING_EXCLUDES
     workbook = Workbook()
@@ -672,9 +673,7 @@ def build_result_workbook(
             )
             if blocks_out is not None:
                 blocks_out.extend(blocks)
-            from app.ilwidae import write_explain_sheet
-
-            write_explain_sheet(sheets.take("일위대가 품 해설"), blocks)
+            explain_blocks = list(blocks)
         if estimate is not None:
             copied = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_estimate_sheet(copied, estimate)
@@ -687,6 +686,10 @@ def build_result_workbook(
     _write_pumsam_sheet(pumsam_sheet, pumsam_rows)
     wages_sheet = sheets.take(WAGES_SHEET_NAME)
     _write_wages_sheet(wages_sheet, wage_rows)
+    if explain_blocks:  # 해설 시트는 맨 오른쪽(점검목록 앞)에 둔다.
+        from app.ilwidae import write_explain_sheet
+
+        write_explain_sheet(sheets.take("일위대가 품 해설"), explain_blocks)
     return workbook
 
 

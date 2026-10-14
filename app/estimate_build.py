@@ -81,6 +81,7 @@ class IlwidaeEntry:
     has_sundry: bool
     pumsam_ref: str = ""
     matched: bool = True  # 품셈 인부가 붙었는지(미매칭이면 False)
+    sum_row: int = 0  # 일위대가 시트의 [ 합계 ] 줄(재료비·노무비·경비 단가가 모여 있다)
 
     @property
     def labor_unit(self) -> float:
@@ -115,6 +116,7 @@ class EstimateSession:
     warnings: list[str] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     db_dir: Path | None = None
+    project_name: str = ""  # 내역서 맨 위 [ 공사명 ] 줄에 적는다
 
 
 def extract_entries(workbook: Workbook, blocks: list[IlwidaeBlock], wage_rows: list[dict]) -> list[IlwidaeEntry]:
@@ -145,6 +147,7 @@ def extract_entries(workbook: Workbook, blocks: list[IlwidaeBlock], wage_rows: l
                 fitting_rate=block.fitting_rate,
                 has_sundry=block.has_sundry,
                 pumsam_ref=block.pumsam_ref,
+                sum_row=block.sum_row,
                 matched=bool(block.pumsam_ref) or any(q > 0 for q in block.labor_qtys),
             )
         )
@@ -525,6 +528,7 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
                 fitting_rate=fitting_rate,
                 has_sundry=has_sundry,
                 pumsam_ref=ref,
+                sum_row=sum_row,
                 matched=any(
                     (_number(sheet.cell(r, 4).value) or 0) > 0 for rows_ in labor_rows.values() for r in rows_
                 ),
@@ -575,7 +579,7 @@ def strip_section_number(title: str) -> str:
 
 
 def section_label(number: int, title: str) -> str:
-    return f"{number}. {strip_section_number(title)}"
+    return f"{number}.{strip_section_number(title)}"
 
 
 MODE_ILWIDAE = "일위대가"  # 품목마다 일위대가 호표 단가(재료+노무)를 쓰는 방식
@@ -584,11 +588,69 @@ QUANTITY_SHEET = "공량산출서"
 QUANTITY_HEAD = ("공정번호", "공 정", "명  칭", "규  격", "단위", "수  량", "직  종", "단위당 인부수", "공량(인)", "품셈근거")
 
 
+def _write_plain_estimate(workbook: Workbook, name: str, sections: "list[EstimateSection]", project_name: str = "") -> None:
+    """일위대가 방식 내역서. 단가는 일위대가의 [ 합계 ](부속품·잡재료·공구손료까지 이미 들어 있음)를 그대로 가져오고,
+    내역서에서는 수량만 곱한다. 공종별 합계 줄을 둔다."""
+    sheet = workbook.create_sheet(name)
+    cols = 13
+    _set_cell(sheet, 1, 1, f"[ {project_name or '공  사  명'} ]", font=BODY_FONT, align=LEFT)
+    heads = {1: "품      명", 2: "규      격", 3: "단위", 4: "수량", 5: "재  료  비", 7: "노  무  비", 9: "경      비", 11: "합      계", 13: "비  고"}
+    for col in range(1, cols + 1):
+        _set_cell(sheet, 2, col, heads.get(col), font=HEADER_FONT, align=CENTER)
+        _set_cell(sheet, 3, col, None, font=HEADER_FONT, align=CENTER)
+    for col in range(5, 13):
+        _set_cell(sheet, 3, col, "단  가" if col % 2 else "금  액", font=HEADER_FONT, align=CENTER)
+    for rng in ("A2:A3", "B2:B3", "C2:C3", "D2:D3", "E2:F2", "G2:H2", "I2:J2", "K2:L2", "M2:M3"):
+        sheet.merge_cells(rng)
+
+    def blank(r: int) -> None:
+        for c in range(1, cols + 1):
+            _set_cell(sheet, r, c, None)
+
+    row = 4
+    for number, section in enumerate(sections, start=1):
+        blank(row)
+        _set_cell(sheet, row, 1, section_label(number, section.title), align=LEFT)
+        row += 1
+        first = row
+        for ln in section.lines:
+            e = ln.entry
+            _set_cell(sheet, row, 1, e.name)
+            _set_cell(sheet, row, 2, e.spec)
+            _set_cell(sheet, row, 3, e.unit, align=CENTER)
+            _set_cell(sheet, row, 4, ln.qty, align=RIGHT, number_format=qty_format(ln.qty))
+            for price_col, src in ((5, "F"), (7, "H"), (9, "J")):
+                _set_cell(sheet, row, price_col, f"={_ref(e.sum_row, src)}", align=RIGHT, number_format=MONEY_FORMAT)
+                _set_cell(sheet, row, price_col + 1, f"=D{row}*{get_column_letter(price_col)}{row}", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, row, 11, f"=E{row}+G{row}+I{row}", align=RIGHT, number_format=MONEY_FORMAT)
+            _set_cell(sheet, row, 12, f"=F{row}+H{row}+J{row}", align=RIGHT, number_format=MONEY_FORMAT)
+            note = f"호표 {e.ho_no}" + (f" · {ln.remark}" if ln.remark else "")
+            _set_cell(sheet, row, 13, note)
+            row += 1
+        last = row - 1
+        for _ in range(BLANK_ROWS_BEFORE_TOTAL):
+            blank(row)
+            row += 1
+        blank(row)
+        _set_cell(sheet, row, 1, "[ 합           계 ]")
+        for col, letter_ in ((6, "F"), (8, "H"), (10, "J"), (12, "L")):
+            _set_cell(sheet, row, col, f"=SUM({letter_}{first}:{letter_}{max(last, first)})", align=RIGHT, number_format=MONEY_FORMAT)
+        row += 1
+    _apply_sheet_look(sheet, row - 1, cols, row_height=FORM_ROW_HEIGHT)
+    apply_form_widths(sheet, cols, remark_col=cols)
+    sheet.freeze_panes = "A4"
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+
+
 def write_estimate_sheet(
     workbook: Workbook,
     name: str,
     sections: "EstimateSection | list[EstimateSection]",
     mode: str = MODE_ILWIDAE,
+    project_name: str = "",
 ) -> None:
     """내역서 시트 하나에 공정을 순서대로 이어 쓴다. 제목 줄은 「1. 공정명」으로 번호가 자동으로 붙는다.
 
@@ -597,6 +659,9 @@ def write_estimate_sheet(
     if isinstance(sections, EstimateSection):
         sections = [sections]
     qty_mode = mode == MODE_QUANTITY
+    if not qty_mode:
+        _write_plain_estimate(workbook, name, list(sections), project_name)
+        return
     qty_rows: list[tuple[int, str, "EstimateLine", int]] = []  # (공정번호, 공정명, 줄, 내역서 행)
     labor_pos: list[tuple[int, str, int]] = []  # (공정번호, 직종, 노무비 행)
     sheet = workbook.create_sheet(name)
@@ -813,7 +878,7 @@ def save_session(session: EstimateSession, sections: list[EstimateSection], dest
     if sections:  # 모든 공정을 시트 하나에 순서대로 쓴다.
         name = _sheet_name(ESTIMATE_SHEET_NAME, taken)
         names.append(name)
-        write_estimate_sheet(workbook, name, list(sections), mode)
+        write_estimate_sheet(workbook, name, list(sections), mode, session.project_name)
     # 일위대가목록 바로 뒤에 내역서를 둔다.
     anchor = workbook.sheetnames.index(ILWIDAE_LIST_SHEET_NAME) if ILWIDAE_LIST_SHEET_NAME in workbook.sheetnames else len(workbook.sheetnames) - 1
     for offset, name in enumerate(names, start=1):

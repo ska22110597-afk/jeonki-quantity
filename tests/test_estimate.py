@@ -52,18 +52,18 @@ def test_save_two_sections_and_layout(session, tmp_path) -> None:
     assert names.index("내역서") == names.index("일위대가목록") + 1
     assert "내역서(2)" not in names  # 공정이 여러 개여도 시트 하나에 이어 쓴다
     ws = wb["내역서"]
-    assert ws["A5"].value == "1. 공사"  # 번호는 자동, 직접 적은 번호는 지운다
-    titles = [ws.cell(r, 1).value for r in range(5, ws.max_row + 1) if str(ws.cell(r, 1).value or "")[:3] in ("1. ", "2. ")]
-    assert titles[-1] == "2. 공용부"
-    assert ws["A6"].value == lines[0].entry.name
-    assert ws["E6"].value.startswith("='일위대가'!F")
-    labels = [ws.cell(r, 1).value for r in range(6, ws.max_row + 1)]
-    assert "[ 배관 부속재 ]" in labels
-    assert "[ 소모 잡자재 ]" in labels
-    assert "노 무 비" in labels
-    assert "[ 공 구 손 료 ]" in labels
-    assert "( 합       계 )" in labels
-    assert ws.column_dimensions["N"].hidden is True
+    assert ws["A4"].value == "1.공사"  # 번호는 자동, 직접 적은 번호는 지운다
+    titles = [ws.cell(r, 1).value for r in range(4, ws.max_row + 1) if str(ws.cell(r, 1).value or "")[:2] in ("1.", "2.")]
+    assert titles[-1] == "2.공용부"
+    assert ws["A5"].value == lines[0].entry.name
+    assert ws["E5"].value.startswith("='일위대가'!F")  # 일위대가 [ 합계 ] 단가를 그대로 가져온다
+    assert ws["G5"].value.startswith("='일위대가'!H") and ws["I5"].value.startswith("='일위대가'!J")
+    assert ws["M5"].value.startswith("호표 ")
+    labels = [ws.cell(r, 1).value for r in range(5, ws.max_row + 1)]
+    assert "[ 합           계 ]" in labels
+    # 부속품·잡재료·공구손료는 일위대가에서 이미 계산했으므로 내역서에서 다시 계산하지 않는다.
+    for word in ("[ 배관 부속재 ]", "[ 소모 잡자재 ]", "노 무 비", "[ 공 구 손 료 ]"):
+        assert word not in labels
 
 
 @pytest.mark.skipif(shutil.which("soffice") is None, reason="LibreOffice 없음")
@@ -78,15 +78,12 @@ def test_totals_match_python(session, tmp_path) -> None:
         capture_output=True,
         timeout=170,
     )
-    ws = openpyxl.load_workbook(out / dest.name, data_only=True)["내역서"]
-    mat_items = sum(l.qty * l.entry.material_unit for l in lines)
-    fit = sum(l.qty * l.entry.material_unit * l.entry.fitting_rate for l in lines)
-    sundry = sum(l.qty * l.entry.material_unit * 0.02 for l in lines if l.entry.has_sundry)
-    labor = sum(l.qty * l.entry.labor_unit for l in lines)
-    total_row = next(r for r in range(6, ws.max_row + 1) if str(ws.cell(r, 1).value).startswith("( 합"))
-    assert ws.cell(total_row, 6).value == pytest.approx(mat_items + fit + sundry, abs=1)
-    assert ws.cell(total_row, 8).value == pytest.approx(labor * 1.03, abs=1)
-    assert ws.cell(total_row, 11).value == pytest.approx(mat_items + fit + sundry + labor * 1.03, abs=2)
+    wb = openpyxl.load_workbook(out / dest.name, data_only=True)
+    ws, ilw = wb["내역서"], wb["일위대가"]
+    total_row = next(r for r in range(5, ws.max_row + 1) if "합" in str(ws.cell(r, 1).value) and "계" in str(ws.cell(r, 1).value))
+    for col, src in ((6, 6), (8, 8), (10, 10), (12, 12)):
+        expected = sum(l.qty * (ilw.cell(l.entry.sum_row, src).value or 0) for l in lines)
+        assert ws.cell(total_row, col).value == pytest.approx(expected, abs=1)
 
 
 def test_window_select_and_add(session) -> None:
@@ -131,7 +128,7 @@ def test_saving_twice_does_not_stack_sheets(session, tmp_path) -> None:
     second = save_session(session, [EstimateSection("C", lines)], tmp_path)
     names = openpyxl.load_workbook(second).sheetnames
     assert [n for n in names if n.startswith("내역서")] == ["내역서"]
-    assert openpyxl.load_workbook(second)["내역서"]["A5"].value == "1. C"
+    assert openpyxl.load_workbook(second)["내역서"]["A4"].value == "1.C"
 
 
 def test_resume_from_saved_ilwidae_list(session, tmp_path) -> None:
@@ -168,8 +165,8 @@ def test_summary_has_six_blank_rows_and_no_dotted_qty(session, tmp_path) -> None
     sec = EstimateSection("t", [EstimateLine(session.entries[0], 1), EstimateLine(session.entries[1], 2.5)])
     out = save_session(session, [sec], tmp_path)
     ws = openpyxl.load_workbook(out)["내역서"]
-    assert ws.cell(6, 4).number_format == "#,##0"
-    assert ws.cell(7, 4).number_format == "#,##0.0##"
+    assert ws.cell(5, 4).number_format == "#,##0"
+    assert ws.cell(6, 4).number_format == "#,##0.0##"
     total = next(r for r in range(1, ws.max_row + 1) if "합" in str(ws.cell(r, 1).value or "") and "계" in str(ws.cell(r, 1).value or ""))
     assert all(ws.cell(total - k, 1).value is None for k in range(1, 7))
 
@@ -367,3 +364,11 @@ def test_per_100m_and_km_pumsam_scaled_to_one_meter() -> None:
     assert scale_to_unit([km], "M")[0]["품셈"] == pytest.approx(0.01667)
     assert scale_to_unit([row], "개")[0]["품셈"] == 0.56  # m 단위 품목이 아니면 건드리지 않는다
     assert length_unit_divisor(dict(row, 단위="M"), "m") == 1.0
+
+
+def test_sheet_order_explanations_on_the_right(session, tmp_path) -> None:
+    sec = EstimateSection("t", [EstimateLine(session.entries[0], 1)])
+    names = openpyxl.load_workbook(save_session(session, [sec], tmp_path)).sheetnames
+    assert names[:4] == ["단가대비표", "일위대가", "일위대가목록", "내역서"]
+    assert names[-2:] == ["일위대가 품 해설", "점검목록"] or names[-1] == "일위대가 품 해설"
+    assert names.index("품셈표") < names.index("일위대가 품 해설")
