@@ -246,8 +246,21 @@ def _pick_estimate_sheet(workbook: Any, preferred_title: str | None = None) -> A
             continue
         if title in {"단가대비표", "일위대가"}:
             continue
+        if _sheet_is_empty(candidate):
+            continue  # 비어 있는 Sheet1 등은 건너뛰고 단가대비표를 읽는다
         return candidate
+    for candidate in workbook.worksheets:
+        if str(candidate.title) == "단가대비표":
+            return candidate
     return workbook.worksheets[0]
+
+
+def _sheet_is_empty(sheet: Any) -> bool:
+    for row in sheet.iter_rows(values_only=True):
+        for value in row:
+            if value is not None and str(value).strip():
+                return False
+    return True
 
 
 def _trim_trailing(grid: SheetRows) -> SheetRows:
