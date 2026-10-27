@@ -116,6 +116,16 @@ def _conduit_size_candidates(name: str, spec: str) -> list[tuple[str, str, int]]
         m = _MM.search(spec or "")
         if m:
             return [("CD전선관", f"CD {m.group(1)} mm", 100)]
+    # 경질비닐PVC전선관 HI, 28mm → 경질비닐전선관 HI 28 mm (5-1). 가요·CD·파형·폴리에틸렌 관은 따로 처리한다.
+    if (
+        ("경질비닐" in compact or "PVC" in compact.upper() or "합성수지" in compact)
+        and "전선관" in compact
+        and not any(w in compact for w in ("가요", "CD", "파상", "파형", "폴리에틸렌", "PE"))
+    ):
+        m = _MM.search(spec or "")
+        if m:
+            label = f"HI {m.group(1)} mm" if "HI" in (spec or "").upper() else f"{m.group(1)} mm"
+            return [("경질비닐전선관", label, 100)]
     return None
 
 
@@ -315,7 +325,9 @@ def electric_candidates(name: str, spec: str) -> list[tuple]:
         if mm:
             return [("금속제가요전선관", f"{mm.group(1)} mm", 100)]
     upper = text.upper()
-    if any(word in text for word in ("전선관", "접지봉", "단자", "덕트", "트레이", "커넥터")):
+    # 「트레이용 제어용케이블」의 트레이는 포설 장소 설명이지 트레이 자재가 아니다.
+    guard_text = text.replace("트레이용", "")
+    if any(word in guard_text for word in ("전선관", "접지봉", "단자", "덕트", "트레이", "커넥터")):
         return []
     areas = _AREA.findall(text)
     if not areas:

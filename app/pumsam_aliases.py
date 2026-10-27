@@ -14,6 +14,8 @@ from app.estimate_parse import lookup_key
 
 PLACE_SUFFIXES = ("_지중", "_노출", "_매입", "_직매", "_천장", "_벽면")
 PLACE_PAREN = re.compile(r"[\(（]\s*(지중|노출|매입|직매|천장|벽면)\s*[\)）]\s*$")
+# 경질비닐PVC전선관-지중 처럼 밑줄 대신 하이픈으로 적은 지중 표기
+PLACE_HYPHEN = re.compile(r"\s*[-－]\s*지중\s*$")
 PLACE_SURCHARGE_RATES = {
     "_노출": 120,
     "_매입": 100,
@@ -201,6 +203,9 @@ def split_place_name(name: Any) -> tuple[str, str]:
     matched = PLACE_PAREN.search(text)
     if matched:
         return text[: matched.start()].strip(), f"_{matched.group(1)}"
+    hyphen = PLACE_HYPHEN.search(text)
+    if hyphen:
+        return text[: hyphen.start()].strip(), "_지중"
     return text, ""
 
 

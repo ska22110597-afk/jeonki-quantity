@@ -529,3 +529,24 @@ def test_duct_laying_rows_and_street_light_surcharge() -> None:
     assert combo["배전전공"]["할증%"] == pytest.approx(380) and "보간" in combo["배전전공"]["품셈근거"]
     ten = {r["노무명칭"]: r for r in match_pumsam("전선관 포설", "Φ80x6열,Φ50x4열", rows)}
     assert ten["배전전공"]["할증%"] == 580
+
+
+def test_tray_control_cable_and_pvc_conduit_hyphen_underground() -> None:
+    """공내역서 표기(트레이용 제어용케이블, 경질비닐PVC전선관-지중, HI, 28mm)가 5-13/5-1로 매칭된다."""
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+
+    def first(name, spec):
+        return [(r["노무명칭"], r["품셈"], r["할증%"]) for r in match_pumsam(name, spec, rows)]
+
+    cvv = "0.6/1kV 트레이용 절연난연 제어용케이블(F-CVV)"
+    assert first(cvv, "3C*1.5㎟") == [("저압케이블전공", 0.019, 100)]
+    assert first(cvv, "4C*1.5㎟") == [("저압케이블전공", 0.026, 100)]
+    assert first(cvv, "5C*1.5㎟") == [("저압케이블전공", 0.032, 100)]
+    assert first("0.6/1kv 트레이용 제어용케이블(F-CVV-S)", "2C*1.5㎟") == [("저압케이블전공", 0.014, 100)]
+    # 하이픈 지중 표기 = 밑줄 지중(할증 70%)
+    assert first("경질비닐PVC전선관-지중", "HI, 28mm") == [("내선전공", 0.08, 70)]
+    assert first("경질비닐전선관_지중", "HI 28 mm") == [("내선전공", 0.08, 70)]
+    # 트레이 자재 자체는 여전히 케이블 품으로 잡히지 않는다
+    assert first("케이블트레이 부속", "행거") == []
