@@ -568,3 +568,18 @@ def test_grounding_rod_set_accessory_and_level_switch() -> None:
     # 수위스위치(플로트)는 벽 스위치가 아니다
     assert first("수위스위치", "오뚜기식") == []
     assert first("스위치", "1로 250V 15A") == [("내선전공", 0.085, 100)]
+
+
+def test_pipe_inlet_waterproofing_uses_2_18() -> None:
+    """관로구방수 ∮30·∮40 = 전기 2-18 삽입형 관로구 방수장치(200 mm 이하) 0.132."""
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+    for spec in ("∮30", "∮40"):
+        found = {r["노무명칭"]: r for r in match_pumsam("관로구방수", spec, rows)}
+        assert set(found) == {"특고압케이블전공", "보통인부"}
+        assert all(r["품셈"] == 0.132 and r["할증%"] == 100 for r in found.values())
+        assert all("전기2-18" in str(r["품셈근거"]) for r in found.values())
+    # 씰링가스켓 200 mm 이하 줄(2-18, 케이블 금구류 부착)은 그대로 유지된다
+    gasket = {r["노무명칭"]: r["품셈"] for r in match_pumsam("케이블 금구류 부착", "200 mm 이하", rows)}
+    assert gasket == {"특고압케이블전공": 0.026, "보통인부": 0.12}

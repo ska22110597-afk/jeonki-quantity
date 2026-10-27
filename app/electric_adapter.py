@@ -268,6 +268,12 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
             return []
         lamps = "2등용" if re.search(r"2\s*등", text) else "1등용"
         return [("PoleLight", f"{band} m 이하 {lamps} 인력", 100, "전기 5-27 Pole 인력설치(1등용 기준)")]
+    # --- 관로구방수 ∮30·∮40: 2-18 삽입형 관로구 방수장치(200 mm 이하)
+    if "관로구" in compact and "방수" in compact:
+        n = _first_number(spec, r"[∮ΦφøØ∅]\s*(\d+(?:\.\d+)?)") or _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:mm|㎜)")
+        if n is not None and n > 200:
+            return []
+        return [("삽입형 관로구방수장치", "200 mm 이하", 100, "전기2-18 삽입형 관로구 방수장치")]
     # --- 접지
     if "접지봉" in compact and "천공" not in compact:
         if any(w in compact for w in _ACCESSORY):  # 접지봉커넥터 등 부속은 접지봉 설치품에 포함
