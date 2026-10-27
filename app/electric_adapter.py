@@ -135,7 +135,7 @@ _TERMINAL_SIZES = (10, 16, 25, 35, 50, 70, 95, 120, 185, 240, 300, 400, 500, 630
 _POLE_HEIGHTS = (5, 6, 7, 8, 9, 10, 12, 14)
 _UPS_BANDS = ((3, "3 kVA 이하"), (10, "3 kVA 초과 ~ 10 kVA 이하"), (20, "10 kVA 초과 ~ 20 kVA 이하"), (30, "20 kVA 초과 ~ 30 kVA 이하"),
               (100, "30 kVA 초과 ~ 100 kVA 이하"), (250, "100 kVA 초과 ~ 250 kVA 이하"), (500, "250 kVA 초과 ~ 500 kVA 이하"))
-_NOT_SWITCH = ("박스", "BOX", "센서", "제어", "콘트롤러", "컨트롤러", "차단기", "나이프", "마그넷", "소등")
+_NOT_SWITCH = ("박스", "BOX", "센서", "제어", "콘트롤러", "컨트롤러", "차단기", "나이프", "마그넷", "소등", "수위", "FLOAT", "플로트", "리밋", "리미트")
 
 
 def _first_number(text: str, pattern: str) -> float | None:
@@ -270,6 +270,12 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
         return [("PoleLight", f"{band} m 이하 {lamps} 인력", 100, "전기 5-27 Pole 인력설치(1등용 기준)")]
     # --- 접지
     if "접지봉" in compact and "천공" not in compact:
+        if any(w in compact for w in _ACCESSORY):  # 접지봉커넥터 등 부속은 접지봉 설치품에 포함
+            return []
+        rods = re.search(r"(\d+)\s*본", text)
+        count = int(rods.group(1)) if rods else 1
+        if count > 1:  # 접지봉-3본(1조) = 1본 품 × 3
+            return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100 * count, f"접지봉 {count}본 1조 = 1본 품 × {count}")]
         return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100)]
     if "접지" in compact and "단자함" in compact:
         return [("접지시험단자함", "일반", 100)]

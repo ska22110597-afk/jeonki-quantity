@@ -550,3 +550,21 @@ def test_tray_control_cable_and_pvc_conduit_hyphen_underground() -> None:
     assert first("경질비닐전선관_지중", "HI 28 mm") == [("내선전공", 0.08, 70)]
     # 트레이 자재 자체는 여전히 케이블 품으로 잡히지 않는다
     assert first("케이블트레이 부속", "행거") == []
+
+
+def test_grounding_rod_set_accessory_and_level_switch() -> None:
+    from app.pumsam import load_pumsam_database, match_pumsam
+
+    rows = load_pumsam_database(None, "전기")
+
+    def first(name, spec):
+        return [(r["노무명칭"], r["품셈"], r["할증%"]) for r in match_pumsam(name, spec, rows)]
+
+    assert first("접지봉", "14∮*1000mm") == [("내선전공", 0.11, 100), ("보통인부", 0.08, 100)]
+    # 3본 1조는 1본 품의 3배
+    assert first("접지봉-3본", "14∮*1000mm(3본)") == [("내선전공", 0.11, 300.0), ("보통인부", 0.08, 300.0)]
+    # 접지봉커넥터는 접지봉 설치품에 포함 → 별도 품 없음
+    assert first("접지봉커넥터", "U-BLOT형 14∮") == []
+    # 수위스위치(플로트)는 벽 스위치가 아니다
+    assert first("수위스위치", "오뚜기식") == []
+    assert first("스위치", "1로 250V 15A") == [("내선전공", 0.085, 100)]
