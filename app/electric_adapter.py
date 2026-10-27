@@ -273,16 +273,28 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
         n = _first_number(spec, r"[∮ΦφøØ∅]\s*(\d+(?:\.\d+)?)") or _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:mm|㎜)")
         if n is not None and n > 200:
             return []
-        return [("삽입형 관로구방수장치", "200 mm 이하", 100, "전기2-18 삽입형 관로구 방수장치")]
-    # --- 접지
+        return [("삽입형 관로구방수장치", "200 mm 이하", 100, "삽입형 관로구 방수장치")]
+    # --- 접지 (전기 3-38)
+    # 전기용 나동선 BC 50㎟ → 접지선 매설 95 ㎟ 이하(0.008)
+    if "나동선" in compact or ("BC" in upper and "동선" in compact):
+        n = _first_number(spec or text, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
+        if n is None:
+            return []
+        band = next((b for b in (10, 35, 95, 150, 240) if n <= b), None)
+        return [("접지선매설", f"{band} ㎟ 이하" if band else "240 ㎟ 초과", 100, "접지선 매설")]
     if "접지봉" in compact and "천공" not in compact:
-        if any(w in compact for w in _ACCESSORY):  # 접지봉커넥터 등 부속은 접지봉 설치품에 포함
+        if "커넥터" in compact:  # 접지봉커넥터 = 접지선 접속 볼트체결형(3-38)
+            return [("접지선접속및단자설치", "볼트체결형", 100, "접지선 접속 볼트체결형")]
+        if any(w in compact for w in _ACCESSORY):  # 그 밖의 부속은 접지봉 설치품에 포함
             return []
         rods = re.search(r"(\d+)\s*본", text)
         count = int(rods.group(1)) if rods else 1
-        if count > 1:  # 접지봉-3본(1조) = 1본 품 × 3
-            return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100 * count, f"접지봉 {count}본 1조 = 1본 품 × {count}")]
+        if count in (2, 3):  # 접지봉-3본(1조) = 3본 연결 품(원표에 줄이 따로 있음)
+            return [("접지봉", f"지하 0.75 m 길이 1~2 m {count}본 연결", 100)]
         return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100)]
+    # --- 수위스위치(플로트): 6-2 계기 설치 일반각종 0.22, 인부는 내선전공으로 적용
+    if "수위스위치" in compact:
+        return [("수위스위치", "일반", 100, "계기 설치 일반각종 적용")]
     if "접지" in compact and "단자함" in compact:
         return [("접지시험단자함", "일반", 100)]
     # --- 피뢰침(일반형, 높이 1~1.5 m)
