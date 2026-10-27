@@ -568,8 +568,8 @@ def test_grounding_and_level_switch_researched_values() -> None:
     assert first("전기용 나동선", "BC 50㎟")[0][:3] == ("내선전공", 0.008, 100)
     assert first("수위스위치", "오뚜기식")[0][:3] == ("내선전공", 0.22, 100)
     assert first("스위치", "1로 250V 15A")[0][:3] == ("내선전공", 0.085, 100)
-    # 슬리브 접속(C TYPE)은 자재 단품: 별도 설치 품셈 없음
-    assert first("슬리브 접속", "C TYPE SLEEVE 50㎟") == []
+    # 슬리브 접속(C TYPE) = 3-38 접속 및 단자설치 압축(압축슬리브 사용) 0.097
+    assert first("슬리브 접속", "C TYPE SLEEVE 50㎟")[0][:3] == ("내선전공", 0.097, 100)
 
 
 def test_pipe_inlet_waterproofing_uses_2_18() -> None:

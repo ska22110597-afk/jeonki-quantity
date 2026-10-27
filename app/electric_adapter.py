@@ -292,6 +292,9 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
         if count in (2, 3):  # 접지봉-3본(1조) = 3본 연결 품(원표에 줄이 따로 있음)
             return [("접지봉", f"지하 0.75 m 길이 1~2 m {count}본 연결", 100)]
         return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100)]
+    # --- 슬리브 접속(C TYPE SLEEVE 50㎟): 3-38 접속 및 단자설치 압축(압축슬리브 사용) 0.097
+    if "슬리브접속" in compact or ("SLEEVE" in upper and "TYPE" in upper):
+        return [("접지선접속및단자설치", "압축(압축슬리브 사용)", 100, "압축슬리브 사용")]
     # --- 수위스위치(플로트): 6-2 계기 설치 일반각종 0.22, 인부는 내선전공으로 적용
     if "수위스위치" in compact:
         return [("수위스위치", "일반", 100, "계기 설치 일반각종 적용")]
