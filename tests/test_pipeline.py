@@ -231,6 +231,29 @@ def test_write_ilwidae_puts_both_labors_and_keeps_remark_as_ref() -> None:
     workbook.close()
 
 
+def test_duplicate_items_get_one_ilwidae_block_and_one_list_row() -> None:
+    from app.ilwidae import write_ilwidae_sheet
+    from app.pipeline import _write_generated_estimate
+
+    workbook = Workbook()
+    sheet = workbook.active
+    items = [
+        LineItem(excel_row=5, name="배선용단자함", spec="10 P 이하", unit="대", qty=1, material_price=1),
+        LineItem(excel_row=6, name="배선용단자함", spec="10 P 이하", unit="대", qty=3, material_price=1),
+        LineItem(excel_row=7, name="풀박스", spec="300*300", unit="EA", qty=2, material_price=1),
+    ]
+    blocks = write_ilwidae_sheet(sheet, items, default_pumsam_rows(), default_wage_rows())
+    assert [b.item.name for b in blocks] == ["배선용단자함", "풀박스"]
+    titles = [sheet.cell(r, 1).value for r in range(1, sheet.max_row + 1) if "( 호표" in str(sheet.cell(r, 1).value)]
+    assert len(titles) == 2
+    listing = workbook.create_sheet("목록")
+    _write_generated_estimate(listing, items, blocks)
+    names = [listing.cell(r, 1).value for r in range(5, 8)]
+    assert names[:2] == ["배선용단자함", "풀박스"]
+    assert names[2] != "배선용단자함"
+    workbook.close()
+
+
 def test_ilwidae_percent_rows_follow_conduit_and_wire_aliases() -> None:
     from app.ilwidae import write_ilwidae_sheet
 

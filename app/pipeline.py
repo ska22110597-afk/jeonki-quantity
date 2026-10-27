@@ -432,9 +432,13 @@ def _write_generated_estimate(
     filled[3][5] = "금액"
 
     excel_row = 5
+    seen_keys: set[str] = set()
     for item in items:
         if item.section:
             continue
+        if item.key in seen_keys:  # 같은 품명·규격은 목록에 한 줄만 둔다.
+            continue
+        seen_keys.add(item.key)
         block = block_by_key.get(item.key)
         _set_cell(sheet, excel_row, 1, item.name, font=BODY_FONT)
         _set_cell(sheet, excel_row, 2, item.spec, font=BODY_FONT)

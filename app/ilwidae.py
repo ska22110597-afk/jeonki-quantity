@@ -580,9 +580,13 @@ def write_ilwidae_sheet(
     blocks: list[IlwidaeBlock] = []
     ho_no = 0
     fallback_labor = default_labor_name(discipline)
+    seen_keys: set[str] = set()
     for item in items:
         if item.section or (item.spec is None and item.unit is None):
             continue
+        if item.key in seen_keys:  # 같은 품명·규격은 호표를 한 번만 만든다.
+            continue
+        seen_keys.add(item.key)
         ho_no += 1
         labors = [] if small_cable_joint(item.name, item.spec) else match_pumsam_rows(item.name, item.spec, pumsam_rows)
         pumsam_found = bool(labors)
