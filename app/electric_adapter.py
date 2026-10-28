@@ -283,8 +283,8 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
         band = next((b for b in (10, 35, 95, 150, 240) if n <= b), None)
         return [("접지선매설", f"{band} ㎟ 이하" if band else "240 ㎟ 초과", 100, "접지선 매설")]
     if "접지봉" in compact and "천공" not in compact:
-        if "커넥터" in compact:  # 접지봉커넥터 = 접지선 접속 볼트체결형(3-38)
-            return [("접지선접속및단자설치", "볼트체결형", 100, "접지선 접속 볼트체결형")]
+        if "커넥터" in compact:  # 접지봉커넥터는 접지봉 매설품(3-38 해설① 접지선 연결 포함)에 포함 - 별도 품 없음
+            return []
         if any(w in compact for w in _ACCESSORY):  # 그 밖의 부속은 접지봉 설치품에 포함
             return []
         rods = re.search(r"(\d+)\s*본", text)
@@ -292,10 +292,25 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
         if count in (2, 3):  # 접지봉-3본(1조) = 3본 연결 품(원표에 줄이 따로 있음)
             return [("접지봉", f"지하 0.75 m 길이 1~2 m {count}본 연결", 100)]
         return [("접지봉", "지하 0.75 m 길이 1~2 m 1본", 100)]
+    # --- 접지선(F-GV) 직매: 3-38 접지선 매설(10 ㎟ 이하 0.006). 옥내배선(5-10)이 아님
+    if "직매" in compact and "F-GV" in upper:
+        n = _first_number(spec or text, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
+        band = next((b for b in (10, 35, 95, 150, 240) if n is not None and n <= b), None)
+        if band is not None:
+            return [("접지선매설", f"{band} ㎟ 이하", 100, "접지선 매설(직매)")]
+    # --- 압착단자 6㎟(접지선 단자): 품셈 표기는 '압축단자' → 3-38 접속 및 단자설치 압축단자 0.016
+    #     (1.5·2.5·4·10㎟ 단자는 케이블 설치품에 포함되어 별도 품 없음)
+    if "압착단자" in compact:
+        n = _first_number(spec or text, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
+        if n == 6:
+            return [("접지선접속및단자설치", "압축단자", 100, "접지선 압축단자")]
+    # --- 현장조작반(자가펌프): 5-39 전동기 제어반 설치 0.2~2.2kW 직입기동 (펌프용량 2.2kW 이하 가정)
+    if "현장조작반" in compact:
+        return [("전동기 제어반 설치", "0.2 ~ 2.2 kW 직입기동", 100, "펌프 2.2kW 이하 가정 - 용량 확인 필요")]
     # --- 슬리브 접속(C TYPE SLEEVE 50㎟): 3-38 접속 및 단자설치 압축(압축슬리브 사용) 0.097
     if "슬리브접속" in compact or ("SLEEVE" in upper and "TYPE" in upper):
         return [("접지선접속및단자설치", "압축(압축슬리브 사용)", 100, "압축슬리브 사용")]
-    # --- 수위스위치(플로트): 6-2 계기 설치 일반각종 0.22, 인부는 내선전공으로 적용
+    # --- 수위스위치(플로트): 6-2 계기 설치 일반각종 0.22, 인부는 품셈 원본대로 계장공
     if "수위스위치" in compact:
         return [("수위스위치", "일반", 100, "계기 설치 일반각종 적용")]
     if "접지" in compact and "단자함" in compact:
@@ -368,10 +383,14 @@ def electric_candidates(name: str, spec: str) -> list[tuple]:
     if is_control:
         if cores is None:
             return []
+        shield = re.search(r"CVV-S|CCV-S|쉴드|실드|SHIELD", upper) is not None
         for label in ("제어용케이블",):
             b = _bucket(area, CONTROL_BUCKETS)
             if b is not None:
-                out.append((label, f"{_fmt(b)} ㎟ 이하 {cores}C", 100))
+                if shield:  # 5-13 해설⑥ 쉴드케이블은 120%
+                    out.append((label, f"{_fmt(b)} ㎟ 이하 {cores}C", 120, "해설⑥ 쉴드케이블 120%"))
+                else:
+                    out.append((label, f"{_fmt(b)} ㎟ 이하 {cores}C", 100))
         return out
     if cable:
         if cores not in (None, 1):

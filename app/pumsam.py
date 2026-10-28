@@ -940,6 +940,10 @@ def pumsam_identity(row: PumsamRow) -> str:
     return f"{lookup_key(row.get('명칭'), row.get('규격'))}|{labor}"
 
 
+# 품셈 원본과 다르게 넣었던 옛 줄. 저장된 DB에 남아 있어도 합칠 때 뺀다. (명칭, 규격, 노무명칭)
+RETIRED_PUMSAM_ROWS = {("수위스위치", "일반", "내선전공")}  # 원본 전기6-2 계기 설치는 계장공
+
+
 def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
     merged: dict[str, PumsamRow] = {}
     for group in groups:
@@ -950,7 +954,12 @@ def merge_pumsam_rows(*groups: list[PumsamRow]) -> list[PumsamRow]:
             row = dict(row)
             row["검색키"] = lookup_key(row.get("명칭"), row.get("규격"))
             merged[key] = row
-    return strip_place_clone_rows(list(merged.values()))
+    kept = [
+        row for row in merged.values()
+        if (str(row.get("명칭") or "").strip(), str(row.get("규격") or "").strip(), str(row.get("노무명칭") or "").strip())
+        not in RETIRED_PUMSAM_ROWS
+    ]
+    return strip_place_clone_rows(kept)
 
 
 def load_pumsam_database(directory: Path | None = None, discipline: str | None = None) -> list[PumsamRow]:
