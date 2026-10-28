@@ -291,12 +291,24 @@ def duplicate_rows(entries: list[IlwidaeEntry]) -> set[int]:
     return dup
 
 
+def blank_note(entry: IlwidaeEntry) -> str | None:
+    """대표님 일위대가에서 품셈 없음·타 품에 포함으로 공란 처리한 품목이면 그 사유."""
+    from app.ilwidae import daepyo_note
+
+    if entry.matched:
+        return None
+    return daepyo_note(entry.name, entry.spec)
+
+
 def _check_category(entry: IlwidaeEntry) -> tuple[int, str, str]:
     """(정렬순위, 분류, 사유). 직접 손볼 수 있는 것이 먼저 오게 한다."""
     from app.ilwidae import no_pumsam_reason
 
     if entry.matched:
         return 9, "중복", "같은 품명·규격이 두 번 나옴"
+    blank = blank_note(entry)
+    if blank:
+        return 8, "공란 처리", blank
     reason = no_pumsam_reason(entry.name, entry.spec)
     text = reason.replace("품셈 없음: ", "")
     if "부속품" in text:
@@ -337,6 +349,8 @@ def _write_check_sheet(workbook: Workbook, entries: list[IlwidaeEntry]) -> None:
         action = (
             "품셈 연결 기능으로 연결하거나 일위대가의 인부 수량을 직접 입력"
             if not entry.matched and order in (1, 2, 3)
+            else "대표님 일위대가 기준 공란 처리(품셈 없음·타 품에 포함) — 조치 불필요, 견적 단가는 단가대비표에 입력"
+            if not entry.matched and order == 8
             else "품셈이 없는 항목이라 대부분 그대로 둠(필요하면 인부 수량 직접 입력)"
             if not entry.matched
             else "하나만 남길지 확인"

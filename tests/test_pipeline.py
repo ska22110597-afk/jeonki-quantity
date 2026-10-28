@@ -975,3 +975,26 @@ def test_generate_session_duplicate_sheet_option(tmp_path) -> None:
     assert len(with_sheet.entries) == 2
     without = generate_session(path, "전기", tmp_path, False)
     assert "중복항목" not in without.workbook.sheetnames
+
+
+def test_blank_items_are_not_reported_as_unmatched(tmp_path) -> None:
+    from app.estimate_build import blank_note, generate_session
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "단가대비표"
+    ws.append(["단 가 대 비 표"])
+    ws.append([])
+    ws.append(["품      명", "규격", "단위", "재  료  비"])
+    ws.append([None, None, None, "적용단가"])
+    for row in (("관로구방수", "∮30", "EA", 100), ("압착단자", "압착단자, 터미널, 4㎟", "EA", 10), ("HI관", "16 mm", "M", 100)):
+        ws.append(list(row))
+    path = tmp_path / "in.xlsx"
+    wb.save(path)
+    session = generate_session(path, "전기", tmp_path)
+    notes = {e.name: blank_note(e) for e in session.entries}
+    assert notes["관로구방수"] and notes["압착단자"]
+    assert notes["HI관"] is None
+    check = session.workbook["점검목록"] if "점검목록" in session.workbook.sheetnames else None

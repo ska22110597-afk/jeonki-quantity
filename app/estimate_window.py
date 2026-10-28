@@ -48,6 +48,7 @@ from app.estimate_build import (
     EstimateSession,
     generate_session,
     set_material_price,
+    blank_note,
     open_session,
     save_session,
     MODE_ILWIDAE,
@@ -672,7 +673,7 @@ class EstimateWindow(QMainWindow):
         self.remove_section_button.setEnabled(selected)
         self.save_button.setEnabled(has_session and not busy)
         total = self.table.rowCount()
-        unmatched = sum(1 for e in self._session.entries if not e.matched) if has_session else 0
+        unmatched = sum(1 for e in self._session.entries if not e.matched and not blank_note(e)) if has_session else 0
         self.link_button.setEnabled(has_session and not busy)
         self.unmatched_only.setEnabled(has_session)
         self.count_label.setText(f"전체 {total}건 · 미매칭 {unmatched}건 · 체크 {checked}건" if has_session else "")
@@ -821,7 +822,7 @@ class EstimateWindow(QMainWindow):
                 return
         self._load_session(session)
         self._notify_done()
-        unmatched = sum(1 for e in session.entries if not e.matched)
+        unmatched = sum(1 for e in session.entries if not e.matched and not blank_note(e))
         if unmatched:
             self._append_log(f"품셈 미매칭 {unmatched}건 — '미매칭만 보기'로 확인하고 [선택 품목 품셈 연결]을 쓰세요.")
         if self._dup_rows:
@@ -873,11 +874,11 @@ class EstimateWindow(QMainWindow):
                 self._put(row, COL_MAT, _money(entry.material_unit), editable=True, right=True)
                 self._put(row, COL_LAB, _money(entry.labor_unit), right=True)
                 self._put(row, COL_NOTE, "", editable=True)
-                state_text = entry.pumsam_ref if entry.matched else "미매칭"
+                state_text = entry.pumsam_ref if entry.matched else ("공란(품셈 없음)" if blank_note(entry) else "미매칭")
                 if row in duplicates:
                     state_text += " · 중복"
                 self._put(row, COL_STATE, state_text)
-                if not entry.matched:
+                if not entry.matched and not blank_note(entry):
                     self.table.item(row, COL_STATE).setForeground(QBrush(QColor("#B3261E")))
         finally:
             self._updating = False
@@ -946,7 +947,7 @@ class EstimateWindow(QMainWindow):
             ).lower()
             hide = not all(t in haystack for t in tokens) or (self._hide_dups and row in self._dup_rows)
             if not hide and self.unmatched_only.isChecked() and self._session is not None:
-                hide = self._session.entries[row].matched
+                hide = self._session.entries[row].matched or bool(blank_note(self._session.entries[row]))
             if not hide and self.no_price_only.isChecked() and self._session is not None:
                 hide = self._session.entries[row].material_unit > 0
             self.table.setRowHidden(row, hide)
