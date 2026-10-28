@@ -255,7 +255,7 @@ def _write_estimate_sundry_form(
         return f'=IF(D{row}=0,0,TRUNC({amount_col}{row}/D{row},2))'
 
     def _line_total(row: int) -> str:
-        return f"=TRUNC(F{row}+H{row}+J{row},1)"
+        return f"=TRUNC(F{row}+H{row}+J{row},0)"
 
     rows: list[tuple[str, str, str, Any, str | None, str | None]] = []
     for job in jobs:
@@ -283,7 +283,7 @@ def _write_estimate_sundry_form(
                 sheet,
                 excel_row,
                 6,
-                f"=TRUNC(D{excel_row}*E{excel_row},1)",
+                f"=TRUNC(D{excel_row}*E{excel_row},0)",
                 font=BODY_FONT,
                 align=RIGHT,
                 number_format=AMOUNT_FORMAT,
@@ -303,7 +303,7 @@ def _write_estimate_sundry_form(
                 sheet,
                 excel_row,
                 10,
-                f"=TRUNC(I{excel_row}*D{excel_row},1)",
+                f"=TRUNC(I{excel_row}*D{excel_row},0)",
                 font=BODY_FONT,
                 align=RIGHT,
                 number_format=AMOUNT_FORMAT,
@@ -367,7 +367,7 @@ def _write_estimate_sundry_form(
         sheet,
         excel_row,
         12,
-        f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},1)",
+        f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},0)",
         font=BODY_FONT,
         align=RIGHT,
         number_format=AMOUNT_FORMAT,
@@ -464,7 +464,7 @@ def _write_generated_estimate(
             sheet,
             excel_row,
             6,
-            f"=TRUNC(E{excel_row}*D{excel_row},1)",
+            f"=TRUNC(E{excel_row}*D{excel_row},0)",
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,
@@ -474,7 +474,7 @@ def _write_generated_estimate(
             sheet,
             excel_row,
             8,
-            f"=TRUNC(G{excel_row}*D{excel_row},1)",
+            f"=TRUNC(G{excel_row}*D{excel_row},0)",
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,
@@ -484,7 +484,7 @@ def _write_generated_estimate(
             sheet,
             excel_row,
             10,
-            f"=TRUNC(I{excel_row}*D{excel_row},1)",
+            f"=TRUNC(I{excel_row}*D{excel_row},0)",
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,
@@ -502,7 +502,7 @@ def _write_generated_estimate(
             sheet,
             excel_row,
             12,
-            f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},1)",
+            f"=TRUNC(F{excel_row}+H{excel_row}+J{excel_row},0)",
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,

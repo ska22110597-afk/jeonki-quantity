@@ -268,12 +268,9 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
             return []
         lamps = "2등용" if re.search(r"2\s*등", text) else "1등용"
         return [("PoleLight", f"{band} m 이하 {lamps} 인력", 100, "전기 5-27 Pole 인력설치(1등용 기준)")]
-    # --- 관로구방수 ∮30·∮40: 2-18 삽입형 관로구 방수장치(200 mm 이하)
+    # --- 관로구방수 ∮30·∮40: 전기 표준품셈 해당 품 없음(대표님 자료) - 견적 또는 별도 산정, 노무비 공란
     if "관로구" in compact and "방수" in compact:
-        n = _first_number(spec, r"[∮ΦφøØ∅]\s*(\d+(?:\.\d+)?)") or _first_number(spec, r"(\d+(?:\.\d+)?)\s*(?:mm|㎜)")
-        if n is not None and n > 200:
-            return []
-        return [("삽입형 관로구방수장치", "200 mm 이하", 100, "삽입형 관로구 방수장치")]
+        return []
     # --- 접지 (전기 3-38)
     # 전기용 나동선 BC 50㎟ → 접지선 매설 95 ㎟ 이하(0.008)
     if "나동선" in compact or ("BC" in upper and "동선" in compact):
@@ -298,9 +295,13 @@ def _misc_candidates(name: str, spec: str) -> list[tuple] | None:
         band = next((b for b in (10, 35, 95, 150, 240) if n is not None and n <= b), None)
         if band is not None:
             return [("접지선매설", f"{band} ㎟ 이하", 100, "접지선 매설(직매)")]
-    # --- 압착단자: 품셈 표기는 '압축단자' → 3-38 접지선 접속 및 단자설치 압축단자 0.016 (규격 무관)
+    # --- 압착단자 6㎟(접지선 F-GV 단자): 품셈 표기 '압축단자' → 3-38 접속 및 단자설치 압축단자 0.016
+    #     그 밖의 규격(1.5·2.5·4·10㎟)은 케이블 설치품(5-13 해설①(마) 단자처리 포함)에 포함 - 별도 노무비 없음
     if "압착단자" in compact:
-        return [("접지선접속및단자설치", "압축단자", 100, "압축단자")]
+        n = _first_number(spec or text, r"(\d+(?:\.\d+)?)\s*(?:㎟|mm2|mm²|sq)")
+        if n == 6:
+            return [("접지선접속및단자설치", "압축단자", 100, "접지선 압축단자")]
+        return []
     # --- 현장조작반(자가펌프): 5-39 전동기 제어반 설치 0.2~2.2kW 직입기동 (펌프용량 2.2kW 이하 가정)
     if "현장조작반" in compact:
         return [("전동기 제어반 설치", "0.2 ~ 2.2 kW 직입기동", 100, "펌프 2.2kW 이하 가정 - 용량 확인 필요")]

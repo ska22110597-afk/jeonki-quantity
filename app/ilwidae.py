@@ -437,6 +437,50 @@ def no_pumsam_reason(name: Any, spec: Any = None) -> str:
     return "품셈 없음: 해당 품셈을 찾지 못함(직접 입력)"
 
 
+def daepyo_note(name: Any, spec: Any = None) -> str | None:
+    """대표님 일위대가 비고(적용 기준·공란 사유). 해당 품목이면 이 문구를 비고로 쓴다."""
+    text = f"{name or ''} {spec or ''}".upper().replace(" ", "")
+    if "파상형경질폴리에틸렌" in text:
+        return "터파기·되메우기·잔토처리 별도(해설②)"
+    if "PVC전선관" in text and "지중" in text:
+        return "지중매설 70% (해설⑨), 굴착 별도"
+    if "F-CVV-S" in text:
+        return "쉴드케이블 120% (해설⑥)"
+    if "F-CVV" in text:
+        return "2.5㎟ 미만은 2.5㎟ 품 적용(해설⑨)"
+    if "F-CV" in text:
+        if "2C*2.5" in text:
+            return "5-11 해설② 600V 10㎟ 이하는 5-13 준용, 단자처리 포함"
+        return "5-11 해설② 준용, 단자처리 포함"
+    if "F-GV" in text:
+        return "굴착·되메우기 별도(해설⑦)" if "직매" in text else "전선관 내 배선 기준"
+    if "나동선" in text:
+        return "굴착·되메우기 별도(해설⑦)"
+    if "압착단자" in text:
+        if "6㎟" in text:
+            return "접지선(F-GV 6㎟) 단자 설치"
+        return "케이블 설치품(5-13 해설①(마) 단자처리 포함)에 포함 - 별도 노무비 없음"
+    if "풀박스" in text:
+        return "천장면 적용 시 0.35인"
+    if "접지봉커넥터" in text:
+        return "접지봉 매설품(3-38 해설① 접지선 연결 포함)에 포함"
+    if "접지봉" in text:
+        return "접지선 연결·접지저항 측정 포함(해설①)"
+    if "현장조작반" in text:
+        return "펌프용량 2.2kW 이하 가정 - 용량 확인 필요, 기초 별도"
+    if "관로구방수" in text:
+        return "전기 표준품셈 해당 품 없음 - 견적 또는 별도 산정"
+    if "MESHFENCE" in text:
+        return "건축/철물 - 견적 단가 적용 대상"
+    if "제어반기초" in text:
+        return "토목·건축(콘크리트) 품셈 - 전기 품셈 미해당"
+    if "반경철판" in text or "반경관취부밴드" in text:
+        return "전기 표준품셈 해당 품 없음"
+    if "관로굴착" in text or "콘크리트절단" in text or "콘크리트포장" in text:
+        return "토목 품셈(건설공사 표준품셈) 별도 산정 대상"
+    return None
+
+
 def _write_ilwidae_header(sheet: Worksheet) -> None:
     write_title_banner(sheet, "일 위 대 가", 13)
     labels = {
@@ -486,7 +530,7 @@ def _amount(sheet: Worksheet, row: int, col: int, value: Any, align=RIGHT) -> No
 def _cost_totals(sheet: Worksheet, row: int) -> None:
     """단가=재료+노무+경비(소수 2자리), 금액=재료+노무+경비(소수 1자리)."""
     _price(sheet, row, 11, f"=TRUNC(E{row}+G{row}+I{row},2)")
-    _amount(sheet, row, 12, f"=TRUNC(F{row}+H{row}+J{row},1)")
+    _amount(sheet, row, 12, f"=TRUNC(F{row}+H{row}+J{row},0)")
 
 
 def _zero_price() -> str:
@@ -494,13 +538,13 @@ def _zero_price() -> str:
 
 
 def _qty_times_price(row: int, price_col: str) -> str:
-    """금액 = 단가×수량, 소수 1자리."""
-    return f"=TRUNC(D{row}*{price_col}{row},1)"
+    """금액 = 단가×수량, 원 미만 절사."""
+    return f"=TRUNC(D{row}*{price_col}{row},0)"
 
 
 def _qty_times_price_trunc(row: int, price_col: str) -> str:
-    """노무·경비 금액. 소수 1자리."""
-    return f"=TRUNC({price_col}{row}*D{row},1)"
+    """노무·경비 금액. 행별로는 절사하지 않고(합계에서 원 미만 절사) 품×노임 그대로."""
+    return f"={price_col}{row}*D{row}"
 
 
 def _idle_labor_expense(sheet: Worksheet, row: int) -> None:
@@ -538,7 +582,7 @@ def _write_percent_material_row(
     _set_cell(sheet, row, 3, "식", font=BODY_FONT, align=CENTER)
     _set_cell(sheet, row, 4, 1, font=BODY_FONT, align=RIGHT, number_format="General")
     _price(sheet, row, 5, f"=IF(D{row}=0,0,TRUNC(F{row}/D{row},2))")
-    _amount(sheet, row, 6, f"=TRUNC(F{material_row}*{rate},1)")
+    _amount(sheet, row, 6, f"=TRUNC(F{material_row}*{rate},0)")
     _idle_labor_expense(sheet, row)
     _cost_totals(sheet, row)
     _set_cell(sheet, row, 13, None)
@@ -556,7 +600,7 @@ def _write_tool_loss_row(sheet: Worksheet, row: int, labor_rows: list[int]) -> N
     _amount(sheet, row, 8, _qty_times_price_trunc(row, "G"))
     if labor_rows:
         parts = "+".join(f"H{labor}" for labor in labor_rows)
-        tool_amount = f"=TRUNC(({parts})*{TOOL_RATE},1)"
+        tool_amount = f"=TRUNC(TRUNC({parts},0)*{TOOL_RATE},0)"
     else:
         tool_amount = "=0"
     _price(sheet, row, 9, f"=IF(D{row}=0,0,TRUNC(J{row}/D{row},2))")
@@ -673,7 +717,7 @@ def write_ilwidae_sheet(
                 7,
                 f"=IFERROR(VLOOKUP(\"{job_lit}\",'{WAGES_SHEET_NAME}'!A:B,2,FALSE),0)",
             )
-            _amount(sheet, cursor, 8, f"=TRUNC(G{cursor}*D{cursor},1)")
+            _amount(sheet, cursor, 8, f"=G{cursor}*D{cursor}")
             _cost_totals(sheet, cursor)
             if labor_index == 0:
                 notes: list[str] = []
@@ -691,6 +735,9 @@ def write_ilwidae_sheet(
                     notes.append("합성수지 전선관 품의 80%(100mm 이상 100%)")
                 if not pumsam_found:
                     notes.append(no_pumsam_reason(item.name, item.spec))
+                daepyo = daepyo_note(item.name, item.spec)
+                if daepyo:
+                    notes = [daepyo]
                 _set_cell(sheet, cursor, 13, ref or None, font=BODY_FONT, align=LEFT)
                 _note(sheet, cursor, " · ".join(notes))
             else:
@@ -707,10 +754,10 @@ def write_ilwidae_sheet(
         _set_cell(sheet, cursor, 1, " [ 합          계 ]", font=BODY_FONT)
         for col in range(2, 14):
             _set_cell(sheet, cursor, col, None)
-        _amount(sheet, cursor, 6, f"=SUM(F{first_data}:F{last_data})")
-        _amount(sheet, cursor, 8, f"=SUM(H{first_data}:H{last_data})")
+        _amount(sheet, cursor, 6, f"=TRUNC(SUM(F{first_data}:F{last_data}),0)")
+        _amount(sheet, cursor, 8, f"=TRUNC(SUM(H{first_data}:H{last_data}),0)")
         _amount(sheet, cursor, 10, f"=SUM(J{first_data}:J{last_data})")
-        _amount(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},1)")
+        _amount(sheet, cursor, 12, f"=TRUNC(F{cursor}+H{cursor}+J{cursor},0)")
         _set_cell(sheet, cursor, 13, None)
         explain_rows = _explain_rows(
             ho_no, item, labors, pumsam_found, ref, ref_extra, qty, waste_note,

@@ -116,16 +116,16 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert ilwidae["A5"].alignment.horizontal == "left"
         assert ilwidae["E6"].value == "='단가대비표'!L5"
         assert ilwidae["G6"].value == "=0"
-        assert "TRUNC" in str(ilwidae["H6"].value)
+        assert str(ilwidae["H6"].value).startswith("=G6*D6")
         assert "G6" in str(ilwidae["H6"].value)
         labor_row = next(r for r in range(5, 30) if ilwidae.cell(r, 1).value == "내선전공")
         fitting_row = next(r for r in range(5, 20) if ilwidae.cell(r, 1).value == "전선관부속품비")
         sundry_row = next(r for r in range(5, 20) if ilwidae.cell(r, 1).value == "잡재료비")
         tool_row = next(r for r in range(5, 25) if ilwidae.cell(r, 1).value == "공구손료")
         assert ilwidae.cell(fitting_row, 2).value == "전선관의 15%"
-        assert ilwidae.cell(fitting_row, 6).value == "=TRUNC(F6*0.15,1)"
+        assert ilwidae.cell(fitting_row, 6).value == "=TRUNC(F6*0.15,0)"
         assert ilwidae.cell(sundry_row, 2).value == "배관의 2%"
-        assert ilwidae.cell(sundry_row, 6).value == "=TRUNC(F6*0.02,1)"
+        assert ilwidae.cell(sundry_row, 6).value == "=TRUNC(F6*0.02,0)"
         assert "H" in str(ilwidae.cell(tool_row, 10).value)
         assert "0.03" in str(ilwidae.cell(tool_row, 10).value)
         assert ilwidae.cell(labor_row, 4).value in ("=0.05", "=0.05*0.7")  # 지중이면 장소 할증이 수식에 보인다
@@ -166,7 +166,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert "G5" in str(estimate["H5"].value)
         assert "TRUNC" in str(estimate["H5"].value)
         assert estimate["K5"].value == "=TRUNC(E5+G5+I5,2)"
-        assert estimate["L5"].value == "=TRUNC(F5+H5+J5,1)"
+        assert estimate["L5"].value == "=TRUNC(F5+H5+J5,0)"
         assert estimate["L5"].number_format == "#,##0.0"
         assert estimate.row_dimensions[5].height == 30
         estimate_names = [estimate.cell(r, 1).value for r in range(1, 40)]
@@ -272,13 +272,13 @@ def test_ilwidae_percent_rows_follow_conduit_and_wire_aliases() -> None:
         return [(sheet.cell(row, 1).value, sheet.cell(row, 2).value, sheet.cell(row, 6).value) for row in range(start, end)]
 
     conduit_rows = rows_of(blocks[0])
-    assert ("전선관부속품비", "전선관의 15%", f"=TRUNC(F{blocks[0].material_row}*0.15,1)") in conduit_rows
-    assert ("잡재료비", "배관의 2%", f"=TRUNC(F{blocks[0].material_row}*0.02,1)") in conduit_rows
+    assert ("전선관부속품비", "전선관의 15%", f"=TRUNC(F{blocks[0].material_row}*0.15,0)") in conduit_rows
+    assert ("잡재료비", "배관의 2%", f"=TRUNC(F{blocks[0].material_row}*0.02,0)") in conduit_rows
     assert sheet.cell(blocks[0].sum_row - 1, 1).value == "공구손료"
 
     wire_rows = rows_of(blocks[1])
     assert all(name != "전선관부속품비" for name, _spec, _amount in wire_rows)
-    assert ("잡재료비", "배선의 2%", f"=TRUNC(F{blocks[1].material_row}*0.02,1)") in wire_rows
+    assert ("잡재료비", "배선의 2%", f"=TRUNC(F{blocks[1].material_row}*0.02,0)") in wire_rows
     wire_jobs = [sheet.cell(row, 1).value for row in blocks[1].labor_rows]
     assert "내선전공" not in wire_jobs
     assert "케이블전공" in wire_jobs

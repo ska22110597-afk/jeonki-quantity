@@ -573,7 +573,9 @@ def test_grounding_and_level_switch_researched_values() -> None:
     assert first("난연 비닐절연접지용전선(F-GV)-직매", "0.6/1kv, 6㎟")[0][:3] == ("내선전공", 0.006, 100)
     assert first("난연 비닐절연접지용전선(F-GV)", "0.6/1kv, 2.5㎟")[0][:3] == ("내선전공", 0.01, 100)
     assert first("압착단자", "압착단자, 터미널, 6㎟")[0][:3] == ("내선전공", 0.016, 100)
-    assert first("압착단자", "압착단자, 터미널, 4㎟")[0][:3] == ("내선전공", 0.016, 100)  # 품셈 표기는 압축단자(규격 무관)
+    # 1.5·2.5·4·10㎟ 는 케이블 설치품(5-13 해설①(마))에 포함 - 공란
+    for sz in ("1.5", "2.5", "4", "10"):
+        assert first("압착단자", f"압착단자, 터미널, {sz}㎟") == []
     assert first("자가펌프 현장조작반", "옥외자립형")[0][:3] == ("플랜트전공", 1.85, 100)
     assert first("스위치", "1로 250V 15A")[0][:3] == ("내선전공", 0.085, 100)
     # 슬리브 접속(C TYPE) = 3-38 접속 및 단자설치 압축(압축슬리브 사용) 0.097
@@ -581,15 +583,23 @@ def test_grounding_and_level_switch_researched_values() -> None:
 
 
 def test_pipe_inlet_waterproofing_uses_2_18() -> None:
-    """관로구방수 ∮30·∮40 = 전기 2-18 삽입형 관로구 방수장치(200 mm 이하) 0.132."""
+    """관로구방수 ∮30·∮40 = 전기 표준품셈 해당 품 없음(대표님 자료) → 공란. 씰링가스켓 줄은 유지."""
     from app.pumsam import load_pumsam_database, match_pumsam
 
     rows = load_pumsam_database(None, "전기")
     for spec in ("∮30", "∮40"):
-        found = {r["노무명칭"]: r for r in match_pumsam("관로구방수", spec, rows)}
-        assert set(found) == {"특고압케이블전공", "보통인부"}
-        assert all(r["품셈"] == 0.132 and r["할증%"] == 100 for r in found.values())
-        assert all("전기2-18" in str(r["품셈근거"]) for r in found.values())
+        assert match_pumsam("관로구방수", spec, rows) == []
     # 씰링가스켓 200 mm 이하 줄(2-18, 케이블 금구류 부착)은 그대로 유지된다
     gasket = {r["노무명칭"]: r["품셈"] for r in match_pumsam("케이블 금구류 부착", "200 mm 이하", rows)}
     assert gasket == {"특고압케이블전공": 0.026, "보통인부": 0.12}
+
+
+def test_daepyo_notes() -> None:
+    from app.ilwidae import daepyo_note
+
+    assert daepyo_note("0.6/1kV 난연 전력케이블(F-CV)", "2C*2.5㎟") == "5-11 해설② 600V 10㎟ 이하는 5-13 준용, 단자처리 포함"
+    assert daepyo_note("0.6/1kV 난연 전력케이블(F-CV)", "4C*4㎟") == "5-11 해설② 준용, 단자처리 포함"
+    assert daepyo_note("0.6/1kv 트레이용 제어용케이블(F-CVV-S)", "2C*1.5㎟") == "쉴드케이블 120% (해설⑥)"
+    assert daepyo_note("압착단자", "압착단자, 터미널, 4㎟").startswith("케이블 설치품")
+    assert daepyo_note("압착단자", "압착단자, 터미널, 6㎟") == "접지선(F-GV 6㎟) 단자 설치"
+    assert daepyo_note("슬리브 접속", "C TYPE SLEEVE 50㎟") is None
