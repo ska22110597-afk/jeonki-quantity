@@ -65,6 +65,59 @@ from app.wages import (
 )
 
 COMPARE_LAST_COL = 21
+DUPLICATE_SHEET_NAME = "중복항목"
+DUPLICATE_TAB_COLOR = "FF0000"
+
+
+def find_duplicate_groups(items: list[LineItem]) -> list[list[LineItem]]:
+    """같은 품명·규격이 두 번 이상 나오는 품목을 묶는다(처음 나온 순서)."""
+    groups: dict[str, list[LineItem]] = {}
+    for item in items:
+        if item.section or not item.name or _is_ilwidae_extra_row(item):
+            continue
+        groups.setdefault(item.key, []).append(item)
+    return [g for g in groups.values() if len(g) > 1]
+
+
+def scan_duplicates(unit_price_path: Path | None) -> list[tuple[str, str, int]]:
+    """실행 전에 중복 품목 (품명, 규격, 횟수)을 미리 센다. 읽을 수 없으면 빈 목록."""
+    if unit_price_path is None:
+        return []
+    try:
+        sheet = load_estimate_sheet(Path(unit_price_path))
+        groups = find_duplicate_groups(parse_line_items(sheet))
+    except Exception:  # noqa: BLE001 — 미리보기 실패는 실행을 막지 않는다.
+        return []
+    return [(str(g[0].name), str(g[0].spec or ""), len(g)) for g in groups]
+
+
+def _write_duplicate_sheet(sheet: Worksheet, groups: list[list[LineItem]]) -> None:
+    """중복 품목 전체를 한곳에 모은다. 단가대비표·일위대가·일위대가목록에는 한 줄만 남는다."""
+    from openpyxl.styles import Font
+
+    sheet.sheet_properties.tabColor = DUPLICATE_TAB_COLOR
+    sheet.append(["구분", "품명", "규격", "단위", "원본 행", "중복 횟수", "처리"])
+    for group in groups:
+        for index, item in enumerate(group):
+            sheet.append(
+                [
+                    "남김" if index == 0 else "중복",
+                    item.name,
+                    item.spec,
+                    item.unit,
+                    item.excel_row,
+                    len(group) if index == 0 else None,
+                    "단가대비표·일위대가·일위대가목록에 이 줄만 반영"
+                    if index == 0
+                    else "한 줄로 합침(내역서에서는 위치별로 따로 둠)",
+                ]
+            )
+    for col, width in zip("ABCDEFG", (8, 36, 30, 8, 10, 10, 48)):
+        sheet.column_dimensions[col].width = width
+    for cell in sheet[1]:
+        cell.font = Font(bold=True)
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:G{sheet.max_row}"
 
 
 def remap_items_to_compare(items: list[LineItem]) -> None:
@@ -598,8 +651,10 @@ def build_result_workbook(
     companion_sheets: dict[str, EstimateSheet] | None = None,
     fitting_excludes: tuple[str, ...] | None = None,
     blocks_out: list | None = None,
+    duplicate_sheet: bool = True,
 ) -> Workbook:
     explain_blocks: list = []
+    duplicate_groups: list[list[LineItem]] = []
     if fitting_excludes is None:
         fitting_excludes = DEFAULT_FITTING_EXCLUDES
     workbook = Workbook()
@@ -667,6 +722,7 @@ def build_result_workbook(
     else:
         if compare is not None:
             items = parse_line_items(compare)
+            duplicate_groups = find_duplicate_groups(items)
             compare_sheet = sheets.take(COMPARE_SHEET_NAME)
             _write_compare_from_items(compare_sheet, items)
             remap_items_to_compare(items)
@@ -695,6 +751,8 @@ def build_result_workbook(
         elif items:
             generated = sheets.take(ILWIDAE_LIST_SHEET_NAME)
             _write_generated_estimate(generated, items, blocks)
+        if duplicate_groups and duplicate_sheet:
+            _write_duplicate_sheet(sheets.take(DUPLICATE_SHEET_NAME), duplicate_groups)
 
     pumsam_sheet = sheets.take(PUMSAM_SHEET_NAME)
     _write_pumsam_sheet(pumsam_sheet, pumsam_rows)
@@ -718,6 +776,7 @@ def run_pipeline(
     estimate_rows: list[list[Any]] | None = None,
     discipline: str | None = None,
     mode: str | None = None,
+    duplicate_sheet: bool = True,
 ) -> Path:
     database_dir = db_dir if db_dir is not None else dest_dir
     disc = normalize_discipline(discipline)
@@ -786,6 +845,7 @@ def run_pipeline(
         dropped_ilwidae=dropped_ilwidae,
         companion_sheets=companion_sheets or None,
         fitting_excludes=load_fitting_excludes(database_dir),
+        duplicate_sheet=duplicate_sheet,
     )
     try:
         dest = save_workbook_safely(workbook, dest)

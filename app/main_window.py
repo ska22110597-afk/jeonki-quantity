@@ -1210,6 +1210,37 @@ class MainWindow(QMainWindow):
             if "onedrive" in str(dest_dir).lower():
                 self._append_log("알림: 선택한 폴더가 OneDrive 경로로 보입니다. 가능하면 로컬 폴더를 쓰세요.")
 
+        duplicate_sheet = True
+        if self._has_forward():
+            from app.pipeline import scan_duplicates
+
+            found = scan_duplicates(self._fwd_compare_path)
+            if found:
+                names = ", ".join(f"{n} {s}".strip() + f"({c}회)" for n, s, c in found[:5])
+                box = QMessageBox(self)
+                box.setWindowTitle("중복 품목")
+                box.setIcon(QMessageBox.Icon.Question)
+                box.setText(
+                    f"같은 품명·규격이 중복된 품목이 {len(found)}종 있습니다.\n({names} …)\n\n"
+                    "단가대비표·일위대가·일위대가목록에는 한 줄만 남깁니다.\n"
+                    "중복 품목 전체를 '중복항목' 시트(빨간 탭)에 모아 둘까요?"
+                )
+                make_btn = box.addButton("중복항목 시트 만들기", QMessageBox.ButtonRole.YesRole)
+                skip_btn = box.addButton("시트 없이 한 줄로만", QMessageBox.ButtonRole.NoRole)
+                box.addButton("취소", QMessageBox.ButtonRole.RejectRole)
+                box.setDefaultButton(make_btn)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is skip_btn:
+                    duplicate_sheet = False
+                elif clicked is not make_btn:
+                    self._append_log("중복 품목 확인에서 취소했습니다.")
+                    return
+                self._append_log(
+                    f"중복 품목 {len(found)}종: "
+                    + ("중복항목 시트로 모으고 한 줄로 정리" if duplicate_sheet else "한 줄로만 정리")
+                )
+
         self._lock_run_ui()
         self.statusBar().showMessage("산출 파일을 생성하는 중…")
         discipline = self._selected_discipline()
@@ -1240,6 +1271,7 @@ class MainWindow(QMainWindow):
                 "estimate_path": estimate_path,
                 "discipline": discipline,
                 "mode": mode,
+                "duplicate_sheet": duplicate_sheet,
             }
         )
         self._worker.succeeded.connect(self._on_pipeline_succeeded)

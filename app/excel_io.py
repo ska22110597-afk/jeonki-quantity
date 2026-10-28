@@ -655,6 +655,7 @@ def save_result_workbook(
     estimate_path: Path | None = None,
     discipline: str | None = None,
     mode: str | None = None,
+    duplicate_sheet: bool = True,
 ) -> Path:
     """드롭한 원본은 읽기만 하고, 결과 엑셀만 새로 저장한다."""
     from app.pipeline import run_pipeline
@@ -671,6 +672,7 @@ def save_result_workbook(
         estimate_rows=estimate_rows,
         discipline=discipline,
         mode=mode,
+        duplicate_sheet=duplicate_sheet,
     )
 
 

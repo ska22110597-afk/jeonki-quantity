@@ -931,3 +931,23 @@ def test_compare_sheet_dedupes_same_name_and_spec() -> None:
     _write_compare_from_items(sheet, items)
     names = [sheet.cell(r, 1).value for r in range(5, 9) if sheet.cell(r, 1).value]
     assert names == ["HI관", "CV케이블"]
+
+
+def test_duplicate_sheet_collects_all_duplicates_with_red_tab() -> None:
+    from app.pipeline import DUPLICATE_SHEET_NAME, find_duplicate_groups, _write_duplicate_sheet
+    from openpyxl import Workbook
+
+    items = [
+        LineItem(excel_row=5, name="HI관", spec="16 mm", unit="M", qty=1, material_price=100),
+        LineItem(excel_row=6, name="CV케이블", spec="6 ㎟ 이하", unit="M", qty=3, material_price=200),
+        LineItem(excel_row=7, name="HI관", spec="16 mm", unit="M", qty=2, material_price=100),
+        LineItem(excel_row=8, name="HI관", spec="16 mm", unit="M", qty=2, material_price=100),
+    ]
+    groups = find_duplicate_groups(items)
+    assert len(groups) == 1 and len(groups[0]) == 3
+    sheet = Workbook().active
+    sheet.title = DUPLICATE_SHEET_NAME
+    _write_duplicate_sheet(sheet, groups)
+    assert sheet.sheet_properties.tabColor.rgb.endswith("FF0000")
+    assert [sheet.cell(r, 1).value for r in range(2, 5)] == ["남김", "중복", "중복"]
+    assert sheet.cell(2, 6).value == 3
