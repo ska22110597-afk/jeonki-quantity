@@ -506,12 +506,12 @@ def _write_generated_estimate(
         _set_cell(sheet, excel_row, 1, item.name, font=BODY_FONT)
         _set_cell(sheet, excel_row, 2, item.spec, font=BODY_FONT)
         _set_cell(sheet, excel_row, 3, item.unit, font=BODY_FONT, align=CENTER)
-        qty_value: Any = item.qty if item.qty not in (None, "") else None
+        # 일위대가목록의 수량은 항상 1(단가표이므로 내역서 수량과 무관)
         _set_cell(
             sheet,
             excel_row,
             4,
-            qty_value,
+            1,
             font=BODY_FONT,
             align=RIGHT,
             number_format=AMOUNT_FORMAT,

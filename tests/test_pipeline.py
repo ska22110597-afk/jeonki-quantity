@@ -156,7 +156,7 @@ def test_conduit_extras_and_two_labors(tmp_path: Path) -> None:
         assert estimate["A1"].value == "[일위대가목록]"
         assert estimate["A3"].value == "명칭"
         assert estimate["A5"].value == "경질비닐전선관_지중"
-        assert estimate["D5"].value == 100
+        assert estimate["D5"].value == 1  # 일위대가목록 수량은 항상 1
         assert "일위대가" in str(estimate["E5"].value)
         assert f"F{sum_rows[0]}" in str(estimate["E5"].value)
         assert "E5" in str(estimate["F5"].value)
@@ -639,7 +639,7 @@ def test_compare_keeps_page_and_pps_prices(tmp_path: Path) -> None:
         }
         d30 = rows.get(("관로구방수장치", "D30"))
         assert d30
-        assert compare.cell(d30, 4).value in (None, "")
+        assert compare.cell(d30, 4).value == 1
         assert compare.cell(d30, 6).value == 14350
         assert compare.cell(d30, 12).value == 14350
         estimate = result[ILWIDAE_LIST_SHEET_NAME]
