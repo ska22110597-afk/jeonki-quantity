@@ -167,6 +167,7 @@ def generate_session(
     unit_price_path: Path,
     discipline: str | None = None,
     db_dir: Path | None = None,
+    duplicate_sheet: bool = True,
 ) -> EstimateSession:
     """단가대비표 → 일위대가·일위대가목록을 메모리에 만들고, 고를 수 있는 품목 목록을 돌려준다."""
     from app.pipeline import _load_optional, build_result_workbook
@@ -193,6 +194,7 @@ def generate_session(
         mode="forward",
         fitting_excludes=load_fitting_excludes(db_dir),
         blocks_out=blocks,
+        duplicate_sheet=duplicate_sheet,
     )
     entries = extract_entries(workbook, blocks, wage_rows)
     session = EstimateSession(
@@ -543,11 +545,13 @@ def load_session_from_result(result_path: Path, discipline: str | None = None) -
     return session
 
 
-def open_session(path: Path, discipline: str | None = None, db_dir: Path | None = None) -> EstimateSession:
+def open_session(
+    path: Path, discipline: str | None = None, db_dir: Path | None = None, duplicate_sheet: bool = True
+) -> EstimateSession:
     """단가대비표면 새로 일위대가를 만들고, 일위대가목록 결과 파일이면 그대로 이어서 읽는다."""
     if is_result_workbook(Path(path)):
         return load_session_from_result(Path(path), discipline)
-    return generate_session(Path(path), discipline, db_dir)
+    return generate_session(Path(path), discipline, db_dir, duplicate_sheet)
 
 
 def _sheet_name(base: str, taken: set[str]) -> str:

@@ -748,9 +748,39 @@ class EstimateWindow(QMainWindow):
             source = self._ask_columns(source, dest)
             if source is None:
                 return
+        duplicate_sheet = True
+        if not is_result_workbook(source):
+            from app.pipeline import scan_duplicates
+
+            found = scan_duplicates(source)
+            if found:
+                names = ", ".join(f"{n} {s}".strip() + f"({c}회)" for n, s, c in found[:5])
+                box = QMessageBox(self)
+                box.setWindowTitle("중복 품목")
+                box.setIcon(QMessageBox.Icon.Question)
+                box.setText(
+                    f"같은 품명·규격이 중복된 품목이 {len(found)}종 있습니다.\n({names} …)\n\n"
+                    "단가대비표·일위대가·일위대가목록에는 한 줄만 남깁니다.\n"
+                    "중복 품목 전체를 '중복항목' 시트(빨간 탭)에 모아 둘까요?"
+                )
+                make_btn = box.addButton("중복항목 시트 만들기", QMessageBox.ButtonRole.YesRole)
+                skip_btn = box.addButton("시트 없이 한 줄로만", QMessageBox.ButtonRole.NoRole)
+                box.addButton("취소", QMessageBox.ButtonRole.RejectRole)
+                box.setDefaultButton(make_btn)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is skip_btn:
+                    duplicate_sheet = False
+                elif clicked is not make_btn:
+                    self._append_log("중복 품목 확인에서 취소했습니다.")
+                    return
+                self._append_log(
+                    f"중복 품목 {len(found)}종: "
+                    + ("중복항목 시트로 모으고 한 줄로 정리" if duplicate_sheet else "한 줄로만 정리")
+                )
         self._append_log(f"일위대가 생성 중… ({disc} · {pumsam_filename(disc)})")
         self.statusBar().showMessage("일위대가를 생성하는 중…")
-        self._run_background(lambda: open_session(source, disc, dest), self._on_generated)
+        self._run_background(lambda: open_session(source, disc, dest, duplicate_sheet), self._on_generated)
 
     def _ask_columns(self, source: Path, dest: Path | None) -> Path | None:
         """양식을 못 읽으면 열을 직접 고르게 하고, 이 프로그램 양식으로 바꾼 파일을 돌려준다."""

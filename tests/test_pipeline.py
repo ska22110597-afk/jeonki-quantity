@@ -951,3 +951,27 @@ def test_duplicate_sheet_collects_all_duplicates_with_red_tab() -> None:
     assert sheet.sheet_properties.tabColor.rgb.endswith("FF0000")
     assert [sheet.cell(r, 1).value for r in range(2, 5)] == ["남김", "중복", "중복"]
     assert sheet.cell(2, 6).value == 3
+
+
+def test_generate_session_duplicate_sheet_option(tmp_path) -> None:
+    from openpyxl import Workbook
+    from app.estimate_build import generate_session
+    from app.pipeline import scan_duplicates
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "단가대비표"
+    ws.append(["단 가 대 비 표"])
+    ws.append([])
+    ws.append(["품      명", "규격", "단위", "재  료  비"])
+    ws.append([None, None, None, "적용단가"])
+    for row in (("HI관", "16 mm", "M", 100), ("CV케이블", "6 ㎟ 이하", "M", 200), ("HI관", "16 mm", "M", 100)):
+        ws.append(list(row))
+    path = tmp_path / "in.xlsx"
+    wb.save(path)
+    assert scan_duplicates(path) == [("HI관", "16 mm", 2)]
+    with_sheet = generate_session(path, "전기", tmp_path, True)
+    assert "중복항목" in with_sheet.workbook.sheetnames
+    assert len(with_sheet.entries) == 2
+    without = generate_session(path, "전기", tmp_path, False)
+    assert "중복항목" not in without.workbook.sheetnames
