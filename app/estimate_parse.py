@@ -153,6 +153,9 @@ def is_section_row(name: Any, spec: Any, unit: Any) -> bool:
         return True
     if "호표" in name_text:
         return True
+    # '2.1 자가펌프장 한전인입공사 / 133개소' 처럼 규격에 개소 수만 있고 단위가 없는 분구 소제목
+    if unit is None and re.match(r"^\d+(\.\d+)+\s*\S", name_text):
+        return True
     if spec is None and unit is None and name_text.endswith("공사") and "_" not in name_text:
         return True
     return False

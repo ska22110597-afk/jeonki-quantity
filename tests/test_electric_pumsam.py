@@ -603,3 +603,11 @@ def test_daepyo_notes() -> None:
     assert daepyo_note("압착단자", "압착단자, 터미널, 4㎟").startswith("케이블 설치품")
     assert daepyo_note("압착단자", "압착단자, 터미널, 6㎟") == "접지선(F-GV 6㎟) 단자 설치"
     assert daepyo_note("슬리브 접속", "C TYPE SLEEVE 50㎟") is None
+
+
+def test_numbered_subtitle_rows_are_sections() -> None:
+    from app.estimate_parse import is_section_row
+
+    assert is_section_row("2.1 자가펌프장 한전인입공사", "133개소", None)
+    assert is_section_row("2.6 자가펌프장(여서분구)", "9개소", None)
+    assert not is_section_row("파상형경질폴리에틸렌전선관-지중포설", "30㎜", "M")
