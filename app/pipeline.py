@@ -70,13 +70,19 @@ COMPARE_LAST_COL = 21
 def remap_items_to_compare(items: list[LineItem]) -> None:
     """다시 쓴 단가대비표 행에 맞춰 단가 열을 L(적용단가)로 고정한다. 코드 열은 없다."""
     excel_row = COMPARE_DATA_START
+    rows_by_key: dict[str, int] = {}
     for item in items:
         if item.section:
             continue
-        item.excel_row = excel_row
+        # 같은 품명·규격은 단가대비표에 한 줄만 둔다(중복 품목은 첫 줄을 가리킨다)
+        if item.key in rows_by_key:
+            item.excel_row = rows_by_key[item.key]
+        else:
+            rows_by_key[item.key] = excel_row
+            item.excel_row = excel_row
+            excel_row += 1
         item.price_col = COMPARE_PRICE_COL
         item.qty_col = None
-        excel_row += 1
 
 
 def _write_price_cell(sheet: Worksheet, row: int, col: int, value: Any, *, page: bool = False) -> None:
@@ -148,9 +154,13 @@ def _write_compare_from_items(sheet: Worksheet, items: list[LineItem]) -> None:
 
     excel_row = COMPARE_DATA_START
     serial = 0
+    written_keys: set[str] = set()
     for item in items:
         if item.section:
             continue
+        if item.key in written_keys:
+            continue
+        written_keys.add(item.key)
         serial += 1
         fields = item.fields or {}
         _set_cell(sheet, excel_row, 1, item.name, font=BODY_FONT)

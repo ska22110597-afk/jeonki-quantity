@@ -914,3 +914,20 @@ def test_quantity_renumbers_ho_and_reads_pumsam_from_ilwidae(tmp_path: Path) -> 
     finally:
         result.close()
 
+
+
+def test_compare_sheet_dedupes_same_name_and_spec() -> None:
+    from app.pipeline import _write_compare_from_items, remap_items_to_compare
+    from openpyxl import Workbook
+
+    items = [
+        LineItem(excel_row=5, name="HI관", spec="16 mm", unit="M", qty=1, material_price=100),
+        LineItem(excel_row=6, name="HI관", spec="16 mm", unit="M", qty=2, material_price=100),
+        LineItem(excel_row=7, name="CV케이블", spec="6 ㎟ 이하", unit="M", qty=3, material_price=200),
+    ]
+    remap_items_to_compare(items)
+    assert [i.excel_row for i in items] == [5, 5, 6]
+    sheet = Workbook().active
+    _write_compare_from_items(sheet, items)
+    names = [sheet.cell(r, 1).value for r in range(5, 9) if sheet.cell(r, 1).value]
+    assert names == ["HI관", "CV케이블"]
